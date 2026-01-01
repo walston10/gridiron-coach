@@ -428,14 +428,24 @@ export class GameEngine {
         const nearestRusher = this.findNearestPlayer(player.location, passRushers);
         if (nearestRusher) {
           const dist = this.distance(player.location, nearestRusher.location);
-          if (dist > 5) {
-            // Move toward rusher to engage
+          if (dist > 6) {
+            // Move toward rusher quickly to engage before they get past
             const dir = this.normalize({
               x: nearestRusher.location.x - player.location.x,
               y: nearestRusher.location.y - player.location.y,
             });
-            player.location.x += dir.x * 0.8;
-            player.location.y += dir.y * 0.8;
+            // O-line moves fast to intercept (0.4 units/tick)
+            player.location.x += dir.x * 0.4;
+            player.location.y += dir.y * 0.4;
+          } else {
+            // Once engaged, mirror the rusher's position to stay in front
+            const toQB = qb ? this.normalize({
+              x: qb.location.x - nearestRusher.location.x,
+              y: qb.location.y - nearestRusher.location.y,
+            }) : { x: 0, y: -1 };
+            // Position between rusher and QB
+            player.location.x = nearestRusher.location.x + toQB.x * 4;
+            player.location.y = nearestRusher.location.y + toQB.y * 4;
           }
         }
         return;
@@ -458,6 +468,7 @@ export class GameEngine {
     });
 
     // Update defensive players
+    // Speed scale: 0.5 units/tick = 30 units/sec = 10 yards/sec (realistic NFL speed)
     this.state.defensivePlayers.forEach(defender => {
       const isPassRusher = ['DE', 'DT', 'NT'].includes(defender.position);
       const isCoverage = ['CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB'].includes(defender.position);
@@ -466,26 +477,29 @@ export class GameEngine {
         // Pass rush with blocking
         this.moveDefenderWithBlocking(defender, qb.location, oLinemen);
       } else if (isQBHoldingBall && isCoverage) {
-        // Use DefenseAI for coverage - increased speed multiplier
+        // Use DefenseAI for coverage
         const movement = this.defenseAI.getMovementVector(
           defender,
           this.state.offensivePlayers,
           this.currentTime
         );
         defender.velocity = movement;
-        const speedMult = (defender.speed / 80) * 1.5; // Faster movement
+        // Realistic speed: ~10 yards/sec max
+        const speedMult = (defender.speed / 100) * 0.5;
         defender.location.x += movement.x * speedMult;
         defender.location.y += movement.y * speedMult;
-      } else if (this.state.ballCarrier && this.state.ballCarrier !== 'qb') {
-        // Ball is out - everyone pursues
+      } else if (this.state.ballCarrier && !this.isQB(this.state.ballCarrier)) {
+        // Ball is out - everyone pursues at realistic speed
         const carrier = this.getPlayer(this.state.ballCarrier);
         if (carrier) {
           const dir = this.normalize({
             x: carrier.location.x - defender.location.x,
             y: carrier.location.y - defender.location.y,
           });
-          defender.location.x += dir.x * (defender.speed / 80) * 2;
-          defender.location.y += dir.y * (defender.speed / 80) * 2;
+          // Pursuit speed - slightly faster than coverage (players sprint harder)
+          const speedMult = (defender.speed / 100) * 0.6;
+          defender.location.x += dir.x * speedMult;
+          defender.location.y += dir.y * speedMult;
         }
       }
 
@@ -631,20 +645,29 @@ export class GameEngine {
       y: target.y - defender.location.y,
     });
 
-    let speedMult = defender.speed / 100;
+    // Base speed: ~10 yards/sec max = 30 units/sec = 0.5 units/tick at 60fps
+    let speedMult = (defender.speed / 100) * 0.5;
 
-    // If blocker is engaged, slow down rusher
-    if (nearestBlocker && minDist < 15) {
-      const blockStrength = 0.6 - (defender.speed - 70) / 100;
-      speedMult *= Math.max(0.2, blockStrength);
+    // If blocker is engaged (within 8 units = ~2.7 yards), they're blocking
+    if (nearestBlocker && minDist < 8) {
+      // Engaged in block - very slow movement, essentially stuck
+      speedMult *= 0.1; // 90% reduction when blocked
 
-      // Blocker gets pushed back slightly
-      nearestBlocker.location.x += dir.x * 0.3;
-      nearestBlocker.location.y += dir.y * 0.3;
+      // Both players push against each other slightly
+      const pushDir = this.normalize({
+        x: defender.location.x - nearestBlocker.location.x,
+        y: defender.location.y - nearestBlocker.location.y,
+      });
+      nearestBlocker.location.x -= pushDir.x * 0.05;
+      nearestBlocker.location.y -= pushDir.y * 0.05;
+    } else if (nearestBlocker && minDist < 15) {
+      // Approaching blocker - slow down as they engage
+      const engageFactor = (minDist - 8) / 7; // 0 at dist 8, 1 at dist 15
+      speedMult *= 0.1 + engageFactor * 0.4; // 10-50% speed when near blocker
     }
 
-    defender.location.x += dir.x * speedMult * 1.5;
-    defender.location.y += dir.y * speedMult * 1.5;
+    defender.location.x += dir.x * speedMult;
+    defender.location.y += dir.y * speedMult;
   }
 
   private checkCollisions(): void {
