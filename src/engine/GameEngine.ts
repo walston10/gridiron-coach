@@ -193,25 +193,27 @@ export class GameEngine {
     const los = this.yardLineToY(this.state.field.yardLine);
     const center = FIELD_WIDTH / 2;
 
-    // Basic formation - positions will vary by formation type
+    // Spacing: Each unit = ~0.33 yards. Players need ~5 yard gaps minimum = 15 units
     const players: FieldPlayer[] = [
-      this.createPlayer('qb', 'QB', { x: center, y: los - 15 }, play.routes['QB']),
-      this.createPlayer('rb', 'RB', { x: center, y: los - 30 }, play.routes['RB']),
-      this.createPlayer('wr1', 'WR', { x: center - 60, y: los }, play.routes['WR1']),
-      this.createPlayer('wr2', 'WR', { x: center + 60, y: los }, play.routes['WR2']),
-      this.createPlayer('te', 'TE', { x: center + 25, y: los }, play.routes['TE']),
-      this.createPlayer('lt', 'LT', { x: center - 20, y: los }),
-      this.createPlayer('lg', 'LG', { x: center - 10, y: los }),
-      this.createPlayer('c', 'C', { x: center, y: los }),
-      this.createPlayer('rg', 'RG', { x: center + 10, y: los }),
-      this.createPlayer('rt', 'RT', { x: center + 20, y: los }),
+      this.createPlayer('qb', 'QB', { x: center, y: los - 21 }, play.routes['QB']), // 7 yards back under center
+      this.createPlayer('rb', 'RB', { x: center, y: los - 42 }, play.routes['RB']), // 14 yards back
+      this.createPlayer('wr1', 'WR', { x: 15, y: los + 3 }, play.routes['WR1']), // Far left sideline
+      this.createPlayer('wr2', 'WR', { x: 145, y: los + 3 }, play.routes['WR2']), // Far right sideline
+      this.createPlayer('te', 'TE', { x: center + 36, y: los + 3 }, play.routes['TE']), // Outside RT
+      this.createPlayer('lt', 'LT', { x: center - 30, y: los + 3 }),
+      this.createPlayer('lg', 'LG', { x: center - 15, y: los + 3 }),
+      this.createPlayer('c', 'C', { x: center, y: los + 3 }),
+      this.createPlayer('rg', 'RG', { x: center + 15, y: los + 3 }),
+      this.createPlayer('rt', 'RT', { x: center + 30, y: los + 3 }),
     ];
 
     if (play.formation === 'SHOTGUN') {
-      players[0].location.y = los - 30; // QB deeper
-      players.push(this.createPlayer('slot1', 'WR', { x: center - 35, y: los }, play.routes['SLOT1']));
+      players[0].location.y = los - 45; // QB 15 yards back in shotgun
+      players[1].location = { x: center + 18, y: los - 45 }; // RB next to QB
+      players.push(this.createPlayer('slot1', 'WR', { x: center - 48, y: los + 3 }, play.routes['SLOT1']));
     } else if (play.formation === 'I_FORM') {
-      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 20 }, play.routes['FB']));
+      players[1].location.y = los - 30; // RB closer
+      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 24 }, play.routes['FB']));
     }
 
     return players;
@@ -223,59 +225,64 @@ export class GameEngine {
 
     const players: FieldPlayer[] = [];
 
+    // Defense lines up PAST the LOS (higher Y values)
+    // D-Line: 2 yards off ball = +6 units
+    // LBs: 5 yards off = +15 units
+    // Secondary: 8-15 yards off = +24-45 units
+
     if (play.formation === '4_3') {
-      // D-Line
-      players.push(this.createPlayer('de1', 'DE', { x: center - 25, y: los + 5 }));
-      players.push(this.createPlayer('dt1', 'DT', { x: center - 8, y: los + 5 }));
-      players.push(this.createPlayer('dt2', 'DT', { x: center + 8, y: los + 5 }));
-      players.push(this.createPlayer('de2', 'DE', { x: center + 25, y: los + 5 }));
-      // Linebackers
-      players.push(this.createPlayer('olb1', 'OLB', { x: center - 30, y: los + 15 }));
-      players.push(this.createPlayer('mlb', 'MLB', { x: center, y: los + 15 }));
-      players.push(this.createPlayer('olb2', 'OLB', { x: center + 30, y: los + 15 }));
-      // Secondary
-      players.push(this.createPlayer('cb1', 'CB', { x: center - 55, y: los + 10 }));
-      players.push(this.createPlayer('cb2', 'CB', { x: center + 55, y: los + 10 }));
-      players.push(this.createPlayer('fs', 'FS', { x: center - 15, y: los + 45 }));
-      players.push(this.createPlayer('ss', 'SS', { x: center + 15, y: los + 35 }));
+      // D-Line - 2 yards off LOS
+      players.push(this.createPlayer('de1', 'DE', { x: center - 36, y: los + 9 }));
+      players.push(this.createPlayer('dt1', 'DT', { x: center - 12, y: los + 6 }));
+      players.push(this.createPlayer('dt2', 'DT', { x: center + 12, y: los + 6 }));
+      players.push(this.createPlayer('de2', 'DE', { x: center + 36, y: los + 9 }));
+      // Linebackers - 5 yards off
+      players.push(this.createPlayer('olb1', 'OLB', { x: center - 42, y: los + 18 }));
+      players.push(this.createPlayer('mlb', 'MLB', { x: center, y: los + 18 }));
+      players.push(this.createPlayer('olb2', 'OLB', { x: center + 42, y: los + 18 }));
+      // Secondary - CBs press, Safeties deep
+      players.push(this.createPlayer('cb1', 'CB', { x: 18, y: los + 12 })); // Press left WR
+      players.push(this.createPlayer('cb2', 'CB', { x: 142, y: los + 12 })); // Press right WR
+      players.push(this.createPlayer('fs', 'FS', { x: center - 24, y: los + 54 })); // 18 yards deep
+      players.push(this.createPlayer('ss', 'SS', { x: center + 24, y: los + 42 })); // 14 yards deep
     } else if (play.formation === 'NICKEL') {
       // 4-2-5 nickel
-      players.push(this.createPlayer('de1', 'DE', { x: center - 25, y: los + 5 }));
-      players.push(this.createPlayer('dt1', 'DT', { x: center - 8, y: los + 5 }));
-      players.push(this.createPlayer('dt2', 'DT', { x: center + 8, y: los + 5 }));
-      players.push(this.createPlayer('de2', 'DE', { x: center + 25, y: los + 5 }));
-      players.push(this.createPlayer('mlb1', 'MLB', { x: center - 12, y: los + 15 }));
-      players.push(this.createPlayer('mlb2', 'MLB', { x: center + 12, y: los + 15 }));
-      players.push(this.createPlayer('cb1', 'CB', { x: center - 55, y: los + 10 }));
-      players.push(this.createPlayer('cb2', 'CB', { x: center + 55, y: los + 10 }));
-      players.push(this.createPlayer('ncb', 'CB', { x: center - 35, y: los + 12 }));
-      players.push(this.createPlayer('fs', 'FS', { x: center, y: los + 45 }));
-      players.push(this.createPlayer('ss', 'SS', { x: center + 20, y: los + 35 }));
+      players.push(this.createPlayer('de1', 'DE', { x: center - 36, y: los + 9 }));
+      players.push(this.createPlayer('dt1', 'DT', { x: center - 12, y: los + 6 }));
+      players.push(this.createPlayer('dt2', 'DT', { x: center + 12, y: los + 6 }));
+      players.push(this.createPlayer('de2', 'DE', { x: center + 36, y: los + 9 }));
+      players.push(this.createPlayer('mlb1', 'MLB', { x: center - 18, y: los + 18 }));
+      players.push(this.createPlayer('mlb2', 'MLB', { x: center + 18, y: los + 18 }));
+      players.push(this.createPlayer('cb1', 'CB', { x: 18, y: los + 12 }));
+      players.push(this.createPlayer('cb2', 'CB', { x: 142, y: los + 12 }));
+      players.push(this.createPlayer('ncb', 'CB', { x: center - 48, y: los + 15 })); // Slot corner
+      players.push(this.createPlayer('fs', 'FS', { x: center, y: los + 54 }));
+      players.push(this.createPlayer('ss', 'SS', { x: center + 30, y: los + 42 }));
     } else if (play.formation === '3_4') {
-      players.push(this.createPlayer('de1', 'DE', { x: center - 20, y: los + 5 }));
-      players.push(this.createPlayer('nt', 'NT', { x: center, y: los + 5 }));
-      players.push(this.createPlayer('de2', 'DE', { x: center + 20, y: los + 5 }));
-      players.push(this.createPlayer('olb1', 'OLB', { x: center - 35, y: los + 12 }));
-      players.push(this.createPlayer('ilb1', 'ILB', { x: center - 10, y: los + 15 }));
-      players.push(this.createPlayer('ilb2', 'ILB', { x: center + 10, y: los + 15 }));
-      players.push(this.createPlayer('olb2', 'OLB', { x: center + 35, y: los + 12 }));
-      players.push(this.createPlayer('cb1', 'CB', { x: center - 55, y: los + 10 }));
-      players.push(this.createPlayer('cb2', 'CB', { x: center + 55, y: los + 10 }));
-      players.push(this.createPlayer('fs', 'FS', { x: center, y: los + 45 }));
-      players.push(this.createPlayer('ss', 'SS', { x: center + 15, y: los + 35 }));
+      players.push(this.createPlayer('de1', 'DE', { x: center - 30, y: los + 9 }));
+      players.push(this.createPlayer('nt', 'NT', { x: center, y: los + 6 }));
+      players.push(this.createPlayer('de2', 'DE', { x: center + 30, y: los + 9 }));
+      players.push(this.createPlayer('olb1', 'OLB', { x: center - 48, y: los + 15 }));
+      players.push(this.createPlayer('ilb1', 'ILB', { x: center - 15, y: los + 18 }));
+      players.push(this.createPlayer('ilb2', 'ILB', { x: center + 15, y: los + 18 }));
+      players.push(this.createPlayer('olb2', 'OLB', { x: center + 48, y: los + 15 }));
+      players.push(this.createPlayer('cb1', 'CB', { x: 18, y: los + 12 }));
+      players.push(this.createPlayer('cb2', 'CB', { x: 142, y: los + 12 }));
+      players.push(this.createPlayer('fs', 'FS', { x: center, y: los + 54 }));
+      players.push(this.createPlayer('ss', 'SS', { x: center + 24, y: los + 42 }));
     } else {
       // Default 4-3
-      players.push(this.createPlayer('de1', 'DE', { x: center - 25, y: los + 5 }));
-      players.push(this.createPlayer('dt1', 'DT', { x: center - 8, y: los + 5 }));
-      players.push(this.createPlayer('dt2', 'DT', { x: center + 8, y: los + 5 }));
-      players.push(this.createPlayer('de2', 'DE', { x: center + 25, y: los + 5 }));
-      players.push(this.createPlayer('olb1', 'OLB', { x: center - 30, y: los + 15 }));
-      players.push(this.createPlayer('mlb', 'MLB', { x: center, y: los + 15 }));
-      players.push(this.createPlayer('olb2', 'OLB', { x: center + 30, y: los + 15 }));
-      players.push(this.createPlayer('cb1', 'CB', { x: center - 55, y: los + 10 }));
-      players.push(this.createPlayer('cb2', 'CB', { x: center + 55, y: los + 10 }));
-      players.push(this.createPlayer('fs', 'FS', { x: center - 15, y: los + 45 }));
-      players.push(this.createPlayer('ss', 'SS', { x: center + 15, y: los + 35 }));
+      players.push(this.createPlayer('de1', 'DE', { x: center - 36, y: los + 9 }));
+      players.push(this.createPlayer('dt1', 'DT', { x: center - 12, y: los + 6 }));
+      players.push(this.createPlayer('dt2', 'DT', { x: center + 12, y: los + 6 }));
+      players.push(this.createPlayer('de2', 'DE', { x: center + 36, y: los + 9 }));
+      players.push(this.createPlayer('olb1', 'OLB', { x: center - 42, y: los + 18 }));
+      players.push(this.createPlayer('mlb', 'MLB', { x: center, y: los + 18 }));
+      players.push(this.createPlayer('olb2', 'OLB', { x: center + 42, y: los + 18 }));
+      players.push(this.createPlayer('cb1', 'CB', { x: 18, y: los + 12 }));
+      players.push(this.createPlayer('cb2', 'CB', { x: 142, y: los + 12 }));
+      players.push(this.createPlayer('fs', 'FS', { x: center - 24, y: los + 54 }));
+      players.push(this.createPlayer('ss', 'SS', { x: center + 24, y: los + 42 }));
     }
 
     return players;
@@ -988,17 +995,39 @@ export class GameEngine {
   }
 
   private adjustPlayersToPass(landingSpot: Vector2): void {
-    // Receivers adjust to ball
+    const intendedTarget = this.state.passFlight?.intendedTarget;
+
+    // Only the intended target adjusts to the ball - others continue routes
     this.state.offensivePlayers.forEach(player => {
-      if (['WR', 'TE', 'RB'].includes(player.position) && player.route !== 'BLOCK') {
+      if (!['WR', 'TE', 'RB'].includes(player.position) || player.route === 'BLOCK') {
+        return;
+      }
+
+      const distToBall = this.distance(player.location, landingSpot);
+      const isTarget = player.id === intendedTarget;
+      const isNearBall = distToBall < 30; // Within ~10 yards
+
+      if (isTarget || isNearBall) {
+        // Target or nearby receiver adjusts to ball
         const dir = this.normalize({
           x: landingSpot.x - player.location.x,
           y: landingSpot.y - player.location.y,
         });
         const catchAbility = player.catch || 70;
-        const adjustSpeed = (player.speed / 100) * (catchAbility / 80);
-        player.location.x += dir.x * adjustSpeed * 2;
-        player.location.y += dir.y * adjustSpeed * 2;
+        const adjustSpeed = (player.speed / 100) * (catchAbility / 100);
+        // Target moves faster toward ball, nearby receivers slower
+        const speedMult = isTarget ? 1.5 : 0.6;
+        player.location.x += dir.x * adjustSpeed * speedMult;
+        player.location.y += dir.y * adjustSpeed * speedMult;
+      } else {
+        // Other receivers continue their routes normally
+        const movement = this.routeRunner.getMovementVector(
+          player,
+          this.currentTime,
+          this.state.defensivePlayers
+        );
+        player.location.x += movement.x * (player.speed / 100) * 0.5;
+        player.location.y += movement.y * (player.speed / 100) * 0.5;
       }
     });
 
@@ -1009,8 +1038,8 @@ export class GameEngine {
         this.state.offensivePlayers,
         this.currentTime
       );
-      defender.location.x += movement.x * (defender.speed / 100) * 1.2;
-      defender.location.y += movement.y * (defender.speed / 100) * 1.2;
+      defender.location.x += movement.x * (defender.speed / 100) * 0.8;
+      defender.location.y += movement.y * (defender.speed / 100) * 0.8;
     });
   }
 
