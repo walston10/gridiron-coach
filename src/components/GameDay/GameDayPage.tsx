@@ -227,19 +227,32 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
 
     const rect = e.currentTarget.getBoundingClientRect();
     // Canvas mapping: screen X → engine Y (field position), screen Y → engine X (sideline position)
-    // Field area is inset 50px on each side for yard markers
-    const fieldLeft = 50;
-    const fieldRight = rect.width - 50;
-    const fieldTop = 50;
-    const fieldBottom = rect.height - 50;
+    // Field area is inset 40px on each side (matching GameCanvas)
+    const fieldLeft = 40;
+    const fieldRight = rect.width - 40;
+    const fieldTop = 40;
+    const fieldBottom = rect.height - 40;
+
+    // Viewport settings - must match GameCanvas
+    const ENGINE_HEIGHT = 360;
+    const VISIBLE_YARDS = 65;
+    const LOS_OFFSET = 15;
+
+    // Calculate viewport bounds (same logic as GameCanvas)
+    const losEngineY = (engineState.field.yardLine / 100) * ENGINE_HEIGHT;
+    const viewportStartY = losEngineY - (LOS_OFFSET * 3.6);
+    const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
+    const clampedEndY = clampedStartY + (VISIBLE_YARDS * 3.6);
 
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    // Convert screen coordinates to engine coordinates
-    // Screen X (left-right) = field position (engine Y: 0=own endzone, 360=opponent endzone)
-    const engineY = ((clickX - fieldLeft) / (fieldRight - fieldLeft)) * 360;
-    // Screen Y (top-bottom) = sideline position (engine X: 0-160)
+    // Convert screen coordinates to engine coordinates (respecting zoom)
+    // Screen X maps to the visible viewport portion of engine Y
+    const normalizedX = (clickX - fieldLeft) / (fieldRight - fieldLeft);
+    const engineY = clampedStartY + normalizedX * (clampedEndY - clampedStartY);
+
+    // Screen Y (top-bottom) = sideline position (engine X: 0-160) - full width, no zoom
     const engineX = ((clickY - fieldTop) / (fieldBottom - fieldTop)) * 160;
 
     throwToSpot({ x: engineX, y: engineY });
