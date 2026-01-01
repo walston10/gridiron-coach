@@ -48,4 +48,5 @@ export type LiveGame = {
   currentPlay: Play | null;
   playerPositions: {id: string, x: number, y: number, role: 'offense' | 'defense'}[];
   ballCarrier: BallCarrier | null;
+  ballInFlight?: { x: number; y: number; progress: number }; // Ball position during passes
 };
