@@ -33,6 +33,7 @@ export class GameEngine {
   private pocketCenter: Vector2 = { x: FIELD_WIDTH / 2, y: 0 };
   private currentPlay: OffensivePlay | null = null;
   private currentDefense: DefensivePlay | null = null;
+  private originalPlay: Play | null = null; // Store original Play for ball carrier info
 
   // Kicking state
   private pendingKickoff: boolean = false;
@@ -90,11 +91,13 @@ export class GameEngine {
       const converted = this.convertPlayToOffensive(play);
       this.state.selectedPlay = converted;
       this.currentPlay = converted;
+      this.originalPlay = play; // Store original for ball carrier info
       this.state.offensivePlayers = this.createOffensiveFormationFromPlay(play);
     } else {
       // Engine OffensivePlay format
       this.state.selectedPlay = play;
       this.currentPlay = play;
+      this.originalPlay = null;
       this.state.offensivePlayers = this.createOffensiveFormation(play);
     }
     this.emitState();
@@ -193,27 +196,29 @@ export class GameEngine {
     const los = this.yardLineToY(this.state.field.yardLine);
     const center = FIELD_WIDTH / 2;
 
-    // Spacing: Each unit = ~0.33 yards. Players need ~5 yard gaps minimum = 15 units
+    // Spacing: 3 units = 1 yard
+    // Under center: QB 1 yard back, RB 7 yards back
+    // Shotgun: QB 5 yards back, RB beside or slightly behind QB
     const players: FieldPlayer[] = [
-      this.createPlayer('qb', 'QB', { x: center, y: los - 21 }, play.routes['QB']), // 7 yards back under center
-      this.createPlayer('rb', 'RB', { x: center, y: los - 42 }, play.routes['RB']), // 14 yards back
+      this.createPlayer('qb', 'QB', { x: center, y: los - 3 }, play.routes['QB']), // 1 yard back under center
+      this.createPlayer('rb', 'RB', { x: center, y: los - 21 }, play.routes['RB']), // 7 yards back
       this.createPlayer('wr1', 'WR', { x: 15, y: los + 3 }, play.routes['WR1']), // Far left sideline
       this.createPlayer('wr2', 'WR', { x: 145, y: los + 3 }, play.routes['WR2']), // Far right sideline
       this.createPlayer('te', 'TE', { x: center + 36, y: los + 3 }, play.routes['TE']), // Outside RT
-      this.createPlayer('lt', 'LT', { x: center - 30, y: los + 3 }),
-      this.createPlayer('lg', 'LG', { x: center - 15, y: los + 3 }),
+      this.createPlayer('lt', 'LT', { x: center - 24, y: los + 3 }),
+      this.createPlayer('lg', 'LG', { x: center - 12, y: los + 3 }),
       this.createPlayer('c', 'C', { x: center, y: los + 3 }),
-      this.createPlayer('rg', 'RG', { x: center + 15, y: los + 3 }),
-      this.createPlayer('rt', 'RT', { x: center + 30, y: los + 3 }),
+      this.createPlayer('rg', 'RG', { x: center + 12, y: los + 3 }),
+      this.createPlayer('rt', 'RT', { x: center + 24, y: los + 3 }),
     ];
 
     if (play.formation === 'SHOTGUN') {
-      players[0].location.y = los - 45; // QB 15 yards back in shotgun
-      players[1].location = { x: center + 18, y: los - 45 }; // RB next to QB
+      players[0].location.y = los - 15; // QB 5 yards back in shotgun
+      players[1].location = { x: center + 15, y: los - 15 }; // RB beside QB, offset to right
       players.push(this.createPlayer('slot1', 'WR', { x: center - 48, y: los + 3 }, play.routes['SLOT1']));
     } else if (play.formation === 'I_FORM') {
-      players[1].location.y = los - 30; // RB closer
-      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 24 }, play.routes['FB']));
+      players[1].location.y = los - 15; // RB 5 yards back
+      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 9 }, play.routes['FB'])); // FB 3 yards back
     }
 
     return players;
@@ -322,6 +327,7 @@ export class GameEngine {
     this.state.clock.isRunning = true;
     this.currentTime = 0;
     this.clockAccumulator = 0;
+    this.pendingHandoff = null;
 
     // Find QB for ball position and pocket center (don't assume player[0])
     // Support both lowercase 'qb' (default formation) and uppercase 'QB' (Play Designer)
@@ -332,6 +338,19 @@ export class GameEngine {
     // Store pocket center for scramble detection
     if (qb) {
       this.pocketCenter = { ...qb.location };
+    }
+
+    // Check for run play with designated ball carrier (for handoff)
+    const isRunPlay = this.currentPlay?.type === 'RUN' || this.originalPlay?.playType === 'RUN';
+    if (isRunPlay && this.originalPlay) {
+      const ballCarrierAssignment = this.originalPlay.assignments.find(a => a.isBallCarrier);
+      if (ballCarrierAssignment && ballCarrierAssignment.positionSlot.toLowerCase() !== 'qb') {
+        // Schedule handoff to RB after brief delay (0.25 seconds for handoff timing)
+        this.pendingHandoff = {
+          targetId: ballCarrierAssignment.positionSlot,
+          handoffTime: 0.25,
+        };
+      }
     }
 
     // Initialize route runner for all receivers
@@ -359,6 +378,9 @@ export class GameEngine {
     this.emitState();
   }
 
+  // Pending handoff for run plays
+  private pendingHandoff: { targetId: string; handoffTime: number } | null = null;
+
   private tick(): void {
     if (this.state.phase === 'WHISTLE') {
       this.stopTick();
@@ -367,6 +389,12 @@ export class GameEngine {
 
     this.currentTime += 1 / TICK_RATE;
     this.updateClock();
+
+    // Process pending handoff for run plays
+    if (this.pendingHandoff && this.currentTime >= this.pendingHandoff.handoffTime) {
+      this.executeHandoff(this.pendingHandoff.targetId);
+      this.pendingHandoff = null;
+    }
 
     // Update QB status for both AI systems
     const qb = this.getQB();
@@ -391,6 +419,17 @@ export class GameEngine {
     }
 
     this.emitState();
+  }
+
+  private executeHandoff(targetSlot: string): void {
+    // Find the target player by slot (case-insensitive)
+    const target = this.state.offensivePlayers.find(
+      p => p.id.toLowerCase() === targetSlot.toLowerCase() || p.position === targetSlot
+    );
+    if (target) {
+      this.state.ballCarrier = target.id;
+      this.state.ballLocation = { ...target.location };
+    }
   }
 
   private updateClock(): void {
