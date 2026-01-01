@@ -210,7 +210,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   // Handle click on canvas to throw
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!engineState || engineState.phase !== 'SNAP') return;
-    if (engineState.ballCarrier !== 'qb') return;
+    // Check if QB has the ball (case-insensitive)
+    if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 160;
@@ -452,7 +453,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
                   <div className="text-gray-400 text-sm">Last Play</div>
                   <div className="text-white font-bold">
                     {engineState.lastResult.touchdown
-                      ? 'TOUCHDOWN!'
+                      ? `TOUCHDOWN! ${userTeam.info.name} scores!`
                       : engineState.lastResult.incomplete
                       ? 'Incomplete Pass'
                       : engineState.lastResult.sack
@@ -460,7 +461,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
                       : engineState.lastResult.turnover
                       ? `TURNOVER - ${engineState.lastResult.turnoverType}`
                       : engineState.lastResult.safety
-                      ? 'SAFETY!'
+                      ? `SAFETY! ${oppTeam.info.name} scores 2 points`
                       : `${engineState.lastResult.yardsGained >= 0 ? '+' : ''}${engineState.lastResult.yardsGained} yards`}
                   </div>
                 </div>
