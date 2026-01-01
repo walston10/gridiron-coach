@@ -4,9 +4,8 @@ import { useGameEngine } from '../../hooks/useGameEngine';
 import { useControls } from '../../hooks/useControls';
 import { GameCanvas } from './GameCanvas';
 import { Scoreboard } from './Scoreboard';
-import { DownAndDistance } from './DownAndDistance';
+import { ControlDeck } from './ControlDeck';
 import { PlayCallModal } from './PlayCallModal';
-import { PostSnapControls } from './PostSnapControls';
 import type { Play } from '../../types';
 import type { LiveGame, GameState as LiveGameState } from '../../types/Game';
 import type { GameState, Vector2 } from '../../types/GameSim';
@@ -273,16 +272,16 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   // No plays - show message to create plays first
   if (!hasPlays) {
     return (
-      <div className="p-6 bg-gray-900 min-h-screen flex items-center justify-center">
-        <div className="bg-gray-800 rounded-lg p-8 max-w-md text-center">
-          <div className="text-6xl mb-4">🏈</div>
-          <h2 className="text-2xl font-bold text-white mb-4">No Plays in Playbook!</h2>
-          <p className="text-gray-400 mb-6">
-            You need to create at least one play before you can start a game.
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="bg-slate-900/80 backdrop-blur-lg rounded-2xl p-10 max-w-md text-center border border-slate-800 shadow-2xl">
+          <div className="text-7xl mb-6">🏈</div>
+          <h2 className="text-3xl font-black text-white mb-4">No Plays Yet!</h2>
+          <p className="text-slate-400 mb-8 text-lg">
+            Create your first play in the Play Designer before hitting the field.
           </p>
           <button
             onClick={() => onNavigate?.('designer')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold"
+            className="px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-bold rounded-xl text-lg shadow-lg shadow-blue-500/25 transition-all hover:scale-105"
           >
             Go to Play Designer
           </button>
@@ -293,8 +292,11 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
 
   if (!engineState || !userTeam || !oppTeam) {
     return (
-      <div className="p-6 bg-gray-900 min-h-screen flex items-center justify-center">
-        <div className="text-white">Loading game...</div>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-slate-400 text-lg">Loading game...</span>
+        </div>
       </div>
     );
   }
@@ -318,191 +320,77 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   const inFGRange = isInFieldGoalRange();
 
   return (
-    <div className="p-6 bg-gray-900 min-h-screen">
-      <h1 className="text-3xl font-bold text-white mb-6">Game Day</h1>
-
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="col-span-2">
-          <Scoreboard
-            clock={game.clock}
-            homeTeam={{ ...game.homeTeam, name: userTeam.info.name }}
-            awayTeam={{ ...game.awayTeam, name: oppTeam.info.name }}
-            possession={game.possession}
-          />
-        </div>
-        <div>
-          <DownAndDistance fieldPosition={game.fieldPosition} />
-        </div>
-        <div className="flex items-center justify-center">
-          <div className="text-white text-lg font-bold capitalize bg-gray-800 px-4 py-2 rounded">
-            {pendingPAT ? 'EXTRA POINT' : pendingKickoff ? 'KICKOFF' : engineState.phase.replace('_', ' ')}
-          </div>
-        </div>
+    <div className="min-h-screen bg-slate-950 flex flex-col">
+      {/* Top Bar - Scoreboard */}
+      <div className="p-4 pb-0">
+        <Scoreboard
+          clock={game.clock}
+          homeTeam={{ ...game.homeTeam, name: userTeam.info.name }}
+          awayTeam={{ ...game.awayTeam, name: oppTeam.info.name }}
+          possession={game.possession}
+          down={game.fieldPosition.down}
+          yardsToGo={game.fieldPosition.yardsToGo}
+          yardLine={game.fieldPosition.yardLine}
+        />
       </div>
 
-      <div className="flex gap-6">
-        <div className="flex-1" onClick={handleCanvasClick}>
-          <GameCanvas game={game} />
+      {/* Main Content - Field */}
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div
+          className="relative cursor-crosshair"
+          onClick={handleCanvasClick}
+        >
+          <GameCanvas game={game} width={960} height={540} />
+
+          {/* Throw instruction overlay */}
           {isPlayRunning && engineState.ballCarrier?.toLowerCase() === 'qb' && (
-            <p className="text-yellow-400 text-sm mt-2 text-center">
-              Click on the field to throw the ball
-            </p>
-          )}
-        </div>
-
-        <div className="w-72 space-y-4">
-          {/* PAT / 2-Point Choice after TD */}
-          {isPreSnap && pendingPAT && (
-            <div className="bg-yellow-900 rounded-lg p-4 mb-4">
-              <div className="text-yellow-400 font-bold text-lg mb-3">TOUCHDOWN!</div>
-              <p className="text-white text-sm mb-4">Choose your extra point attempt:</p>
-              <div className="space-y-2">
-                <button
-                  onClick={handlePAT}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold"
-                >
-                  Extra Point (1 pt)
-                </button>
-                <button
-                  onClick={handleTwoPoint}
-                  className="w-full bg-orange-600 hover:bg-orange-700 text-white py-3 rounded-lg font-bold"
-                >
-                  2-Point Conversion
-                </button>
-              </div>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-yellow-500/30">
+              <span className="text-yellow-400 text-sm font-semibold">
+                Click anywhere to throw the ball
+              </span>
             </div>
-          )}
-
-          {/* Kickoff after scoring */}
-          {isPreSnap && pendingKickoff && !pendingPAT && (
-            <div className="bg-gray-800 rounded-lg p-4 mb-4">
-              <p className="text-gray-400 text-sm mb-2">After the score...</p>
-              {lastKickResult && (
-                <div className="text-white font-bold mb-3">
-                  {lastKickResult.type === 'PAT' && (lastKickResult.success ? 'PAT Good!' : 'PAT Missed!')}
-                  {lastKickResult.type === 'TWO_POINT' && (lastKickResult.success ? '2-Point Good!' : '2-Point Failed!')}
-                  {lastKickResult.type === 'FIELD_GOAL' && (lastKickResult.success ? `${lastKickResult.distance}yd FG Good!` : 'FG Missed!')}
-                </div>
-              )}
-              <button
-                onClick={handleKickoff}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold"
-              >
-                Kickoff
-              </button>
-            </div>
-          )}
-
-          {/* Normal play selection */}
-          {isPreSnap && !pendingKickoff && !pendingPAT && (
-            <>
-              <button
-                onClick={() => setShowPlayCall(true)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold"
-              >
-                Call Play
-              </button>
-
-              {/* 4th Down Options */}
-              {isFourthDown && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <p className="text-yellow-400 text-sm font-bold mb-2">4th Down Options:</p>
-                  <div className="space-y-2">
-                    {inFGRange && (
-                      <button
-                        onClick={handleFieldGoal}
-                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded font-bold text-sm"
-                      >
-                        Field Goal ({100 - engineState.field.yardLine + 17}yds)
-                      </button>
-                    )}
-                    <button
-                      onClick={handlePunt}
-                      className="w-full bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-bold text-sm"
-                    >
-                      Punt
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {selectedPlay && (
-                <div className="bg-gray-800 rounded-lg p-4">
-                  <div className="text-gray-400 text-sm">Selected Play</div>
-                  <div className="text-white font-bold text-lg">{selectedPlay.name}</div>
-                  <div className="text-gray-400 text-sm">{selectedPlay.formation}</div>
-                </div>
-              )}
-
-              <button
-                onClick={handleSnap}
-                disabled={!selectedPlay}
-                className={`w-full py-3 rounded-lg font-bold ${
-                  selectedPlay
-                    ? 'bg-green-600 hover:bg-green-700 text-white'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                Snap Ball
-              </button>
-
-              {!selectedPlay && !isFourthDown && (
-                <p className="text-yellow-400 text-sm text-center">
-                  Select a play first!
-                </p>
-              )}
-            </>
-          )}
-
-          {isPlayRunning && (
-            <>
-              <PostSnapControls
-                onJuke={juke}
-                onSpin={spin}
-                onDive={dive}
-              />
-              <div className="bg-gray-800 rounded-lg p-4">
-                <p className="text-gray-400 text-sm">Controls</p>
-                <p className="text-white text-sm">WASD or Arrow keys to move</p>
-                <p className="text-white text-sm">Shift to sprint</p>
-                {engineState.ballCarrier?.toLowerCase() === 'qb' && (
-                  <p className="text-white text-sm">Click field to throw</p>
-                )}
-              </div>
-            </>
-          )}
-
-          {isPlayDead && (
-            <>
-              {engineState.lastResult && (
-                <div className="bg-gray-800 rounded-lg p-4 mb-4">
-                  <div className="text-gray-400 text-sm">Last Play</div>
-                  <div className="text-white font-bold">
-                    {engineState.lastResult.touchdown
-                      ? `TOUCHDOWN! ${userTeam.info.name} scores!`
-                      : engineState.lastResult.incomplete
-                      ? 'Incomplete Pass'
-                      : engineState.lastResult.sack
-                      ? `Sack! ${engineState.lastResult.yardsGained} yards`
-                      : engineState.lastResult.turnover
-                      ? `TURNOVER - ${engineState.lastResult.turnoverType}`
-                      : engineState.lastResult.safety
-                      ? `SAFETY! ${oppTeam.info.name} scores 2 points`
-                      : `${engineState.lastResult.yardsGained >= 0 ? '+' : ''}${engineState.lastResult.yardsGained} yards`}
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={handleNextPlay}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold"
-              >
-                Next Play
-              </button>
-            </>
           )}
         </div>
       </div>
 
+      {/* Bottom Bar - Control Deck */}
+      <ControlDeck
+        phase={engineState.phase}
+        isPreSnap={isPreSnap}
+        isPlayRunning={isPlayRunning}
+        isPlayDead={isPlayDead}
+        selectedPlayName={selectedPlay?.name}
+        down={game.fieldPosition.down}
+        yardsToGo={game.fieldPosition.yardsToGo}
+        yardLine={game.fieldPosition.yardLine}
+        pendingPAT={pendingPAT}
+        pendingKickoff={pendingKickoff}
+        isFourthDown={isFourthDown}
+        inFGRange={inFGRange}
+        fieldGoalDistance={100 - engineState.field.yardLine + 17}
+        lastResult={engineState.lastResult}
+        userTeamName={userTeam.info.name}
+        oppTeamName={oppTeam.info.name}
+        lastKickResult={lastKickResult ? {
+          type: lastKickResult.type,
+          success: lastKickResult.success,
+          distance: lastKickResult.distance,
+        } : undefined}
+        onCallPlay={() => setShowPlayCall(true)}
+        onSnap={handleSnap}
+        onNextPlay={handleNextPlay}
+        onPAT={handlePAT}
+        onTwoPoint={handleTwoPoint}
+        onKickoff={handleKickoff}
+        onPunt={handlePunt}
+        onFieldGoal={handleFieldGoal}
+        onJuke={juke}
+        onSpin={spin}
+        onDive={dive}
+        ballCarrier={engineState.ballCarrier}
+      />
+
+      {/* Play Call Modal */}
       {showPlayCall && (
         <PlayCallModal
           plays={playbook.plays}
