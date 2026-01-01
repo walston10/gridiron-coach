@@ -313,12 +313,13 @@ export class GameEngine {
 
     this.state.phase = 'SNAP';
     this.state.clock.isRunning = true;
-    this.state.ballCarrier = 'qb';
     this.currentTime = 0;
     this.clockAccumulator = 0;
 
     // Find QB for ball position and pocket center (don't assume player[0])
-    const qb = this.state.offensivePlayers.find(p => p.id === 'qb' || p.position === 'QB');
+    // Support both lowercase 'qb' (default formation) and uppercase 'QB' (Play Designer)
+    const qb = this.state.offensivePlayers.find(p => p.id.toLowerCase() === 'qb' || p.position === 'QB');
+    this.state.ballCarrier = qb?.id || 'qb'; // Use actual QB id, not hardcoded
     this.state.ballLocation = qb ? { ...qb.location } : { ...this.state.offensivePlayers[0].location };
 
     // Store pocket center for scramble detection
@@ -361,7 +362,7 @@ export class GameEngine {
     this.updateClock();
 
     // Update QB status for both AI systems
-    const qb = this.getPlayer('qb');
+    const qb = this.getQB();
     if (qb) {
       this.routeRunner.updateQBStatus(qb.location, this.pocketCenter, this.currentTime);
       this.defenseAI.updateGameState(
@@ -404,8 +405,8 @@ export class GameEngine {
   }
 
   private updatePlayerPositions(): void {
-    const qb = this.getPlayer('qb');
-    const isQBHoldingBall = this.state.ballCarrier === 'qb';
+    const qb = this.getQB();
+    const isQBHoldingBall = this.isQB(this.state.ballCarrier);
 
     // Get pass rushers for O-Line to block
     const passRushers = this.state.defensivePlayers.filter(p =>
@@ -420,7 +421,7 @@ export class GameEngine {
     // Update offensive players using RouteRunner
     this.state.offensivePlayers.forEach(player => {
       // Skip QB and ball carrier
-      if (player.id === 'qb' || player.id === this.state.ballCarrier) return;
+      if (this.isQB(player.id) || player.id === this.state.ballCarrier) return;
 
       // O-Line actively blocks nearest pass rusher
       if (['LT', 'LG', 'C', 'RG', 'RT'].includes(player.position)) {
@@ -589,27 +590,30 @@ export class GameEngine {
     const evasionSpeed = (carrier.speed / 100) * 5; // Faster during evasion
 
     switch (this.evasionState.type) {
-      case 'JUKE':
+      case 'JUKE': {
         // Quick lateral cut - fast sideways movement
         const jukePhase = Math.sin(progress * Math.PI);
         carrier.velocity.x = this.evasionState.direction.x * evasionSpeed * jukePhase;
         carrier.velocity.y = this.evasionState.direction.y * evasionSpeed * 0.3;
         break;
+      }
 
-      case 'SPIN':
+      case 'SPIN': {
         // 360 spin move - circular motion with forward momentum
         const spinAngle = progress * Math.PI * 2;
         const spinRadius = 3;
         carrier.velocity.x = Math.cos(spinAngle) * spinRadius + this.evasionState.direction.x * 2;
         carrier.velocity.y = Math.sin(spinAngle) * spinRadius + this.evasionState.direction.y * 2;
         break;
+      }
 
-      case 'DIVE':
+      case 'DIVE': {
         // Forward dive - burst of speed forward
         const diveBoost = (1 - progress) * evasionSpeed * 1.5;
         carrier.velocity.x = this.evasionState.direction.x * diveBoost;
         carrier.velocity.y = this.evasionState.direction.y * diveBoost;
         break;
+      }
     }
 
     // Apply velocity
@@ -647,7 +651,7 @@ export class GameEngine {
     const carrier = this.getPlayer(this.state.ballCarrier || '');
     if (!carrier) return;
 
-    const isQB = this.state.ballCarrier === 'qb';
+    const isQBCarrier = this.isQB(this.state.ballCarrier);
     const los = this.yardLineToY(this.state.field.yardLine);
 
     // Calculate carrier speed for tackle difficulty
@@ -663,7 +667,7 @@ export class GameEngine {
         const tackleChance = this.calculateTackleChance(carrier, defender, carrierSpeed, dist);
 
         if (Math.random() < tackleChance) {
-          if (isQB && carrier.location.y <= los) {
+          if (isQBCarrier && carrier.location.y <= los) {
             // Sack! QB tackled at or behind LOS
             this.resolveSack(defender.id);
           } else {
@@ -741,7 +745,7 @@ export class GameEngine {
     this.state.phase = 'WHISTLE';
 
     const startYardLine = this.state.field.yardLine;
-    const carrier = this.getPlayer('qb');
+    const carrier = this.getQB();
     const endYardLine = carrier ? this.yToYardLine(carrier.location.y) : startYardLine;
     const yardsLost = startYardLine - endYardLine;
 
@@ -769,7 +773,7 @@ export class GameEngine {
       touchdown: false,
       outOfBounds: false,
       incomplete: false,
-      sack: this.state.ballCarrier === 'qb',
+      sack: this.isQB(this.state.ballCarrier),
       safety: true,
     };
 
@@ -864,7 +868,7 @@ export class GameEngine {
   throwToSpot(clickLocation: Vector2): void {
     if (this.state.phase !== 'SNAP') return;
 
-    const qb = this.getPlayer('qb');
+    const qb = this.getQB();
     if (!qb) return;
 
     // Check for throwaway (out of bounds)
@@ -1381,6 +1385,16 @@ export class GameEngine {
   private getPlayer(id: string): FieldPlayer | undefined {
     return [...this.state.offensivePlayers, ...this.state.defensivePlayers]
       .find(p => p.id === id);
+  }
+
+  private getQB(): FieldPlayer | undefined {
+    return this.state.offensivePlayers.find(p => p.id.toLowerCase() === 'qb' || p.position === 'QB');
+  }
+
+  private isQB(playerId: string | undefined): boolean {
+    if (!playerId) return false;
+    const qb = this.getQB();
+    return qb?.id === playerId;
   }
 
   private getNearestDefender(location: Vector2): FieldPlayer | undefined {

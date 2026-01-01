@@ -316,7 +316,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
       <div className="flex gap-6">
         <div className="flex-1" onClick={handleCanvasClick}>
           <GameCanvas game={game} />
-          {isPlayRunning && engineState.ballCarrier === 'qb' && (
+          {isPlayRunning && engineState.ballCarrier?.toLowerCase() === 'qb' && (
             <p className="text-yellow-400 text-sm mt-2 text-center">
               Click on the field to throw the ball
             </p>
@@ -438,7 +438,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
                 <p className="text-gray-400 text-sm">Controls</p>
                 <p className="text-white text-sm">WASD or Arrow keys to move</p>
                 <p className="text-white text-sm">Shift to sprint</p>
-                {engineState.ballCarrier === 'qb' && (
+                {engineState.ballCarrier?.toLowerCase() === 'qb' && (
                   <p className="text-white text-sm">Click field to throw</p>
                 )}
               </div>
