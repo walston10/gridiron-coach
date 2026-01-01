@@ -105,6 +105,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+
+    // Draw ball in flight
+    if (game.ballInFlight) {
+      const ballCanvasX = fieldLeft + (game.ballInFlight.y / ENGINE_HEIGHT) * playableWidth;
+      const ballCanvasY = fieldTop + (game.ballInFlight.x / ENGINE_WIDTH) * playableHeight;
+
+      // Draw ball shadow (gets smaller as ball rises then falls)
+      const arcHeight = Math.sin(game.ballInFlight.progress * Math.PI);
+      const shadowSize = 6 + arcHeight * 4;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.beginPath();
+      ctx.ellipse(ballCanvasX, ballCanvasY + 15, shadowSize, shadowSize * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw the football (brown ellipse) - rises in arc during flight
+      const ballLift = arcHeight * 30; // Ball rises up to 30px at apex
+      ctx.fillStyle = '#8B4513'; // Brown
+      ctx.beginPath();
+      ctx.ellipse(ballCanvasX, ballCanvasY - ballLift, 10, 6, Math.PI * 0.15, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Draw laces
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(ballCanvasX - 4, ballCanvasY - ballLift);
+      ctx.lineTo(ballCanvasX + 4, ballCanvasY - ballLift);
+      ctx.stroke();
+    }
   }, [game, width, height]);
 
   const { canvasRef } = useCanvas(draw, width, height);

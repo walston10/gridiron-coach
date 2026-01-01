@@ -326,7 +326,7 @@ export class DefenseAI {
       this.globalPhase = 'READ';
     } else if (ballInAir) {
       this.globalPhase = 'REACT_BALL';
-    } else if (ballCarrierId && ballCarrierId !== 'qb') {
+    } else if (ballCarrierId && ballCarrierId.toLowerCase() !== 'qb') {
       this.globalPhase = 'PURSUIT';
     } else if (!this.qbInPocket) {
       this.globalPhase = 'SCRAMBLE_CONTAIN';
@@ -435,22 +435,25 @@ export class DefenseAI {
     }
 
     // No receivers in zone - move toward anchor point
-    const toAnchor = this.normalize({
+    const toAnchor = {
       x: zone.anchorPoint.x - defender.location.x,
       y: zone.anchorPoint.y - defender.location.y,
-    });
+    };
+    const distToAnchor = Math.sqrt(toAnchor.x ** 2 + toAnchor.y ** 2);
 
-    // Once near anchor, stay put but track QB
-    const distToAnchor = this.distance(defender.location, zone.anchorPoint);
-    if (distToAnchor < 10) {
-      // At anchor - just minor adjustments watching QB
+    // Once near anchor, HOLD POSITION - don't drift toward QB
+    if (distToAnchor < 8) {
+      // At anchor - stay in zone, only minor lateral adjustments to watch QB
+      // DO NOT move toward QB, just shift slightly within zone
+      const qbSide = this.qbLocation.x < defender.location.x ? -1 : 1;
       return {
-        x: (this.qbLocation.x - defender.location.x) * 0.02,
-        y: 0.05, // Slight backpedal
+        x: qbSide * 0.05, // Tiny lateral shift to face QB
+        y: 0, // Hold depth
       };
     }
 
-    return toAnchor;
+    // Move toward anchor point
+    return this.normalize(toAnchor);
   }
 
   private manMovement(
@@ -530,16 +533,42 @@ export class DefenseAI {
   }
 
   private reactToBall(defender: FieldPlayer, state: DefenderState): Vector2 {
-    // Ball is in the air - break toward it
+    // Ball is in the air - break toward it based on position and distance
+    const distToBall = this.distance(defender.location, this.ballLocation);
     const toBall = this.normalize({
       x: this.ballLocation.x - defender.location.x,
       y: this.ballLocation.y - defender.location.y,
     });
 
-    // DBs react faster than linebackers
-    const reactionSpeed = ['CB', 'FS', 'SS'].includes(defender.position) ? 1.2 : 0.9;
+    // Only nearby defenders should break hard on the ball
+    // Far defenders should maintain positioning and close gradually
+    const isDB = ['CB', 'FS', 'SS'].includes(defender.position);
 
-    return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+    if (distToBall < 40) {
+      // Close enough to make a play - sprint to ball
+      const reactionSpeed = isDB ? 1.3 : 1.0;
+      return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+    } else if (distToBall < 80) {
+      // Medium range - move toward ball but don't abandon all coverage
+      const reactionSpeed = isDB ? 0.8 : 0.5;
+      return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+    } else {
+      // Far from ball - maintain zone responsibility, drift slowly
+      // Deep safeties shouldn't abandon their deep coverage entirely
+      if (state.zoneBounds) {
+        const toAnchor = this.normalize({
+          x: state.zoneBounds.anchorPoint.x - defender.location.x,
+          y: state.zoneBounds.anchorPoint.y - defender.location.y,
+        });
+        // Blend: 30% toward ball, 70% toward zone (stay in coverage)
+        return {
+          x: toBall.x * 0.3 + toAnchor.x * 0.7,
+          y: toBall.y * 0.3 + toAnchor.y * 0.7,
+        };
+      }
+      // No zone - slow approach
+      return { x: toBall.x * 0.4, y: toBall.y * 0.4 };
+    }
   }
 
   private pursuitMovement(defender: FieldPlayer): Vector2 {

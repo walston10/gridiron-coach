@@ -57,6 +57,18 @@ function adaptGameStateToLiveGame(
       }
     : null;
 
+  // Calculate ball in flight position
+  let ballInFlight: { x: number; y: number; progress: number } | undefined;
+  if (engineState.passFlight) {
+    const { startLocation, landingSpot, airTime, elapsedTime } = engineState.passFlight;
+    const progress = Math.min(elapsedTime / airTime, 1);
+    ballInFlight = {
+      x: startLocation.x + (landingSpot.x - startLocation.x) * progress,
+      y: startLocation.y + (landingSpot.y - startLocation.y) * progress,
+      progress,
+    };
+  }
+
   return {
     id: 'engine-game',
     state: stateMap[engineState.phase] || 'PRE_SNAP',
@@ -85,6 +97,7 @@ function adaptGameStateToLiveGame(
     currentPlay: selectedPlay,
     playerPositions,
     ballCarrier,
+    ballInFlight,
   };
 }
 
@@ -214,10 +227,23 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 160;
-    const y = ((e.clientY - rect.top) / rect.height) * 360;
+    // Canvas mapping: screen X → engine Y (field position), screen Y → engine X (sideline position)
+    // Field area is inset 50px on each side for yard markers
+    const fieldLeft = 50;
+    const fieldRight = rect.width - 50;
+    const fieldTop = 50;
+    const fieldBottom = rect.height - 50;
 
-    throwToSpot({ x, y });
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    // Convert screen coordinates to engine coordinates
+    // Screen X (left-right) = field position (engine Y: 0=own endzone, 360=opponent endzone)
+    const engineY = ((clickX - fieldLeft) / (fieldRight - fieldLeft)) * 360;
+    // Screen Y (top-bottom) = sideline position (engine X: 0-160)
+    const engineX = ((clickY - fieldTop) / (fieldBottom - fieldTop)) * 160;
+
+    throwToSpot({ x: engineX, y: engineY });
   }, [engineState, throwToSpot]);
 
   // Kicking handlers
