@@ -43,6 +43,23 @@ export class GameEngine {
   private playerInput: Vector2 = { x: 0, y: 0 };
   private lastInputTime: number = 0;
 
+  // Evasion state
+  private evasionState: {
+    active: boolean;
+    type: 'JUKE' | 'SPIN' | 'DIVE' | null;
+    startTime: number;
+    duration: number;
+    direction: Vector2;
+    cooldownEnd: number;
+  } = {
+    active: false,
+    type: null,
+    startTime: 0,
+    duration: 0,
+    direction: { x: 0, y: 0 },
+    cooldownEnd: 0,
+  };
+
   // Clock accumulator for smooth timing
   private clockAccumulator: number = 0;
 
@@ -479,41 +496,125 @@ export class GameEngine {
     if (this.state.ballCarrier) {
       const carrier = this.getPlayer(this.state.ballCarrier);
       if (carrier) {
-        // Reset input if stale (> 0.15s) to prevent stuck controls
-        if (this.currentTime - this.lastInputTime > 0.15) {
+        // Reset input if stale (> 0.3s) to prevent stuck controls - increased from 0.15s
+        if (this.currentTime - this.lastInputTime > 0.3) {
           this.playerInput = { x: 0, y: 0 };
         }
 
-        // Physics constants derived from player stats
-        const maxSpeed = (carrier.speed / 100) * 3.5;
-        const accel = (carrier.acceleration / 100) * 0.25;
-
-        // Apply input to velocity (Acceleration)
-        if (this.playerInput.x !== 0 || this.playerInput.y !== 0) {
-          carrier.velocity.x += this.playerInput.x * accel;
-          carrier.velocity.y += this.playerInput.y * accel;
+        // Handle active evasion moves
+        if (this.evasionState.active) {
+          this.updateEvasionMove(carrier);
         } else {
-          // Friction (Deceleration) when no input
-          carrier.velocity.x *= 0.85;
-          carrier.velocity.y *= 0.85;
+          // Normal movement physics with improved feel
+          this.updateNormalMovement(carrier);
         }
 
-        // Cap speed to max rating
-        const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
-        if (currentSpeed > maxSpeed) {
-          const ratio = maxSpeed / currentSpeed;
-          carrier.velocity.x *= ratio;
-          carrier.velocity.y *= ratio;
-        }
-
-        // Apply velocity to position
-        carrier.location.x += carrier.velocity.x;
-        carrier.location.y += carrier.velocity.y;
+        // Keep in bounds
+        carrier.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, carrier.location.x));
+        carrier.location.y = Math.max(5, Math.min(FIELD_HEIGHT - 5, carrier.location.y));
 
         // Sync ball location
         this.state.ballLocation = { ...carrier.location };
       }
     }
+  }
+
+  private updateNormalMovement(carrier: FieldPlayer): void {
+    // Physics constants derived from player stats - tuned for responsiveness
+    const baseMaxSpeed = 4.0; // Increased base speed
+    const maxSpeed = (carrier.speed / 100) * baseMaxSpeed;
+    const baseAccel = 0.45; // Much higher acceleration for snappy feel
+    const accel = (carrier.acceleration / 100) * baseAccel;
+
+    // Apply input to velocity with acceleration curve
+    if (this.playerInput.x !== 0 || this.playerInput.y !== 0) {
+      // Calculate desired velocity direction
+      const inputMag = Math.sqrt(this.playerInput.x ** 2 + this.playerInput.y ** 2);
+      const normInputX = this.playerInput.x / inputMag;
+      const normInputY = this.playerInput.y / inputMag;
+
+      // Apply acceleration with slight curve for responsiveness
+      const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+      const speedRatio = currentSpeed / maxSpeed;
+
+      // Faster acceleration at low speeds, slower near max speed
+      const accelMult = 1.0 + (1.0 - speedRatio) * 0.5;
+
+      carrier.velocity.x += normInputX * accel * accelMult * inputMag;
+      carrier.velocity.y += normInputY * accel * accelMult * inputMag;
+
+      // Allow quick direction changes - reduce velocity in opposite direction faster
+      if (Math.sign(carrier.velocity.x) !== Math.sign(normInputX) && normInputX !== 0) {
+        carrier.velocity.x *= 0.85;
+      }
+      if (Math.sign(carrier.velocity.y) !== Math.sign(normInputY) && normInputY !== 0) {
+        carrier.velocity.y *= 0.85;
+      }
+    } else {
+      // Friction with progressive deceleration - faster stop when slow
+      const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+      const frictionFactor = currentSpeed > 1 ? 0.92 : 0.8;
+      carrier.velocity.x *= frictionFactor;
+      carrier.velocity.y *= frictionFactor;
+
+      // Stop completely when very slow
+      if (Math.abs(carrier.velocity.x) < 0.1) carrier.velocity.x = 0;
+      if (Math.abs(carrier.velocity.y) < 0.1) carrier.velocity.y = 0;
+    }
+
+    // Cap speed to max rating
+    const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+    if (currentSpeed > maxSpeed) {
+      const ratio = maxSpeed / currentSpeed;
+      carrier.velocity.x *= ratio;
+      carrier.velocity.y *= ratio;
+    }
+
+    // Apply velocity to position
+    carrier.location.x += carrier.velocity.x;
+    carrier.location.y += carrier.velocity.y;
+  }
+
+  private updateEvasionMove(carrier: FieldPlayer): void {
+    const elapsed = this.currentTime - this.evasionState.startTime;
+
+    if (elapsed >= this.evasionState.duration) {
+      // End evasion move
+      this.evasionState.active = false;
+      this.evasionState.type = null;
+      return;
+    }
+
+    const progress = elapsed / this.evasionState.duration;
+    const evasionSpeed = (carrier.speed / 100) * 5; // Faster during evasion
+
+    switch (this.evasionState.type) {
+      case 'JUKE':
+        // Quick lateral cut - fast sideways movement
+        const jukePhase = Math.sin(progress * Math.PI);
+        carrier.velocity.x = this.evasionState.direction.x * evasionSpeed * jukePhase;
+        carrier.velocity.y = this.evasionState.direction.y * evasionSpeed * 0.3;
+        break;
+
+      case 'SPIN':
+        // 360 spin move - circular motion with forward momentum
+        const spinAngle = progress * Math.PI * 2;
+        const spinRadius = 3;
+        carrier.velocity.x = Math.cos(spinAngle) * spinRadius + this.evasionState.direction.x * 2;
+        carrier.velocity.y = Math.sin(spinAngle) * spinRadius + this.evasionState.direction.y * 2;
+        break;
+
+      case 'DIVE':
+        // Forward dive - burst of speed forward
+        const diveBoost = (1 - progress) * evasionSpeed * 1.5;
+        carrier.velocity.x = this.evasionState.direction.x * diveBoost;
+        carrier.velocity.y = this.evasionState.direction.y * diveBoost;
+        break;
+    }
+
+    // Apply velocity
+    carrier.location.x += carrier.velocity.x;
+    carrier.location.y += carrier.velocity.y;
   }
 
   private moveDefenderWithBlocking(defender: FieldPlayer, target: Vector2, blockers: FieldPlayer[]): void {
@@ -549,21 +650,29 @@ export class GameEngine {
     const isQB = this.state.ballCarrier === 'qb';
     const los = this.yardLineToY(this.state.field.yardLine);
 
-    // Check for tackles/sacks
-    this.state.defensivePlayers.forEach(defender => {
+    // Calculate carrier speed for tackle difficulty
+    const carrierSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+
+    // Check for tackles/sacks with improved collision detection
+    for (const defender of this.state.defensivePlayers) {
       const dist = this.distance(carrier.location, defender.location);
-      if (dist < 8) {
-        // Tackle probability based on ratings
-        if (Math.random() < 0.7) {
+
+      // Increased collision threshold from 8 to 15 for more reliable contact
+      if (dist < 15) {
+        // Calculate skill-based tackle probability
+        const tackleChance = this.calculateTackleChance(carrier, defender, carrierSpeed, dist);
+
+        if (Math.random() < tackleChance) {
           if (isQB && carrier.location.y <= los) {
             // Sack! QB tackled at or behind LOS
             this.resolveSack(defender.id);
           } else {
             this.endPlay(false, false, defender.id);
           }
+          return; // Only one tackle per frame
         }
       }
-    });
+    }
 
     // Check for touchdown
     const carrierYardLine = this.yToYardLine(carrier.location.y);
@@ -580,6 +689,51 @@ export class GameEngine {
     if (carrier.location.x < 0 || carrier.location.x > FIELD_WIDTH) {
       this.endPlay(false, true);
     }
+  }
+
+  private calculateTackleChance(
+    carrier: FieldPlayer,
+    defender: FieldPlayer,
+    carrierSpeed: number,
+    distance: number
+  ): number {
+    // Base tackle chance based on proximity (closer = higher chance)
+    // At distance 15: low chance, at distance 5: high chance
+    const proximityFactor = 1 - (distance / 15);
+    const baseChance = 0.3 + proximityFactor * 0.5; // 30-80% base range
+
+    // Defender tackling ability (use speed as proxy for now, ideally would have tackle rating)
+    const defenderSkill = defender.speed / 100; // 0.7-0.9 typically
+
+    // Carrier evasion ability (speed + acceleration as proxy for elusiveness)
+    const carrierEvasion = (carrier.speed + carrier.acceleration) / 200;
+
+    // Speed penalty - harder to tackle a fast-moving carrier
+    const speedPenalty = Math.min(carrierSpeed / 8, 0.3); // Up to 30% penalty for max speed
+
+    // Evasion move bonus - much harder to tackle during juke/spin/dive
+    let evasionBonus = 0;
+    if (this.evasionState.active) {
+      switch (this.evasionState.type) {
+        case 'JUKE':
+          evasionBonus = 0.4; // 40% reduction in tackle chance
+          break;
+        case 'SPIN':
+          evasionBonus = 0.5; // 50% reduction - spins are very effective
+          break;
+        case 'DIVE':
+          evasionBonus = 0.2; // 20% reduction - dives are more about distance
+          break;
+      }
+    }
+
+    // Calculate final tackle probability
+    let tackleChance = baseChance * (1 + (defenderSkill - carrierEvasion) * 0.5);
+    tackleChance -= speedPenalty;
+    tackleChance -= evasionBonus;
+
+    // Clamp between 10% and 95%
+    return Math.max(0.1, Math.min(0.95, tackleChance));
   }
 
   private resolveSack(defenderId: string): void {
@@ -633,6 +787,78 @@ export class GameEngine {
 
     this.playerInput = direction;
     this.lastInputTime = this.currentTime;
+  }
+
+  // EVASION MOVES
+  juke(): void {
+    if (!this.canPerformEvasion()) return;
+
+    const carrier = this.getPlayer(this.state.ballCarrier || '');
+    if (!carrier) return;
+
+    // Juke laterally based on current movement direction
+    const lateralDir = carrier.velocity.x >= 0 ? 1 : -1;
+    // Alternate juke direction if already moving that way
+    const jukeDir = Math.abs(carrier.velocity.x) > Math.abs(carrier.velocity.y)
+      ? { x: 0, y: lateralDir }  // Juke perpendicular to movement
+      : { x: lateralDir, y: 0 };
+
+    this.startEvasion('JUKE', jukeDir, 0.2); // 200ms juke
+  }
+
+  spin(): void {
+    if (!this.canPerformEvasion()) return;
+
+    const carrier = this.getPlayer(this.state.ballCarrier || '');
+    if (!carrier) return;
+
+    // Spin in direction of current velocity
+    const speed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+    const spinDir = speed > 0.5
+      ? { x: carrier.velocity.x / speed, y: carrier.velocity.y / speed }
+      : { x: 0, y: -1 }; // Default to upfield
+
+    this.startEvasion('SPIN', spinDir, 0.35); // 350ms spin
+  }
+
+  dive(): void {
+    if (!this.canPerformEvasion()) return;
+
+    const carrier = this.getPlayer(this.state.ballCarrier || '');
+    if (!carrier) return;
+
+    // Dive in direction of current velocity or input
+    let diveDir: Vector2;
+    if (this.playerInput.x !== 0 || this.playerInput.y !== 0) {
+      const inputMag = Math.sqrt(this.playerInput.x ** 2 + this.playerInput.y ** 2);
+      diveDir = { x: this.playerInput.x / inputMag, y: this.playerInput.y / inputMag };
+    } else {
+      const speed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
+      diveDir = speed > 0.5
+        ? { x: carrier.velocity.x / speed, y: carrier.velocity.y / speed }
+        : { x: 0, y: -1 }; // Default to upfield
+    }
+
+    this.startEvasion('DIVE', diveDir, 0.25); // 250ms dive
+  }
+
+  private canPerformEvasion(): boolean {
+    if (this.state.phase !== 'SNAP' && this.state.phase !== 'ACTIVE') return false;
+    if (!this.state.ballCarrier) return false;
+    if (this.evasionState.active) return false;
+    if (this.currentTime < this.evasionState.cooldownEnd) return false;
+    return true;
+  }
+
+  private startEvasion(type: 'JUKE' | 'SPIN' | 'DIVE', direction: Vector2, duration: number): void {
+    this.evasionState = {
+      active: true,
+      type,
+      startTime: this.currentTime,
+      duration,
+      direction,
+      cooldownEnd: this.currentTime + duration + 0.3, // 300ms cooldown after move
+    };
   }
 
   throwToSpot(clickLocation: Vector2): void {

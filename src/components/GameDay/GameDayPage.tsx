@@ -9,7 +9,7 @@ import { PlayCallModal } from './PlayCallModal';
 import { PostSnapControls } from './PostSnapControls';
 import type { Play } from '../../types';
 import type { LiveGame, GameState as LiveGameState } from '../../types/Game';
-import type { GameState } from '../../types/GameSim';
+import type { GameState, Vector2 } from '../../types/GameSim';
 
 interface GameDayPageProps {
   onNavigate?: (page: string) => void;
@@ -97,6 +97,10 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     moveBallCarrier,
     throwToSpot,
     nextPlay,
+    // Evasion moves
+    juke,
+    spin,
+    dive,
     // Kicking
     kickoff,
     punt,
@@ -112,11 +116,24 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   const [showPlayCall, setShowPlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
 
-  // Use ref to avoid stale closure in setInterval
+  // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
+  const moveBallCarrierRef = useRef(moveBallCarrier);
+  const animationFrameRef = useRef<number | null>(null);
+  const phaseRef = useRef(engineState?.phase);
+
+  // Keep refs updated
   useEffect(() => {
     controlsRef.current = controls;
   }, [controls]);
+
+  useEffect(() => {
+    moveBallCarrierRef.current = moveBallCarrier;
+  }, [moveBallCarrier]);
+
+  useEffect(() => {
+    phaseRef.current = engineState?.phase;
+  }, [engineState?.phase]);
 
   const userTeam = teams.find(t => t.info.id === userTeamId);
   const oppTeam = teams.find(t => t.info.id !== userTeamId);
@@ -124,29 +141,54 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   // Check if user has plays
   const hasPlays = playbook.plays.length > 0;
 
-  // Handle keyboard controls for ball carrier movement
+  // Handle keyboard controls for ball carrier movement using requestAnimationFrame
   useEffect(() => {
-    if (!engineState || (engineState.phase !== 'SNAP' && engineState.phase !== 'ACTIVE')) return;
-
-    const handleKeys = () => {
-      const ctrl = controlsRef.current;
-      let dx = 0;
-      let dy = 0;
-      const speed = 1; // Speed is already multiplied in engine
-
-      if (ctrl.up) dy -= speed;
-      if (ctrl.down) dy += speed;
-      if (ctrl.left) dx -= speed;
-      if (ctrl.right) dx += speed;
-
-      if (dx !== 0 || dy !== 0) {
-        moveBallCarrier({ x: dx, y: dy });
+    const updateMovement = () => {
+      const phase = phaseRef.current;
+      if (phase !== 'SNAP' && phase !== 'ACTIVE') {
+        animationFrameRef.current = requestAnimationFrame(updateMovement);
+        return;
       }
+
+      const ctrl = controlsRef.current;
+      const direction: Vector2 = { x: 0, y: 0 };
+
+      // Map controls to direction (up = toward opponent endzone = negative y in field coords)
+      if (ctrl.up) direction.y = -1;
+      if (ctrl.down) direction.y = 1;
+      if (ctrl.left) direction.x = -1;
+      if (ctrl.right) direction.x = 1;
+
+      // Normalize diagonal movement to prevent faster diagonal speed
+      if (direction.x !== 0 && direction.y !== 0) {
+        const diagonalScale = 0.707; // 1/sqrt(2)
+        direction.x *= diagonalScale;
+        direction.y *= diagonalScale;
+      }
+
+      // Sprint multiplier when holding shift (action2)
+      if (ctrl.action2 && (direction.x !== 0 || direction.y !== 0)) {
+        direction.x *= 1.5;
+        direction.y *= 1.5;
+      }
+
+      if (direction.x !== 0 || direction.y !== 0) {
+        moveBallCarrierRef.current(direction);
+      }
+
+      animationFrameRef.current = requestAnimationFrame(updateMovement);
     };
 
-    const interval = setInterval(handleKeys, 16); // ~60fps
-    return () => clearInterval(interval);
-  }, [engineState?.phase, moveBallCarrier]);
+    // Start the animation loop
+    animationFrameRef.current = requestAnimationFrame(updateMovement);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, []); // Empty deps - uses refs for all values
 
   const handlePlaySelect = useCallback((play: Play) => {
     setSelectedPlay(play);
@@ -388,13 +430,14 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
           {isPlayRunning && (
             <>
               <PostSnapControls
-                onJuke={() => console.log('Juke!')}
-                onSpin={() => console.log('Spin!')}
-                onDive={() => console.log('Dive!')}
+                onJuke={juke}
+                onSpin={spin}
+                onDive={dive}
               />
               <div className="bg-gray-800 rounded-lg p-4">
                 <p className="text-gray-400 text-sm">Controls</p>
                 <p className="text-white text-sm">WASD or Arrow keys to move</p>
+                <p className="text-white text-sm">Shift to sprint</p>
                 {engineState.ballCarrier === 'qb' && (
                   <p className="text-white text-sm">Click field to throw</p>
                 )}

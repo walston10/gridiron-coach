@@ -62,6 +62,19 @@ export function useGameEngine() {
     engineRef.current?.handoff(targetId);
   }, []);
 
+  // Evasion moves
+  const juke = useCallback(() => {
+    engineRef.current?.juke();
+  }, []);
+
+  const spin = useCallback(() => {
+    engineRef.current?.spin();
+  }, []);
+
+  const dive = useCallback(() => {
+    engineRef.current?.dive();
+  }, []);
+
   const nextPlay = useCallback(() => {
     engineRef.current?.resetForNextPlay();
     setLastKickResult(null);
@@ -130,6 +143,10 @@ export function useGameEngine() {
     throwToSpot,
     handoff,
     nextPlay,
+    // Evasion moves
+    juke,
+    spin,
+    dive,
     // Kicking
     kickoff,
     punt,
