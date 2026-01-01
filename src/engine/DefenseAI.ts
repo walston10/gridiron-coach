@@ -1,0 +1,615 @@
+import type { Vector2, FieldPlayer, CoverageType, DefensivePlay, Position } from '../types/GameSim';
+
+/**
+ * Defense AI phases:
+ * PRE_SNAP - Aligned in formation
+ * READ - Reading the play (first 0.3 seconds)
+ * EXECUTE - Running coverage/rush assignment
+ * REACT_BALL - Ball is thrown, break on it
+ * PURSUIT - Chasing ball carrier
+ * SCRAMBLE_CONTAIN - QB left pocket, contain the edges
+ */
+export type DefensePhase = 'PRE_SNAP' | 'READ' | 'EXECUTE' | 'REACT_BALL' | 'PURSUIT' | 'SCRAMBLE_CONTAIN';
+
+export interface DefenderState {
+  phase: DefensePhase;
+  assignment: DefenderAssignment;
+  zoneBounds?: ZoneBounds;
+  manTarget?: string; // Player ID for man coverage
+  rushLane?: Vector2; // Direction for pass rushers
+  lastKnownBallLocation: Vector2;
+}
+
+export interface DefenderAssignment {
+  type: 'ZONE' | 'MAN' | 'RUSH' | 'SPY' | 'BLITZ';
+  zone?: ZoneType;
+  rushType?: 'INSIDE' | 'OUTSIDE' | 'BULL' | 'CONTAIN';
+}
+
+export type ZoneType =
+  | 'FLAT_LEFT' | 'FLAT_RIGHT'           // Underneath sideline
+  | 'CURL_LEFT' | 'CURL_RIGHT'           // Underneath middle-outside
+  | 'HOOK_LEFT' | 'HOOK_RIGHT'           // Underneath middle
+  | 'DEEP_THIRD_LEFT' | 'DEEP_THIRD_MID' | 'DEEP_THIRD_RIGHT'  // Cover 3 deep
+  | 'DEEP_HALF_LEFT' | 'DEEP_HALF_RIGHT' // Cover 2 deep
+  | 'DEEP_QUARTER_1' | 'DEEP_QUARTER_2' | 'DEEP_QUARTER_3' | 'DEEP_QUARTER_4'; // Cover 4
+
+export interface ZoneBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  anchorPoint: Vector2; // Where to settle in zone
+}
+
+// Zone definitions based on field position (160 wide, relative to LOS)
+const ZONE_DEFINITIONS: Record<ZoneType, (los: number) => ZoneBounds> = {
+  FLAT_LEFT: (los) => ({
+    minX: 0, maxX: 40, minY: los, maxY: los + 30,
+    anchorPoint: { x: 25, y: los + 15 },
+  }),
+  FLAT_RIGHT: (los) => ({
+    minX: 120, maxX: 160, minY: los, maxY: los + 30,
+    anchorPoint: { x: 135, y: los + 15 },
+  }),
+  CURL_LEFT: (los) => ({
+    minX: 30, maxX: 65, minY: los + 15, maxY: los + 45,
+    anchorPoint: { x: 50, y: los + 30 },
+  }),
+  CURL_RIGHT: (los) => ({
+    minX: 95, maxX: 130, minY: los + 15, maxY: los + 45,
+    anchorPoint: { x: 110, y: los + 30 },
+  }),
+  HOOK_LEFT: (los) => ({
+    minX: 50, maxX: 80, minY: los + 10, maxY: los + 35,
+    anchorPoint: { x: 65, y: los + 22 },
+  }),
+  HOOK_RIGHT: (los) => ({
+    minX: 80, maxX: 110, minY: los + 10, maxY: los + 35,
+    anchorPoint: { x: 95, y: los + 22 },
+  }),
+  DEEP_THIRD_LEFT: (los) => ({
+    minX: 0, maxX: 55, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 30, y: los + 60 },
+  }),
+  DEEP_THIRD_MID: (los) => ({
+    minX: 50, maxX: 110, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 80, y: los + 65 },
+  }),
+  DEEP_THIRD_RIGHT: (los) => ({
+    minX: 105, maxX: 160, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 130, y: los + 60 },
+  }),
+  DEEP_HALF_LEFT: (los) => ({
+    minX: 0, maxX: 80, minY: los + 50, maxY: los + 120,
+    anchorPoint: { x: 45, y: los + 65 },
+  }),
+  DEEP_HALF_RIGHT: (los) => ({
+    minX: 80, maxX: 160, minY: los + 50, maxY: los + 120,
+    anchorPoint: { x: 115, y: los + 65 },
+  }),
+  DEEP_QUARTER_1: (los) => ({
+    minX: 0, maxX: 40, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 25, y: los + 55 },
+  }),
+  DEEP_QUARTER_2: (los) => ({
+    minX: 40, maxX: 80, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 60, y: los + 60 },
+  }),
+  DEEP_QUARTER_3: (los) => ({
+    minX: 80, maxX: 120, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 100, y: los + 60 },
+  }),
+  DEEP_QUARTER_4: (los) => ({
+    minX: 120, maxX: 160, minY: los + 45, maxY: los + 120,
+    anchorPoint: { x: 135, y: los + 55 },
+  }),
+};
+
+// Coverage assignments by scheme
+export interface CoverageScheme {
+  cb1: DefenderAssignment;
+  cb2: DefenderAssignment;
+  ncb?: DefenderAssignment; // Nickel CB
+  fs: DefenderAssignment;
+  ss: DefenderAssignment;
+  mlb?: DefenderAssignment;
+  olb1?: DefenderAssignment;
+  olb2?: DefenderAssignment;
+  ilb1?: DefenderAssignment;
+  ilb2?: DefenderAssignment;
+}
+
+export { ZONE_DEFINITIONS };
+
+export const COVERAGE_SCHEMES: Record<CoverageType, CoverageScheme> = {
+  COVER_0: {
+    cb1: { type: 'MAN' },
+    cb2: { type: 'MAN' },
+    fs: { type: 'MAN' },
+    ss: { type: 'MAN' },
+    mlb: { type: 'MAN' },
+    olb1: { type: 'BLITZ' },
+    olb2: { type: 'BLITZ' },
+  },
+  COVER_1: {
+    cb1: { type: 'MAN' },
+    cb2: { type: 'MAN' },
+    fs: { type: 'ZONE', zone: 'DEEP_THIRD_MID' },
+    ss: { type: 'MAN' },
+    mlb: { type: 'ZONE', zone: 'HOOK_LEFT' },
+    olb1: { type: 'ZONE', zone: 'FLAT_LEFT' },
+    olb2: { type: 'ZONE', zone: 'FLAT_RIGHT' },
+  },
+  COVER_2: {
+    cb1: { type: 'ZONE', zone: 'FLAT_LEFT' },
+    cb2: { type: 'ZONE', zone: 'FLAT_RIGHT' },
+    fs: { type: 'ZONE', zone: 'DEEP_HALF_LEFT' },
+    ss: { type: 'ZONE', zone: 'DEEP_HALF_RIGHT' },
+    mlb: { type: 'ZONE', zone: 'HOOK_LEFT' },
+    olb1: { type: 'ZONE', zone: 'CURL_LEFT' },
+    olb2: { type: 'ZONE', zone: 'CURL_RIGHT' },
+  },
+  COVER_3: {
+    cb1: { type: 'ZONE', zone: 'DEEP_THIRD_LEFT' },
+    cb2: { type: 'ZONE', zone: 'DEEP_THIRD_RIGHT' },
+    fs: { type: 'ZONE', zone: 'DEEP_THIRD_MID' },
+    ss: { type: 'ZONE', zone: 'CURL_RIGHT' },
+    mlb: { type: 'ZONE', zone: 'HOOK_LEFT' },
+    olb1: { type: 'ZONE', zone: 'FLAT_LEFT' },
+    olb2: { type: 'ZONE', zone: 'CURL_LEFT' },
+  },
+  COVER_4: {
+    cb1: { type: 'ZONE', zone: 'DEEP_QUARTER_1' },
+    cb2: { type: 'ZONE', zone: 'DEEP_QUARTER_4' },
+    fs: { type: 'ZONE', zone: 'DEEP_QUARTER_2' },
+    ss: { type: 'ZONE', zone: 'DEEP_QUARTER_3' },
+    mlb: { type: 'ZONE', zone: 'HOOK_LEFT' },
+    olb1: { type: 'ZONE', zone: 'CURL_LEFT' },
+    olb2: { type: 'ZONE', zone: 'CURL_RIGHT' },
+  },
+  COVER_2_MAN: {
+    cb1: { type: 'MAN' },
+    cb2: { type: 'MAN' },
+    fs: { type: 'ZONE', zone: 'DEEP_HALF_LEFT' },
+    ss: { type: 'ZONE', zone: 'DEEP_HALF_RIGHT' },
+    mlb: { type: 'MAN' },
+    olb1: { type: 'MAN' },
+    olb2: { type: 'MAN' },
+  },
+  TAMPA_2: {
+    cb1: { type: 'ZONE', zone: 'FLAT_LEFT' },
+    cb2: { type: 'ZONE', zone: 'FLAT_RIGHT' },
+    fs: { type: 'ZONE', zone: 'DEEP_HALF_LEFT' },
+    ss: { type: 'ZONE', zone: 'DEEP_HALF_RIGHT' },
+    mlb: { type: 'ZONE', zone: 'DEEP_THIRD_MID' }, // MLB drops deep in Tampa 2
+    olb1: { type: 'ZONE', zone: 'CURL_LEFT' },
+    olb2: { type: 'ZONE', zone: 'CURL_RIGHT' },
+  },
+  MAN_FREE: {
+    cb1: { type: 'MAN' },
+    cb2: { type: 'MAN' },
+    fs: { type: 'ZONE', zone: 'DEEP_THIRD_MID' }, // Free safety
+    ss: { type: 'MAN' },
+    mlb: { type: 'MAN' },
+    olb1: { type: 'ZONE', zone: 'FLAT_LEFT' },
+    olb2: { type: 'ZONE', zone: 'FLAT_RIGHT' },
+  },
+};
+
+export class DefenseAI {
+  private defenderStates: Map<string, DefenderState> = new Map();
+  private lineOfScrimmage: number = 0;
+  private globalPhase: DefensePhase = 'PRE_SNAP';
+  private snapTime: number = 0;
+  private qbLocation: Vector2 = { x: 80, y: 0 };
+  private qbInPocket: boolean = true;
+  private ballInAir: boolean = false;
+  private ballLocation: Vector2 = { x: 80, y: 0 };
+  private ballCarrierId: string | null = null;
+
+  reset(): void {
+    this.defenderStates.clear();
+    this.globalPhase = 'PRE_SNAP';
+    this.ballInAir = false;
+    this.qbInPocket = true;
+    this.ballCarrierId = null;
+  }
+
+  initializeDefense(
+    defenders: FieldPlayer[],
+    play: DefensivePlay,
+    los: number,
+    offensivePlayers: FieldPlayer[]
+  ): void {
+    this.lineOfScrimmage = los;
+    const scheme = COVERAGE_SCHEMES[play.coverage];
+
+    // Assign man coverage targets first
+    const receivers = offensivePlayers.filter(p =>
+      ['WR', 'TE', 'RB'].includes(p.position)
+    );
+    let receiverIndex = 0;
+
+    defenders.forEach(defender => {
+      const positionKey = this.getPositionKey(defender);
+      const assignment = scheme[positionKey as keyof CoverageScheme];
+
+      if (!assignment) {
+        // Default: D-line rushes, others zone
+        if (['DE', 'DT', 'NT'].includes(defender.position)) {
+          this.defenderStates.set(defender.id, {
+            phase: 'PRE_SNAP',
+            assignment: { type: 'RUSH', rushType: 'BULL' },
+            lastKnownBallLocation: { x: 80, y: los },
+          });
+        } else {
+          this.defenderStates.set(defender.id, {
+            phase: 'PRE_SNAP',
+            assignment: { type: 'ZONE', zone: 'HOOK_LEFT' },
+            zoneBounds: ZONE_DEFINITIONS['HOOK_LEFT'](los),
+            lastKnownBallLocation: { x: 80, y: los },
+          });
+        }
+        return;
+      }
+
+      const state: DefenderState = {
+        phase: 'PRE_SNAP',
+        assignment: { ...assignment },
+        lastKnownBallLocation: { x: 80, y: los },
+      };
+
+      // Set up zone bounds
+      if (assignment.type === 'ZONE' && assignment.zone) {
+        state.zoneBounds = ZONE_DEFINITIONS[assignment.zone](los);
+      }
+
+      // Assign man targets (match up by position)
+      if (assignment.type === 'MAN' && receiverIndex < receivers.length) {
+        state.manTarget = receivers[receiverIndex].id;
+        receiverIndex++;
+      }
+
+      // Set rush lanes for D-line
+      if (defender.position === 'DE' || defender.position === 'DT' || defender.position === 'NT') {
+        state.assignment = {
+          type: 'RUSH',
+          rushType: defender.location.x < 80 ? 'OUTSIDE' : 'INSIDE',
+        };
+      }
+
+      this.defenderStates.set(defender.id, state);
+    });
+  }
+
+  private getPositionKey(defender: FieldPlayer): string {
+    // Map defender IDs to scheme keys
+    const mapping: Record<string, string> = {
+      cb1: 'cb1', cb2: 'cb2', ncb: 'ncb',
+      fs: 'fs', ss: 'ss',
+      mlb: 'mlb', mlb1: 'mlb', mlb2: 'mlb',
+      olb1: 'olb1', olb2: 'olb2',
+      ilb1: 'ilb1', ilb2: 'ilb2',
+    };
+    return mapping[defender.id] || defender.position.toLowerCase();
+  }
+
+  onSnap(currentTime: number): void {
+    this.snapTime = currentTime;
+    this.globalPhase = 'READ';
+  }
+
+  updateGameState(
+    qbLocation: Vector2,
+    pocketCenter: Vector2,
+    ballInAir: boolean,
+    ballLocation: Vector2,
+    ballCarrierId: string | null,
+    currentTime: number
+  ): void {
+    this.qbLocation = qbLocation;
+    this.ballInAir = ballInAir;
+    this.ballLocation = ballLocation;
+    this.ballCarrierId = ballCarrierId;
+
+    // Check if QB left pocket
+    const distFromPocket = Math.sqrt(
+      (qbLocation.x - pocketCenter.x) ** 2 + (qbLocation.y - pocketCenter.y) ** 2
+    );
+    this.qbInPocket = distFromPocket < 15;
+
+    // Update global phase
+    const timeSinceSnap = currentTime - this.snapTime;
+
+    if (timeSinceSnap < 0.3) {
+      this.globalPhase = 'READ';
+    } else if (ballInAir) {
+      this.globalPhase = 'REACT_BALL';
+    } else if (ballCarrierId && ballCarrierId !== 'qb') {
+      this.globalPhase = 'PURSUIT';
+    } else if (!this.qbInPocket) {
+      this.globalPhase = 'SCRAMBLE_CONTAIN';
+    } else {
+      this.globalPhase = 'EXECUTE';
+    }
+  }
+
+  getMovementVector(
+    defender: FieldPlayer,
+    offensivePlayers: FieldPlayer[],
+    currentTime: number
+  ): Vector2 {
+    const state = this.defenderStates.get(defender.id);
+    if (!state) {
+      // Default: chase ball
+      return this.pursuitMovement(defender);
+    }
+
+    // Update individual defender phase
+    state.phase = this.globalPhase;
+
+    switch (this.globalPhase) {
+      case 'READ':
+        // Brief pause to read the play
+        return { x: 0, y: 0 };
+
+      case 'EXECUTE':
+        return this.executeAssignment(defender, state, offensivePlayers);
+
+      case 'REACT_BALL':
+        return this.reactToBall(defender, state);
+
+      case 'PURSUIT':
+        return this.pursuitMovement(defender);
+
+      case 'SCRAMBLE_CONTAIN':
+        return this.scrambleContain(defender, state);
+
+      default:
+        return { x: 0, y: 0 };
+    }
+  }
+
+  private executeAssignment(
+    defender: FieldPlayer,
+    state: DefenderState,
+    offensivePlayers: FieldPlayer[]
+  ): Vector2 {
+    switch (state.assignment.type) {
+      case 'ZONE':
+        return this.zoneMovement(defender, state, offensivePlayers);
+
+      case 'MAN':
+        return this.manMovement(defender, state, offensivePlayers);
+
+      case 'RUSH':
+        return this.rushMovement(defender, state);
+
+      case 'SPY':
+        return this.spyMovement(defender);
+
+      case 'BLITZ':
+        return this.blitzMovement(defender);
+
+      default:
+        return { x: 0, y: 0 };
+    }
+  }
+
+  private zoneMovement(
+    defender: FieldPlayer,
+    state: DefenderState,
+    offensivePlayers: FieldPlayer[]
+  ): Vector2 {
+    if (!state.zoneBounds) return { x: 0, y: 0 };
+
+    const zone = state.zoneBounds;
+
+    // Find receivers in or near this zone
+    const receiversInZone = offensivePlayers.filter(p => {
+      if (!['WR', 'TE', 'RB'].includes(p.position)) return false;
+      // Check if receiver is in or approaching zone
+      return p.location.x >= zone.minX - 10 && p.location.x <= zone.maxX + 10 &&
+             p.location.y >= zone.minY - 10 && p.location.y <= zone.maxY + 30;
+    });
+
+    if (receiversInZone.length > 0) {
+      // Move toward nearest receiver in zone
+      const nearest = this.findNearest(defender.location, receiversInZone);
+      if (nearest) {
+        const dir = this.normalize({
+          x: nearest.location.x - defender.location.x,
+          y: nearest.location.y - defender.location.y,
+        });
+        // Don't completely abandon zone - blend toward receiver
+        const toAnchor = this.normalize({
+          x: zone.anchorPoint.x - defender.location.x,
+          y: zone.anchorPoint.y - defender.location.y,
+        });
+        return {
+          x: dir.x * 0.7 + toAnchor.x * 0.3,
+          y: dir.y * 0.7 + toAnchor.y * 0.3,
+        };
+      }
+    }
+
+    // No receivers in zone - move toward anchor point
+    const toAnchor = this.normalize({
+      x: zone.anchorPoint.x - defender.location.x,
+      y: zone.anchorPoint.y - defender.location.y,
+    });
+
+    // Once near anchor, stay put but track QB
+    const distToAnchor = this.distance(defender.location, zone.anchorPoint);
+    if (distToAnchor < 10) {
+      // At anchor - just minor adjustments watching QB
+      return {
+        x: (this.qbLocation.x - defender.location.x) * 0.02,
+        y: 0.05, // Slight backpedal
+      };
+    }
+
+    return toAnchor;
+  }
+
+  private manMovement(
+    defender: FieldPlayer,
+    state: DefenderState,
+    offensivePlayers: FieldPlayer[]
+  ): Vector2 {
+    if (!state.manTarget) {
+      // No assignment, help in coverage
+      return this.zoneMovement(defender, {
+        ...state,
+        zoneBounds: ZONE_DEFINITIONS['HOOK_LEFT'](this.lineOfScrimmage),
+      }, offensivePlayers);
+    }
+
+    const target = offensivePlayers.find(p => p.id === state.manTarget);
+    if (!target) return { x: 0, y: 0 };
+
+    // Stay with the receiver, maintain cushion
+    const distToTarget = this.distance(defender.location, target.location);
+    const dir = this.normalize({
+      x: target.location.x - defender.location.x,
+      y: target.location.y - defender.location.y,
+    });
+
+    // Try to stay 5-10 units behind/beside receiver
+    const idealCushion = 8;
+    if (distToTarget > idealCushion + 5) {
+      // Too far, close the gap quickly
+      return { x: dir.x * 1.2, y: dir.y * 1.2 };
+    } else if (distToTarget < idealCushion - 3) {
+      // Too close, back off slightly
+      return { x: -dir.x * 0.3, y: dir.y * 0.3 };
+    }
+
+    // Good position, mirror receiver movement
+    return {
+      x: dir.x * 0.8,
+      y: dir.y * 0.8 + 0.1, // Slight depth
+    };
+  }
+
+  private rushMovement(defender: FieldPlayer, state: DefenderState): Vector2 {
+    // Rush toward QB
+    const toQB = this.normalize({
+      x: this.qbLocation.x - defender.location.x,
+      y: this.qbLocation.y - defender.location.y,
+    });
+
+    // Add rush lane variation
+    const laneOffset = state.assignment.rushType === 'OUTSIDE' ? 0.3 : -0.1;
+
+    return {
+      x: toQB.x + (defender.location.x < 80 ? -laneOffset : laneOffset),
+      y: toQB.y,
+    };
+  }
+
+  private spyMovement(defender: FieldPlayer): Vector2 {
+    // Spy the QB - stay between QB and line of scrimmage
+    const idealX = this.qbLocation.x;
+    const idealY = (this.qbLocation.y + this.lineOfScrimmage) / 2;
+
+    return this.normalize({
+      x: idealX - defender.location.x,
+      y: idealY - defender.location.y,
+    });
+  }
+
+  private blitzMovement(defender: FieldPlayer): Vector2 {
+    // All-out rush to QB
+    const toQB = this.normalize({
+      x: this.qbLocation.x - defender.location.x,
+      y: this.qbLocation.y - defender.location.y,
+    });
+    return { x: toQB.x * 1.3, y: toQB.y * 1.3 };
+  }
+
+  private reactToBall(defender: FieldPlayer, state: DefenderState): Vector2 {
+    // Ball is in the air - break toward it
+    const toBall = this.normalize({
+      x: this.ballLocation.x - defender.location.x,
+      y: this.ballLocation.y - defender.location.y,
+    });
+
+    // DBs react faster than linebackers
+    const reactionSpeed = ['CB', 'FS', 'SS'].includes(defender.position) ? 1.2 : 0.9;
+
+    return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+  }
+
+  private pursuitMovement(defender: FieldPlayer): Vector2 {
+    // Chase the ball carrier
+    const toBall = this.normalize({
+      x: this.ballLocation.x - defender.location.x,
+      y: this.ballLocation.y - defender.location.y,
+    });
+
+    // Take proper pursuit angles - don't just run straight
+    const pursuiteAngle = defender.location.y < this.ballLocation.y ? 0.2 : -0.1;
+
+    return {
+      x: toBall.x,
+      y: toBall.y + pursuiteAngle,
+    };
+  }
+
+  private scrambleContain(defender: FieldPlayer, state: DefenderState): Vector2 {
+    // QB is scrambling - contain the edges, D-line pursue
+    if (['DE', 'DT', 'NT'].includes(defender.position)) {
+      // D-line chases
+      return this.pursuitMovement(defender);
+    }
+
+    if (['CB'].includes(defender.position)) {
+      // Corners contain the edges
+      const edgeX = defender.location.x < 80 ? 30 : 130;
+      const containPoint = { x: edgeX, y: this.qbLocation.y + 5 };
+
+      return this.normalize({
+        x: containPoint.x - defender.location.x,
+        y: containPoint.y - defender.location.y,
+      });
+    }
+
+    // Everyone else - controlled pursuit but watch for receivers
+    const toQB = this.normalize({
+      x: this.qbLocation.x - defender.location.x,
+      y: this.qbLocation.y - defender.location.y,
+    });
+
+    return { x: toQB.x * 0.7, y: toQB.y * 0.7 };
+  }
+
+  private findNearest(location: Vector2, players: FieldPlayer[]): FieldPlayer | null {
+    let nearest: FieldPlayer | null = null;
+    let minDist = Infinity;
+
+    for (const player of players) {
+      const dist = this.distance(location, player.location);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = player;
+      }
+    }
+
+    return nearest;
+  }
+
+  private distance(a: Vector2, b: Vector2): number {
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+
+  private normalize(v: Vector2): Vector2 {
+    const len = Math.sqrt(v.x ** 2 + v.y ** 2);
+    return len > 0 ? { x: v.x / len, y: v.y / len } : { x: 0, y: 0 };
+  }
+
+  getDefenderState(defenderId: string): DefenderState | undefined {
+    return this.defenderStates.get(defenderId);
+  }
+}
