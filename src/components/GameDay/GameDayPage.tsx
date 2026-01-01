@@ -210,7 +210,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   // Handle click on canvas to throw
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!engineState || engineState.phase !== 'SNAP') return;
-    if (engineState.ballCarrier !== 'qb') return;
+    // Check if QB has the ball (case-insensitive)
+    if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 160;

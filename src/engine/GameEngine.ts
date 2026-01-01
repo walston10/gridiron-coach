@@ -535,10 +535,11 @@ export class GameEngine {
   }
 
   private updateNormalMovement(carrier: FieldPlayer): void {
-    // Physics constants derived from player stats - tuned for responsiveness
-    const baseMaxSpeed = 4.0; // Increased base speed
+    // Physics constants - matched to defender speed scale
+    // Defenders move at ~0.5 units/tick, ball carrier should be similar (slightly faster)
+    const baseMaxSpeed = 0.7; // ~12 yards/sec max (slightly faster than defenders)
     const maxSpeed = (carrier.speed / 100) * baseMaxSpeed;
-    const baseAccel = 0.45; // Much higher acceleration for snappy feel
+    const baseAccel = 0.08; // Reasonable acceleration
     const accel = (carrier.acceleration / 100) * baseAccel;
 
     // Apply input to velocity with acceleration curve
@@ -548,33 +549,25 @@ export class GameEngine {
       const normInputX = this.playerInput.x / inputMag;
       const normInputY = this.playerInput.y / inputMag;
 
-      // Apply acceleration with slight curve for responsiveness
-      const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
-      const speedRatio = currentSpeed / maxSpeed;
+      // Apply acceleration
+      carrier.velocity.x += normInputX * accel * inputMag;
+      carrier.velocity.y += normInputY * accel * inputMag;
 
-      // Faster acceleration at low speeds, slower near max speed
-      const accelMult = 1.0 + (1.0 - speedRatio) * 0.5;
-
-      carrier.velocity.x += normInputX * accel * accelMult * inputMag;
-      carrier.velocity.y += normInputY * accel * accelMult * inputMag;
-
-      // Allow quick direction changes - reduce velocity in opposite direction faster
+      // Allow quick direction changes
       if (Math.sign(carrier.velocity.x) !== Math.sign(normInputX) && normInputX !== 0) {
-        carrier.velocity.x *= 0.85;
+        carrier.velocity.x *= 0.8;
       }
       if (Math.sign(carrier.velocity.y) !== Math.sign(normInputY) && normInputY !== 0) {
-        carrier.velocity.y *= 0.85;
+        carrier.velocity.y *= 0.8;
       }
     } else {
-      // Friction with progressive deceleration - faster stop when slow
-      const currentSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
-      const frictionFactor = currentSpeed > 1 ? 0.92 : 0.8;
-      carrier.velocity.x *= frictionFactor;
-      carrier.velocity.y *= frictionFactor;
+      // Friction when no input
+      carrier.velocity.x *= 0.9;
+      carrier.velocity.y *= 0.9;
 
       // Stop completely when very slow
-      if (Math.abs(carrier.velocity.x) < 0.1) carrier.velocity.x = 0;
-      if (Math.abs(carrier.velocity.y) < 0.1) carrier.velocity.y = 0;
+      if (Math.abs(carrier.velocity.x) < 0.02) carrier.velocity.x = 0;
+      if (Math.abs(carrier.velocity.y) < 0.02) carrier.velocity.y = 0;
     }
 
     // Cap speed to max rating
