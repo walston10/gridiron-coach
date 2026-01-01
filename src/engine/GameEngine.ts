@@ -651,6 +651,9 @@ export class GameEngine {
     const carrier = this.getPlayer(this.state.ballCarrier || '');
     if (!carrier) return;
 
+    // Grace period after snap - no tackles for first 0.5 seconds to let play develop
+    if (this.currentTime < 0.5) return;
+
     const isQBCarrier = this.isQB(this.state.ballCarrier);
     const los = this.yardLineToY(this.state.field.yardLine);
 
@@ -661,8 +664,8 @@ export class GameEngine {
     for (const defender of this.state.defensivePlayers) {
       const dist = this.distance(carrier.location, defender.location);
 
-      // Increased collision threshold from 8 to 15 for more reliable contact
-      if (dist < 15) {
+      // Collision threshold - closer = more likely tackle
+      if (dist < 12) {
         // Calculate skill-based tackle probability
         const tackleChance = this.calculateTackleChance(carrier, defender, carrierSpeed, dist);
 
@@ -702,9 +705,9 @@ export class GameEngine {
     distance: number
   ): number {
     // Base tackle chance based on proximity (closer = higher chance)
-    // At distance 15: low chance, at distance 5: high chance
-    const proximityFactor = 1 - (distance / 15);
-    const baseChance = 0.3 + proximityFactor * 0.5; // 30-80% base range
+    // At distance 12: low chance, at distance 3: high chance
+    const proximityFactor = 1 - (distance / 12);
+    const baseChance = 0.2 + proximityFactor * 0.5; // 20-70% base range
 
     // Defender tackling ability (use speed as proxy for now, ideally would have tackle rating)
     const defenderSkill = defender.speed / 100; // 0.7-0.9 typically
