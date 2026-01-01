@@ -657,12 +657,13 @@ export class GameEngine {
     // Calculate carrier speed for tackle difficulty
     const carrierSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
 
-    // Check for tackles/sacks with improved collision detection
+    // Check for tackles/sacks
+    // Field scale: 3 units = 1 yard, so 5 units ≈ 1.7 yards (realistic tackle range)
     for (const defender of this.state.defensivePlayers) {
       const dist = this.distance(carrier.location, defender.location);
 
-      // Increased collision threshold from 8 to 15 for more reliable contact
-      if (dist < 15) {
+      // Tackle threshold: 5 units (~1.7 yards) - must be right on the ball carrier
+      if (dist < 5) {
         // Calculate skill-based tackle probability
         const tackleChance = this.calculateTackleChance(carrier, defender, carrierSpeed, dist);
 
@@ -702,9 +703,9 @@ export class GameEngine {
     distance: number
   ): number {
     // Base tackle chance based on proximity (closer = higher chance)
-    // At distance 15: low chance, at distance 5: high chance
-    const proximityFactor = 1 - (distance / 15);
-    const baseChance = 0.3 + proximityFactor * 0.5; // 30-80% base range
+    // At distance 5: low chance, at distance 1: high chance
+    const proximityFactor = 1 - (distance / 5);
+    const baseChance = 0.4 + proximityFactor * 0.4; // 40-80% base range when in contact
 
     // Defender tackling ability (use speed as proxy for now, ideally would have tackle rating)
     const defenderSkill = defender.speed / 100; // 0.7-0.9 typically
