@@ -73,8 +73,8 @@ export class GameEngine {
   }
 
   private createInitialState(): GameState {
-    return {
-      phase: 'PRE_SNAP',
+    const state: GameState = {
+      phase: 'HUDDLE',
       clock: { quarter: 1, minutes: 15, seconds: 0, playClock: 40, isRunning: false },
       field: { yardLine: 25, down: 1, yardsToGo: 10, possession: 'home' },
       score: { home: 0, away: 0 },
@@ -82,6 +82,54 @@ export class GameEngine {
       defensivePlayers: [],
       ballLocation: { x: FIELD_WIDTH / 2, y: 0 },
     };
+    // Create huddle formations
+    state.offensivePlayers = this.createOffensiveHuddle(state.field.yardLine);
+    state.defensivePlayers = this.createDefensiveHuddle(state.field.yardLine);
+    return state;
+  }
+
+  // Create offensive players in huddle formation
+  private createOffensiveHuddle(yardLine: number): FieldPlayer[] {
+    const los = this.yardLineToY(yardLine);
+    const center = FIELD_WIDTH / 2;
+    const huddleY = los - 30; // 10 yards behind LOS
+    const huddleSpacing = 8;
+
+    // Create players clustered in a huddle circle
+    return [
+      this.createPlayer('qb', 'QB', { x: center, y: huddleY - 15 }), // QB in front of huddle
+      this.createPlayer('rb', 'RB', { x: center - huddleSpacing, y: huddleY }),
+      this.createPlayer('wr1', 'WR', { x: center - huddleSpacing * 2, y: huddleY + huddleSpacing }),
+      this.createPlayer('wr2', 'WR', { x: center + huddleSpacing * 2, y: huddleY + huddleSpacing }),
+      this.createPlayer('te', 'TE', { x: center + huddleSpacing, y: huddleY }),
+      this.createPlayer('lt', 'LT', { x: center - huddleSpacing * 2, y: huddleY - huddleSpacing }),
+      this.createPlayer('lg', 'LG', { x: center - huddleSpacing, y: huddleY - huddleSpacing }),
+      this.createPlayer('c', 'C', { x: center, y: huddleY }),
+      this.createPlayer('rg', 'RG', { x: center + huddleSpacing, y: huddleY - huddleSpacing }),
+      this.createPlayer('rt', 'RT', { x: center + huddleSpacing * 2, y: huddleY - huddleSpacing }),
+    ];
+  }
+
+  // Create defensive players waiting in their area
+  private createDefensiveHuddle(yardLine: number): FieldPlayer[] {
+    const los = this.yardLineToY(yardLine);
+    const center = FIELD_WIDTH / 2;
+    const waitY = los + 45; // 15 yards past LOS
+
+    // Defense waits in a loose cluster
+    return [
+      this.createPlayer('de1', 'DE', { x: center - 40, y: waitY - 10 }),
+      this.createPlayer('dt1', 'DT', { x: center - 15, y: waitY - 5 }),
+      this.createPlayer('dt2', 'DT', { x: center + 15, y: waitY - 5 }),
+      this.createPlayer('de2', 'DE', { x: center + 40, y: waitY - 10 }),
+      this.createPlayer('olb1', 'OLB', { x: center - 45, y: waitY + 10 }),
+      this.createPlayer('mlb', 'MLB', { x: center, y: waitY + 5 }),
+      this.createPlayer('olb2', 'OLB', { x: center + 45, y: waitY + 10 }),
+      this.createPlayer('cb1', 'CB', { x: 25, y: waitY + 15 }),
+      this.createPlayer('cb2', 'CB', { x: 135, y: waitY + 15 }),
+      this.createPlayer('fs', 'FS', { x: center - 20, y: waitY + 30 }),
+      this.createPlayer('ss', 'SS', { x: center + 20, y: waitY + 25 }),
+    ];
   }
 
   // PLAY SETUP - Supports both OffensivePlay and UI Play types
@@ -92,15 +140,114 @@ export class GameEngine {
       this.state.selectedPlay = converted;
       this.currentPlay = converted;
       this.originalPlay = play; // Store original for ball carrier info
-      this.state.offensivePlayers = this.createOffensiveFormationFromPlay(play);
+
+      // Get formation target positions
+      const formationPlayers = this.createOffensiveFormationFromPlay(play);
+      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
     } else {
       // Engine OffensivePlay format
       this.state.selectedPlay = play;
       this.currentPlay = play;
       this.originalPlay = null;
-      this.state.offensivePlayers = this.createOffensiveFormation(play);
+
+      // Get formation target positions
+      const formationPlayers = this.createOffensiveFormation(play);
+      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
     }
+
+    // Set defensive formation targets too
+    this.setAutoCPUDefense();
+
+    // Start breaking huddle animation
+    this.state.phase = 'BREAKING_HUDDLE';
+    this.startHuddleBreakAnimation();
     this.emitState();
+  }
+
+  // Set formation targets for huddle break animation
+  private setFormationTargets(currentPlayers: FieldPlayer[], formationPlayers: FieldPlayer[]): void {
+    // Match players by ID and set their formation targets
+    currentPlayers.forEach(player => {
+      const formationPlayer = formationPlayers.find(fp =>
+        fp.id.toLowerCase() === player.id.toLowerCase()
+      );
+      if (formationPlayer) {
+        player.formationTarget = { ...formationPlayer.location };
+        player.route = formationPlayer.route;
+      }
+    });
+  }
+
+  // Animation interval for huddle break
+  private huddleBreakInterval: number | null = null;
+
+  private startHuddleBreakAnimation(): void {
+    if (this.huddleBreakInterval) {
+      clearInterval(this.huddleBreakInterval);
+    }
+
+    this.huddleBreakInterval = window.setInterval(() => {
+      this.updateHuddleBreakAnimation();
+    }, 1000 / TICK_RATE);
+  }
+
+  private updateHuddleBreakAnimation(): void {
+    const MOVE_SPEED = 2.5; // Units per tick
+    let allArrived = true;
+
+    // Move offensive players toward formation
+    this.state.offensivePlayers.forEach(player => {
+      if (!player.formationTarget) return;
+
+      const dx = player.formationTarget.x - player.location.x;
+      const dy = player.formationTarget.y - player.location.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 2) {
+        allArrived = false;
+        const moveX = (dx / dist) * MOVE_SPEED;
+        const moveY = (dy / dist) * MOVE_SPEED;
+        player.location.x += moveX;
+        player.location.y += moveY;
+      } else {
+        // Snap to target
+        player.location.x = player.formationTarget.x;
+        player.location.y = player.formationTarget.y;
+      }
+    });
+
+    // Move defensive players toward formation
+    this.state.defensivePlayers.forEach(player => {
+      if (!player.formationTarget) return;
+
+      const dx = player.formationTarget.x - player.location.x;
+      const dy = player.formationTarget.y - player.location.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 2) {
+        allArrived = false;
+        const moveX = (dx / dist) * MOVE_SPEED;
+        const moveY = (dy / dist) * MOVE_SPEED;
+        player.location.x += moveX;
+        player.location.y += moveY;
+      } else {
+        // Snap to target
+        player.location.x = player.formationTarget.x;
+        player.location.y = player.formationTarget.y;
+      }
+    });
+
+    this.emitState();
+
+    // Check if all players have arrived
+    if (allArrived) {
+      if (this.huddleBreakInterval) {
+        clearInterval(this.huddleBreakInterval);
+        this.huddleBreakInterval = null;
+      }
+      this.state.phase = 'PRE_SNAP';
+      this.emitState();
+    }
   }
 
   // Convert Play Designer route types to engine RouteType
@@ -188,8 +335,9 @@ export class GameEngine {
 
   setDefensivePlay(play: DefensivePlay): void {
     this.currentDefense = play;
-    this.state.defensivePlayers = this.createDefensiveFormation(play);
-    this.emitState();
+    // Get formation target positions
+    const formationPlayers = this.createDefensiveFormation(play);
+    this.setFormationTargets(this.state.defensivePlayers, formationPlayers);
   }
 
   private createOffensiveFormation(play: OffensivePlay): FieldPlayer[] {
@@ -1368,17 +1516,20 @@ export class GameEngine {
   }
 
   resetForNextPlay(): void {
-    this.state.phase = 'PRE_SNAP';
+    this.state.phase = 'HUDDLE';
     this.state.clock.playClock = 40;
     this.state.ballCarrier = undefined;
     this.state.passFlight = undefined;
-    this.state.offensivePlayers = [];
-    this.state.defensivePlayers = [];
+    this.state.handoffEffect = undefined;
     this.state.selectedPlay = undefined;
     this.currentPlay = null;
     this.currentDefense = null;
     this.routeRunner.reset();
     this.defenseAI.reset();
+
+    // Create huddle formations for next play
+    this.state.offensivePlayers = this.createOffensiveHuddle(this.state.field.yardLine);
+    this.state.defensivePlayers = this.createDefensiveHuddle(this.state.field.yardLine);
     this.emitState();
   }
 

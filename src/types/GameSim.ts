@@ -34,6 +34,7 @@ export interface FieldPlayer {
   route?: RouteType;
   assignment?: 'BLOCK' | 'RUSH' | 'ZONE' | 'MAN';
   targetId?: string;    // For man coverage - who they're covering
+  formationTarget?: Vector2;  // Target position for huddle-to-formation animation
   // Position-specific stats
   accuracy?: number;    // QB only: 1-99
   armStrength?: number; // QB only: 1-99
@@ -94,6 +95,8 @@ export interface GameScore {
 }
 
 export type PlayPhase =
+  | 'HUDDLE'        // Players in huddle, waiting for play call
+  | 'BREAKING_HUDDLE' // Players moving from huddle to formation
   | 'PRE_SNAP'      // Selecting play, reading defense
   | 'SNAP'          // Ball snapped, routes developing
   | 'ACTIVE'        // Ball in play (pass thrown or handoff)

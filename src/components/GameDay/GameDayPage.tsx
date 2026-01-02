@@ -23,6 +23,8 @@ function adaptGameStateToLiveGame(
 ): LiveGame {
   // Map engine phase to UI state
   const stateMap: Record<string, LiveGameState> = {
+    'HUDDLE': 'PRE_SNAP',
+    'BREAKING_HUDDLE': 'PRE_SNAP',
     'PRE_SNAP': 'PRE_SNAP',
     'SNAP': 'PLAY_RUNNING',
     'ACTIVE': 'PLAY_RUNNING',
@@ -226,6 +228,31 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     };
   }, []); // Empty deps - uses refs for all values
 
+  // Use refs for snap handler to avoid stale closures
+  const snapRef = useRef(snap);
+  const selectedPlayRef = useRef(selectedPlay);
+
+  useEffect(() => {
+    snapRef.current = snap;
+  }, [snap]);
+
+  useEffect(() => {
+    selectedPlayRef.current = selectedPlay;
+  }, [selectedPlay]);
+
+  // Spacebar to snap the ball
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && phaseRef.current === 'PRE_SNAP' && selectedPlayRef.current) {
+        e.preventDefault();
+        snapRef.current();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handlePlaySelect = useCallback((play: Play) => {
     setSelectedPlay(play);
     engineSelectPlay(play);
@@ -353,6 +380,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     selectedPlay
   );
 
+  const isHuddle = engineState.phase === 'HUDDLE';
+  const isBreakingHuddle = engineState.phase === 'BREAKING_HUDDLE';
   const isPreSnap = engineState.phase === 'PRE_SNAP';
   const isPlayRunning = engineState.phase === 'SNAP' || engineState.phase === 'ACTIVE';
   const isPlayDead = engineState.phase === 'WHISTLE';
@@ -386,6 +415,24 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
         >
           <GameCanvas game={game} width={960} height={540} />
 
+          {/* Spacebar snap instruction overlay */}
+          {isPreSnap && selectedPlay && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-green-500/30">
+              <span className="text-green-400 text-sm font-semibold">
+                Press SPACE to snap the ball
+              </span>
+            </div>
+          )}
+
+          {/* Breaking huddle indicator */}
+          {isBreakingHuddle && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-blue-500/30">
+              <span className="text-blue-400 text-sm font-semibold">
+                Breaking huddle...
+              </span>
+            </div>
+          )}
+
           {/* Throw instruction overlay */}
           {isPlayRunning && engineState.ballCarrier?.toLowerCase() === 'qb' && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-yellow-500/30">
@@ -400,7 +447,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
       {/* Bottom Bar - Control Deck */}
       <ControlDeck
         phase={engineState.phase}
-        isPreSnap={isPreSnap}
+        isPreSnap={isHuddle || isBreakingHuddle || isPreSnap}
         isPlayRunning={isPlayRunning}
         isPlayDead={isPlayDead}
         selectedPlayName={selectedPlay?.name}
