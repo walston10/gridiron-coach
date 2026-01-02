@@ -18,343 +18,343 @@ const BALL_CARRIER_GLOW = '#fbbf24'; // Yellow/gold
 export const GameCanvas: React.FC<GameCanvasProps> = ({
   game,
   width = 900,
-  height = 500,
+  height = 600,
 }) => {
   const draw = useCallback((ctx: CanvasRenderingContext2D, _frameCount: number) => {
-    const ENGINE_WIDTH = 160;
-    const ENGINE_HEIGHT = 360; // 120 yards total (including endzones) * 3 units per yard
+    const ENGINE_WIDTH = 160;  // Sideline to sideline
+    const ENGINE_HEIGHT = 360; // End to end (120 yards * 3)
 
-    // Camera settings - show ~65 yards of field, keeping LOS toward left for forward visibility
-    const VISIBLE_YARDS = 65; // How many yards of field to show (about 2/3 of field)
-    const LOS_OFFSET = 15; // LOS appears 15 yards from left edge (giving room for backfield)
+    // Isometric camera settings
+    // Camera is behind the offense, looking downfield
+    // Y-axis (field length) goes "into" the screen (top = far downfield)
+    // X-axis (sideline) stays horizontal
 
-    // Calculate viewport in engine units (3 units per yard)
+    const VISIBLE_YARDS = 50; // How much field depth to show
+    const DEPTH_SCALE = 0.55; // How much to compress the Y axis (depth)
+    const HORIZON_Y = 80; // Where the "horizon" is on screen (top area)
+
+    // Calculate viewport based on LOS
     const losEngineY = (game.fieldPosition.yardLine / 100) * ENGINE_HEIGHT;
-    const viewportStartY = losEngineY - (LOS_OFFSET * 3.6); // 3.6 units per yard in engine
-    const viewportEndY = viewportStartY + (VISIBLE_YARDS * 3.6);
+    const viewportStartY = losEngineY - 15 * 3.6; // 15 yards behind LOS
+    const viewportEndY = viewportStartY + VISIBLE_YARDS * 3.6;
 
-    // Clamp viewport to field bounds with padding for endzones
+    // Clamp to field bounds
     const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
-    const clampedEndY = clampedStartY + (VISIBLE_YARDS * 3.6);
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * 3.6;
 
-    const fieldLeft = 40;
-    const fieldRight = width - 40;
-    const fieldTop = 40;
+    // Screen layout
+    const fieldMarginX = 50;
+    const fieldTop = HORIZON_Y;
     const fieldBottom = height - 40;
-    const playableWidth = fieldRight - fieldLeft;
-    const playableHeight = fieldBottom - fieldTop;
+    const fieldHeight = fieldBottom - fieldTop;
 
-    // Convert engine Y coordinate to canvas X (zoomed)
-    const engineYToCanvasX = (engineY: number) => {
-      const normalized = (engineY - clampedStartY) / (clampedEndY - clampedStartY);
-      return fieldLeft + normalized * playableWidth;
-    };
-
-    // Convert engine X coordinate to canvas Y (sideline position)
-    const engineXToCanvasY = (engineX: number) => {
-      return fieldTop + (engineX / ENGINE_WIDTH) * playableHeight;
-    };
-
-    // Clear canvas with dark background
-    ctx.fillStyle = '#0f172a';
+    // Clear canvas with sky/stadium background
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+    bgGradient.addColorStop(0, '#1a1a2e'); // Dark blue at top
+    bgGradient.addColorStop(0.3, '#16213e');
+    bgGradient.addColorStop(1, '#0f0f1a'); // Darker at bottom
+    ctx.fillStyle = bgGradient;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate which yard lines are visible
+    // Transform functions for isometric view
+    // Engine Y (0-360) -> depth (0 = near/bottom, 1 = far/top)
+    const getDepth = (engineY: number) => {
+      return (engineY - clampedStartY) / (clampedEndY - clampedStartY);
+    };
+
+    // Convert engine coordinates to screen coordinates
+    const toScreen = (engineX: number, engineY: number): { x: number; y: number; scale: number } => {
+      const depth = getDepth(engineY);
+
+      // Y position: near (depth=0) at bottom, far (depth=1) at top
+      const screenY = fieldBottom - depth * fieldHeight;
+
+      // Perspective: things get narrower as they go into distance
+      const perspectiveScale = 1 - depth * 0.6; // Near = 1.0, far = 0.4
+
+      // X position: center at width/2, spread based on perspective
+      const centerX = width / 2;
+      const fieldWidthAtDepth = (width - fieldMarginX * 2) * perspectiveScale;
+      const normalizedX = (engineX / ENGINE_WIDTH) - 0.5; // -0.5 to 0.5
+      const screenX = centerX + normalizedX * fieldWidthAtDepth;
+
+      return { x: screenX, y: screenY, scale: perspectiveScale };
+    };
+
+    // Draw the field with perspective
+    // Draw grass stripes (every 5 yards)
     const startYard = Math.floor((clampedStartY / ENGINE_HEIGHT) * 100);
     const endYard = Math.ceil((clampedEndY / ENGINE_HEIGHT) * 100);
 
-    // Draw endzones if visible
-    const ownEndzoneY = 0; // 0 yards
-    const oppEndzoneY = ENGINE_HEIGHT; // 100 yards
-
-    // Own endzone (left side of screen when near own goal)
-    if (clampedStartY < 0) {
-      const endzoneEndX = engineYToCanvasX(0);
-      ctx.fillStyle = '#5f1e1e';
-      ctx.fillRect(fieldLeft, fieldTop, endzoneEndX - fieldLeft, playableHeight);
-    }
-
-    // Opponent endzone (right side of screen when in red zone)
-    if (clampedEndY > ENGINE_HEIGHT) {
-      const endzoneStartX = engineYToCanvasX(ENGINE_HEIGHT);
-      ctx.fillStyle = '#1e3a5f';
-      ctx.fillRect(endzoneStartX, fieldTop, fieldRight - endzoneStartX, playableHeight);
-    }
-
-    // Draw alternating grass stripes (every 5 yards)
     for (let yard = Math.floor(startYard / 5) * 5; yard <= Math.ceil(endYard / 5) * 5; yard += 5) {
       if (yard < 0 || yard > 100) continue;
+
       const engineY1 = (yard / 100) * ENGINE_HEIGHT;
       const engineY2 = ((yard + 5) / 100) * ENGINE_HEIGHT;
-      const x1 = engineYToCanvasX(engineY1);
-      const x2 = engineYToCanvasX(engineY2);
+
+      // Get corners of this stripe in screen space
+      const topLeft = toScreen(0, engineY2);
+      const topRight = toScreen(ENGINE_WIDTH, engineY2);
+      const bottomLeft = toScreen(0, engineY1);
+      const bottomRight = toScreen(ENGINE_WIDTH, engineY1);
+
+      // Draw trapezoid for grass stripe
       ctx.fillStyle = (yard / 5) % 2 === 0 ? '#166534' : '#15803d';
-      ctx.fillRect(Math.max(fieldLeft, x1), fieldTop, Math.min(fieldRight, x2) - Math.max(fieldLeft, x1), playableHeight);
+      ctx.beginPath();
+      ctx.moveTo(bottomLeft.x, bottomLeft.y);
+      ctx.lineTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(topLeft.x, topLeft.y);
+      ctx.closePath();
+      ctx.fill();
     }
 
-    // Draw hash marks
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-    const hashTop = fieldTop + playableHeight * 0.35;
-    const hashBottom = fieldTop + playableHeight * 0.65;
+    // Draw endzones if visible
+    if (clampedStartY < 0) {
+      // Own endzone (near camera)
+      const topLeft = toScreen(0, 0);
+      const topRight = toScreen(ENGINE_WIDTH, 0);
+      const bottomLeft = toScreen(0, clampedStartY);
+      const bottomRight = toScreen(ENGINE_WIDTH, clampedStartY);
 
-    for (let yard = Math.max(1, startYard); yard <= Math.min(99, endYard); yard++) {
+      ctx.fillStyle = '#5f1e1e';
+      ctx.beginPath();
+      ctx.moveTo(bottomLeft.x, bottomLeft.y);
+      ctx.lineTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(topLeft.x, topLeft.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    if (clampedEndY > ENGINE_HEIGHT) {
+      // Opponent endzone (far from camera)
+      const topLeft = toScreen(0, clampedEndY);
+      const topRight = toScreen(ENGINE_WIDTH, clampedEndY);
+      const bottomLeft = toScreen(0, ENGINE_HEIGHT);
+      const bottomRight = toScreen(ENGINE_WIDTH, ENGINE_HEIGHT);
+
+      ctx.fillStyle = '#1e3a5f';
+      ctx.beginPath();
+      ctx.moveTo(bottomLeft.x, bottomLeft.y);
+      ctx.lineTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(topLeft.x, topLeft.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Draw yard lines
+    for (let yard = Math.floor(startYard / 5) * 5; yard <= endYard; yard += 5) {
+      if (yard < 0 || yard > 100) continue;
+
       const engineY = (yard / 100) * ENGINE_HEIGHT;
-      const x = engineYToCanvasX(engineY);
-      if (x < fieldLeft || x > fieldRight) continue;
+      const left = toScreen(0, engineY);
+      const right = toScreen(ENGINE_WIDTH, engineY);
 
-      // Top hash
+      const isMajor = yard % 10 === 0;
+      ctx.strokeStyle = isMajor ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = isMajor ? 3 * left.scale : 1;
+
       ctx.beginPath();
-      ctx.moveTo(x, hashTop - 5);
-      ctx.lineTo(x, hashTop + 5);
-      ctx.stroke();
-      // Bottom hash
-      ctx.beginPath();
-      ctx.moveTo(x, hashBottom - 5);
-      ctx.lineTo(x, hashBottom + 5);
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
       ctx.stroke();
     }
 
-    // Draw yard lines (every 10 yards) - thicker
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    // Draw sidelines
+    const nearLeft = toScreen(0, clampedStartY);
+    const nearRight = toScreen(ENGINE_WIDTH, clampedStartY);
+    const farLeft = toScreen(0, clampedEndY);
+    const farRight = toScreen(ENGINE_WIDTH, clampedEndY);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = 3;
 
-    for (let yard = Math.floor(startYard / 10) * 10; yard <= Math.ceil(endYard / 10) * 10; yard += 10) {
-      if (yard < 0 || yard > 100) continue;
-      const engineY = (yard / 100) * ENGINE_HEIGHT;
-      const x = engineYToCanvasX(engineY);
-      if (x < fieldLeft || x > fieldRight) continue;
+    // Left sideline
+    ctx.beginPath();
+    ctx.moveTo(nearLeft.x, nearLeft.y);
+    ctx.lineTo(farLeft.x, farLeft.y);
+    ctx.stroke();
 
-      ctx.beginPath();
-      ctx.moveTo(x, fieldTop);
-      ctx.lineTo(x, fieldBottom);
-      ctx.stroke();
-    }
+    // Right sideline
+    ctx.beginPath();
+    ctx.moveTo(nearRight.x, nearRight.y);
+    ctx.lineTo(farRight.x, farRight.y);
+    ctx.stroke();
 
-    // Draw 5-yard lines (thinner)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.lineWidth = 1;
-
-    for (let yard = Math.floor(startYard / 5) * 5 + 5; yard <= endYard; yard += 10) {
-      if (yard < 0 || yard > 100) continue;
-      const engineY = (yard / 100) * ENGINE_HEIGHT;
-      const x = engineYToCanvasX(engineY);
-      if (x < fieldLeft || x > fieldRight) continue;
-
-      ctx.beginPath();
-      ctx.moveTo(x, fieldTop);
-      ctx.lineTo(x, fieldBottom);
-      ctx.stroke();
-    }
-
-    // Draw yard numbers with shadow - larger since we're zoomed in
-    ctx.font = 'bold 28px Inter, system-ui, sans-serif';
+    // Draw yard numbers
     ctx.textAlign = 'center';
-
-    for (let yard = Math.floor(startYard / 10) * 10; yard <= Math.ceil(endYard / 10) * 10; yard += 10) {
+    for (let yard = Math.floor(startYard / 10) * 10; yard <= endYard; yard += 10) {
       if (yard <= 0 || yard >= 100) continue;
-      const engineY = (yard / 100) * ENGINE_HEIGHT;
-      const x = engineYToCanvasX(engineY);
-      if (x < fieldLeft + 30 || x > fieldRight - 30) continue;
 
+      const engineY = (yard / 100) * ENGINE_HEIGHT;
+      const pos = toScreen(ENGINE_WIDTH / 2, engineY);
       const num = yard <= 50 ? yard : 100 - yard;
 
+      const fontSize = Math.max(12, Math.floor(24 * pos.scale));
+      ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
+
       // Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillText(num.toString(), x + 1, fieldTop - 8 + 1);
-      ctx.fillText(num.toString(), x + 1, fieldBottom + 28 + 1);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillText(num.toString(), pos.x + 1, pos.y + 1);
 
       // Text
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.fillText(num.toString(), x, fieldTop - 8);
-      ctx.fillText(num.toString(), x, fieldBottom + 28);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fillText(num.toString(), pos.x, pos.y);
     }
 
-    // Draw field border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(fieldLeft, fieldTop, playableWidth, playableHeight);
+    // Draw line of scrimmage (blue line)
+    const losLeft = toScreen(0, losEngineY);
+    const losRight = toScreen(ENGINE_WIDTH, losEngineY);
 
-    // Draw line of scrimmage (Blue TV line with glow)
-    const losX = engineYToCanvasX(losEngineY);
-    if (losX >= fieldLeft && losX <= fieldRight) {
-      ctx.strokeStyle = '#1d4ed8';
-      ctx.lineWidth = 5;
-      ctx.shadowColor = '#1d4ed8';
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.moveTo(losX, fieldTop);
-      ctx.lineTo(losX, fieldBottom);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 4 * losLeft.scale;
+    ctx.shadowColor = '#3b82f6';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(losLeft.x, losLeft.y);
+    ctx.lineTo(losRight.x, losRight.y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // Draw first down line (Yellow TV line with glow)
+    // Draw first down line (yellow line)
     const firstDownYard = game.fieldPosition.yardLine + game.fieldPosition.yardsToGo;
     if (firstDownYard <= 100) {
       const fdEngineY = (firstDownYard / 100) * ENGINE_HEIGHT;
-      const fdX = engineYToCanvasX(fdEngineY);
-      if (fdX >= fieldLeft && fdX <= fieldRight) {
-        ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 5;
-        ctx.shadowColor = '#fbbf24';
-        ctx.shadowBlur = 18;
-        ctx.beginPath();
-        ctx.moveTo(fdX, fieldTop);
-        ctx.lineTo(fdX, fieldBottom);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-      }
+      const fdLeft = toScreen(0, fdEngineY);
+      const fdRight = toScreen(ENGINE_WIDTH, fdEngineY);
+
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 4 * fdLeft.scale;
+      ctx.shadowColor = '#fbbf24';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(fdLeft.x, fdLeft.y);
+      ctx.lineTo(fdRight.x, fdRight.y);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
     }
 
-    // Player size - balanced for 65 yard view
-    const playerRadius = 15;
-    const innerRadius = 9;
+    // Sort players by depth (far players drawn first)
+    const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
     // Draw players
-    game.playerPositions.forEach(player => {
-      const canvasX = engineYToCanvasX(player.y);
-      const canvasY = engineXToCanvasY(player.x);
+    sortedPlayers.forEach(player => {
+      const pos = toScreen(player.x, player.y);
 
-      // Skip players off screen
-      if (canvasX < fieldLeft - playerRadius || canvasX > fieldRight + playerRadius) return;
+      // Skip if off screen
+      if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
 
       const isOffense = player.role === 'offense';
+      const baseRadius = 14;
+      const radius = baseRadius * pos.scale;
 
-      // Player shadow
+      // Player shadow (on ground)
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.beginPath();
-      ctx.ellipse(canvasX + 3, canvasY + 5, playerRadius, playerRadius * 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(pos.x + 2, pos.y + radius * 0.3, radius * 0.8, radius * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Player body (gradient effect using two circles)
+      // Player body
       const primaryColor = isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY;
       const secondaryColor = isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY;
 
-      // Outer ring
+      // Outer circle
       ctx.fillStyle = primaryColor;
       ctx.beginPath();
-      ctx.arc(canvasX, canvasY, playerRadius, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Inner highlight
+      // Inner highlight (3D effect)
       ctx.fillStyle = secondaryColor;
       ctx.beginPath();
-      ctx.arc(canvasX - 3, canvasY - 3, innerRadius, 0, Math.PI * 2);
+      ctx.arc(pos.x - radius * 0.2, pos.y - radius * 0.2, radius * 0.6, 0, Math.PI * 2);
       ctx.fill();
 
-      // White border ring
+      // Border
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = Math.max(1, 2 * pos.scale);
       ctx.beginPath();
-      ctx.arc(canvasX, canvasY, playerRadius, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
       ctx.stroke();
-
-      // Direction indicator (small arrow/notch pointing toward opponent endzone)
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.beginPath();
-      ctx.moveTo(canvasX + playerRadius, canvasY);
-      ctx.lineTo(canvasX + playerRadius - 6, canvasY - 5);
-      ctx.lineTo(canvasX + playerRadius - 6, canvasY + 5);
-      ctx.closePath();
-      ctx.fill();
     });
 
-    // Draw ball carrier highlight (glow effect)
+    // Draw ball carrier on top with highlight
     if (game.ballCarrier) {
-      const ballCanvasX = engineYToCanvasX(game.ballCarrier.y);
-      const ballCanvasY = engineXToCanvasY(game.ballCarrier.x);
+      const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
+      const baseRadius = 14;
+      const radius = baseRadius * pos.scale;
 
-      // Outer glow
+      // Glow effect
       ctx.shadowColor = BALL_CARRIER_GLOW;
-      ctx.shadowBlur = 25;
+      ctx.shadowBlur = 20 * pos.scale;
       ctx.fillStyle = BALL_CARRIER_GLOW;
       ctx.beginPath();
-      ctx.arc(ballCanvasX, ballCanvasY, playerRadius + 4, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, radius + 4 * pos.scale, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Inner player
+      // Player
       ctx.fillStyle = '#fef08a';
       ctx.beginPath();
-      ctx.arc(ballCanvasX, ballCanvasY, playerRadius, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      // Ball carrier ring
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 3;
+      // Border
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = Math.max(2, 3 * pos.scale);
       ctx.beginPath();
-      ctx.arc(ballCanvasX, ballCanvasY, playerRadius + 2, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
       ctx.stroke();
-
-      // Direction arrow pointing right (toward opponent endzone)
-      ctx.fillStyle = '#1f2937';
-      ctx.beginPath();
-      ctx.moveTo(ballCanvasX + playerRadius + 2, ballCanvasY);
-      ctx.lineTo(ballCanvasX + playerRadius - 5, ballCanvasY - 6);
-      ctx.lineTo(ballCanvasX + playerRadius - 5, ballCanvasY + 6);
-      ctx.closePath();
-      ctx.fill();
     }
 
     // Draw ball in flight
     if (game.ballInFlight) {
-      const ballCanvasX = engineYToCanvasX(game.ballInFlight.y);
-      const ballCanvasY = engineXToCanvasY(game.ballInFlight.x);
-
-      // Ball shadow (gets smaller as ball rises then falls)
+      const pos = toScreen(game.ballInFlight.x, game.ballInFlight.y);
       const arcHeight = Math.sin(game.ballInFlight.progress * Math.PI);
-      const shadowSize = 10 + arcHeight * 8;
+      const liftAmount = arcHeight * 60 * pos.scale;
+
+      // Shadow on ground
       ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      const shadowSize = (8 + arcHeight * 4) * pos.scale;
       ctx.beginPath();
-      ctx.ellipse(ballCanvasX, ballCanvasY + 25, shadowSize, shadowSize * 0.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(pos.x, pos.y, shadowSize, shadowSize * 0.4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Ball rises in arc during flight
-      const ballLift = arcHeight * 50;
-
-      // Football glow
+      // Football
       ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 18;
-
-      // Football (brown ellipse) - larger since zoomed
+      ctx.shadowBlur = 15;
       ctx.fillStyle = '#92400e';
+      const ballWidth = 12 * pos.scale;
+      const ballHeight = 7 * pos.scale;
       ctx.beginPath();
-      ctx.ellipse(ballCanvasX, ballCanvasY - ballLift, 15, 9, Math.PI * 0.15, 0, Math.PI * 2);
+      ctx.ellipse(pos.x, pos.y - liftAmount, ballWidth, ballHeight, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Football highlight
+      // Highlight
       ctx.fillStyle = '#b45309';
       ctx.beginPath();
-      ctx.ellipse(ballCanvasX - 2, ballCanvasY - ballLift - 2, 8, 4, Math.PI * 0.15, 0, Math.PI * 2);
+      ctx.ellipse(pos.x - 2, pos.y - liftAmount - 2, ballWidth * 0.5, ballHeight * 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
-
       ctx.shadowBlur = 0;
 
       // Laces
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = Math.max(1, 2 * pos.scale);
       ctx.beginPath();
-      ctx.moveTo(ballCanvasX - 6, ballCanvasY - ballLift);
-      ctx.lineTo(ballCanvasX + 6, ballCanvasY - ballLift);
+      ctx.moveTo(pos.x - 4 * pos.scale, pos.y - liftAmount);
+      ctx.lineTo(pos.x + 4 * pos.scale, pos.y - liftAmount);
       ctx.stroke();
-
-      // Cross laces
-      for (let i = -4; i <= 4; i += 2) {
-        ctx.beginPath();
-        ctx.moveTo(ballCanvasX + i, ballCanvasY - ballLift - 3);
-        ctx.lineTo(ballCanvasX + i, ballCanvasY - ballLift + 3);
-        ctx.stroke();
-      }
     }
 
-    // Draw vignette effect around edges
+    // Vignette effect
     const gradient = ctx.createRadialGradient(
-      width / 2, height / 2, Math.min(width, height) * 0.35,
-      width / 2, height / 2, Math.max(width, height) * 0.65
+      width / 2, height / 2, Math.min(width, height) * 0.4,
+      width / 2, height / 2, Math.max(width, height) * 0.7
     );
     gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.25)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
@@ -370,9 +370,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         height={height}
         className="block"
       />
-      {/* Overlay scanlines effect */}
+      {/* Subtle CRT scanline effect */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        className="absolute inset-0 pointer-events-none opacity-[0.02]"
         style={{
           backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.3) 2px, rgba(0,0,0,0.3) 4px)',
         }}

@@ -219,43 +219,50 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     setSelectedPlay(null);
   }, [nextPlay]);
 
-  // Handle click on canvas to throw
+  // Handle click on canvas to throw (isometric view)
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!engineState || engineState.phase !== 'SNAP') return;
     // Check if QB has the ball (case-insensitive)
     if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 
     const rect = e.currentTarget.getBoundingClientRect();
-    // Canvas mapping: screen X → engine Y (field position), screen Y → engine X (sideline position)
-    // Field area is inset 40px on each side (matching GameCanvas)
-    const fieldLeft = 40;
-    const fieldRight = rect.width - 40;
-    const fieldTop = 40;
-    const fieldBottom = rect.height - 40;
 
-    // Viewport settings - must match GameCanvas
+    // Isometric view settings - must match GameCanvas
+    const ENGINE_WIDTH = 160;
     const ENGINE_HEIGHT = 360;
-    const VISIBLE_YARDS = 65;
-    const LOS_OFFSET = 15;
+    const VISIBLE_YARDS = 50;
+    const HORIZON_Y = 80;
+    const fieldMarginX = 50;
+    const fieldTop = HORIZON_Y;
+    const fieldBottom = rect.height - 40;
+    const fieldHeight = fieldBottom - fieldTop;
 
-    // Calculate viewport bounds (same logic as GameCanvas)
+    // Calculate viewport bounds (same as GameCanvas)
     const losEngineY = (engineState.field.yardLine / 100) * ENGINE_HEIGHT;
-    const viewportStartY = losEngineY - (LOS_OFFSET * 3.6);
+    const viewportStartY = losEngineY - 15 * 3.6;
     const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
-    const clampedEndY = clampedStartY + (VISIBLE_YARDS * 3.6);
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * 3.6;
 
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
 
-    // Convert screen coordinates to engine coordinates (respecting zoom)
-    // Screen X maps to the visible viewport portion of engine Y
-    const normalizedX = (clickX - fieldLeft) / (fieldRight - fieldLeft);
-    const engineY = clampedStartY + normalizedX * (clampedEndY - clampedStartY);
+    // Reverse the isometric transform
+    // Screen Y -> depth -> engine Y
+    const depth = (fieldBottom - clickY) / fieldHeight;
+    const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
 
-    // Screen Y (top-bottom) = sideline position (engine X: 0-160) - full width, no zoom
-    const engineX = ((clickY - fieldTop) / (fieldBottom - fieldTop)) * 160;
+    // Screen X -> engine X (accounting for perspective narrowing)
+    const perspectiveScale = 1 - depth * 0.6;
+    const centerX = rect.width / 2;
+    const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
+    const normalizedX = (clickX - centerX) / fieldWidthAtDepth + 0.5;
+    const engineX = normalizedX * ENGINE_WIDTH;
 
-    throwToSpot({ x: engineX, y: engineY });
+    // Clamp to field bounds
+    const clampedEngineX = Math.max(0, Math.min(ENGINE_WIDTH, engineX));
+    const clampedEngineY = Math.max(clampedStartY, Math.min(clampedEndY, engineY));
+
+    throwToSpot({ x: clampedEngineX, y: clampedEngineY });
   }, [engineState, throwToSpot]);
 
   // Kicking handlers
