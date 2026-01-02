@@ -49,4 +49,6 @@ export type LiveGame = {
   playerPositions: {id: string, x: number, y: number, role: 'offense' | 'defense'}[];
   ballCarrier: BallCarrier | null;
   ballInFlight?: { x: number; y: number; progress: number }; // Ball position during passes
+  handoffEffect?: { x: number; y: number; progress: number }; // Visual effect when handoff occurs
+  playResult?: { yardsGained: number; touchdown: boolean; sack: boolean; turnover: boolean };
 };

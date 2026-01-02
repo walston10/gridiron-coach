@@ -292,11 +292,14 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
             <div className="text-right">
               <div className={`
                 inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2
+                ${phase === 'HUDDLE' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : ''}
+                ${phase === 'BREAKING_HUDDLE' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse' : ''}
                 ${phase === 'PRE_SNAP' ? 'bg-slate-700 text-slate-300' : ''}
                 ${phase === 'SNAP' || phase === 'ACTIVE' ? 'bg-green-500/20 text-green-400 border border-green-500/30 animate-pulse' : ''}
                 ${phase === 'WHISTLE' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : ''}
               `}>
-                {pendingPAT ? 'EXTRA POINT' : pendingKickoff ? 'KICKOFF' : phase.replace('_', ' ')}
+                {pendingPAT ? 'EXTRA POINT' : pendingKickoff ? 'KICKOFF' :
+                  phase === 'BREAKING_HUDDLE' ? 'BREAK!' : phase.replace('_', ' ')}
               </div>
               {isPlayRunning && (
                 <div className="text-xs text-slate-500">

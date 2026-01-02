@@ -33,6 +33,7 @@ export class GameEngine {
   private pocketCenter: Vector2 = { x: FIELD_WIDTH / 2, y: 0 };
   private currentPlay: OffensivePlay | null = null;
   private currentDefense: DefensivePlay | null = null;
+  private originalPlay: Play | null = null; // Store original Play for ball carrier info
 
   // Kicking state
   private pendingKickoff: boolean = false;
@@ -72,8 +73,8 @@ export class GameEngine {
   }
 
   private createInitialState(): GameState {
-    return {
-      phase: 'PRE_SNAP',
+    const state: GameState = {
+      phase: 'HUDDLE',
       clock: { quarter: 1, minutes: 15, seconds: 0, playClock: 40, isRunning: false },
       field: { yardLine: 25, down: 1, yardsToGo: 10, possession: 'home' },
       score: { home: 0, away: 0 },
@@ -81,6 +82,54 @@ export class GameEngine {
       defensivePlayers: [],
       ballLocation: { x: FIELD_WIDTH / 2, y: 0 },
     };
+    // Create huddle formations
+    state.offensivePlayers = this.createOffensiveHuddle(state.field.yardLine);
+    state.defensivePlayers = this.createDefensiveHuddle(state.field.yardLine);
+    return state;
+  }
+
+  // Create offensive players in huddle formation
+  private createOffensiveHuddle(yardLine: number): FieldPlayer[] {
+    const los = this.yardLineToY(yardLine);
+    const center = FIELD_WIDTH / 2;
+    const huddleY = los - 30; // 10 yards behind LOS
+    const huddleSpacing = 8;
+
+    // Create players clustered in a huddle circle
+    return [
+      this.createPlayer('qb', 'QB', { x: center, y: huddleY - 15 }), // QB in front of huddle
+      this.createPlayer('rb', 'RB', { x: center - huddleSpacing, y: huddleY }),
+      this.createPlayer('wr1', 'WR', { x: center - huddleSpacing * 2, y: huddleY + huddleSpacing }),
+      this.createPlayer('wr2', 'WR', { x: center + huddleSpacing * 2, y: huddleY + huddleSpacing }),
+      this.createPlayer('te', 'TE', { x: center + huddleSpacing, y: huddleY }),
+      this.createPlayer('lt', 'LT', { x: center - huddleSpacing * 2, y: huddleY - huddleSpacing }),
+      this.createPlayer('lg', 'LG', { x: center - huddleSpacing, y: huddleY - huddleSpacing }),
+      this.createPlayer('c', 'C', { x: center, y: huddleY }),
+      this.createPlayer('rg', 'RG', { x: center + huddleSpacing, y: huddleY - huddleSpacing }),
+      this.createPlayer('rt', 'RT', { x: center + huddleSpacing * 2, y: huddleY - huddleSpacing }),
+    ];
+  }
+
+  // Create defensive players waiting in their area
+  private createDefensiveHuddle(yardLine: number): FieldPlayer[] {
+    const los = this.yardLineToY(yardLine);
+    const center = FIELD_WIDTH / 2;
+    const waitY = los + 45; // 15 yards past LOS
+
+    // Defense waits in a loose cluster
+    return [
+      this.createPlayer('de1', 'DE', { x: center - 40, y: waitY - 10 }),
+      this.createPlayer('dt1', 'DT', { x: center - 15, y: waitY - 5 }),
+      this.createPlayer('dt2', 'DT', { x: center + 15, y: waitY - 5 }),
+      this.createPlayer('de2', 'DE', { x: center + 40, y: waitY - 10 }),
+      this.createPlayer('olb1', 'OLB', { x: center - 45, y: waitY + 10 }),
+      this.createPlayer('mlb', 'MLB', { x: center, y: waitY + 5 }),
+      this.createPlayer('olb2', 'OLB', { x: center + 45, y: waitY + 10 }),
+      this.createPlayer('cb1', 'CB', { x: 25, y: waitY + 15 }),
+      this.createPlayer('cb2', 'CB', { x: 135, y: waitY + 15 }),
+      this.createPlayer('fs', 'FS', { x: center - 20, y: waitY + 30 }),
+      this.createPlayer('ss', 'SS', { x: center + 20, y: waitY + 25 }),
+    ];
   }
 
   // PLAY SETUP - Supports both OffensivePlay and UI Play types
@@ -90,14 +139,115 @@ export class GameEngine {
       const converted = this.convertPlayToOffensive(play);
       this.state.selectedPlay = converted;
       this.currentPlay = converted;
-      this.state.offensivePlayers = this.createOffensiveFormationFromPlay(play);
+      this.originalPlay = play; // Store original for ball carrier info
+
+      // Get formation target positions
+      const formationPlayers = this.createOffensiveFormationFromPlay(play);
+      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
     } else {
       // Engine OffensivePlay format
       this.state.selectedPlay = play;
       this.currentPlay = play;
-      this.state.offensivePlayers = this.createOffensiveFormation(play);
+      this.originalPlay = null;
+
+      // Get formation target positions
+      const formationPlayers = this.createOffensiveFormation(play);
+      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
     }
+
+    // Set defensive formation targets too
+    this.setAutoCPUDefense();
+
+    // Start breaking huddle animation
+    this.state.phase = 'BREAKING_HUDDLE';
+    this.startHuddleBreakAnimation();
     this.emitState();
+  }
+
+  // Set formation targets for huddle break animation
+  private setFormationTargets(currentPlayers: FieldPlayer[], formationPlayers: FieldPlayer[]): void {
+    // Match players by ID and set their formation targets
+    currentPlayers.forEach(player => {
+      const formationPlayer = formationPlayers.find(fp =>
+        fp.id.toLowerCase() === player.id.toLowerCase()
+      );
+      if (formationPlayer) {
+        player.formationTarget = { ...formationPlayer.location };
+        player.route = formationPlayer.route;
+      }
+    });
+  }
+
+  // Animation interval for huddle break
+  private huddleBreakInterval: number | null = null;
+
+  private startHuddleBreakAnimation(): void {
+    if (this.huddleBreakInterval) {
+      clearInterval(this.huddleBreakInterval);
+    }
+
+    this.huddleBreakInterval = window.setInterval(() => {
+      this.updateHuddleBreakAnimation();
+    }, 1000 / TICK_RATE);
+  }
+
+  private updateHuddleBreakAnimation(): void {
+    const MOVE_SPEED = 2.5; // Units per tick
+    let allArrived = true;
+
+    // Move offensive players toward formation
+    this.state.offensivePlayers.forEach(player => {
+      if (!player.formationTarget) return;
+
+      const dx = player.formationTarget.x - player.location.x;
+      const dy = player.formationTarget.y - player.location.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 2) {
+        allArrived = false;
+        const moveX = (dx / dist) * MOVE_SPEED;
+        const moveY = (dy / dist) * MOVE_SPEED;
+        player.location.x += moveX;
+        player.location.y += moveY;
+      } else {
+        // Snap to target
+        player.location.x = player.formationTarget.x;
+        player.location.y = player.formationTarget.y;
+      }
+    });
+
+    // Move defensive players toward formation
+    this.state.defensivePlayers.forEach(player => {
+      if (!player.formationTarget) return;
+
+      const dx = player.formationTarget.x - player.location.x;
+      const dy = player.formationTarget.y - player.location.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 2) {
+        allArrived = false;
+        const moveX = (dx / dist) * MOVE_SPEED;
+        const moveY = (dy / dist) * MOVE_SPEED;
+        player.location.x += moveX;
+        player.location.y += moveY;
+      } else {
+        // Snap to target
+        player.location.x = player.formationTarget.x;
+        player.location.y = player.formationTarget.y;
+      }
+    });
+
+    this.emitState();
+
+    // Check if all players have arrived
+    if (allArrived) {
+      if (this.huddleBreakInterval) {
+        clearInterval(this.huddleBreakInterval);
+        this.huddleBreakInterval = null;
+      }
+      this.state.phase = 'PRE_SNAP';
+      this.emitState();
+    }
   }
 
   // Convert Play Designer route types to engine RouteType
@@ -185,35 +335,38 @@ export class GameEngine {
 
   setDefensivePlay(play: DefensivePlay): void {
     this.currentDefense = play;
-    this.state.defensivePlayers = this.createDefensiveFormation(play);
-    this.emitState();
+    // Get formation target positions
+    const formationPlayers = this.createDefensiveFormation(play);
+    this.setFormationTargets(this.state.defensivePlayers, formationPlayers);
   }
 
   private createOffensiveFormation(play: OffensivePlay): FieldPlayer[] {
     const los = this.yardLineToY(this.state.field.yardLine);
     const center = FIELD_WIDTH / 2;
 
-    // Spacing: Each unit = ~0.33 yards. Players need ~5 yard gaps minimum = 15 units
+    // Spacing: 3 units = 1 yard
+    // Under center: QB 1 yard back, RB 7 yards back
+    // Shotgun: QB 5 yards back, RB beside or slightly behind QB
     const players: FieldPlayer[] = [
-      this.createPlayer('qb', 'QB', { x: center, y: los - 21 }, play.routes['QB']), // 7 yards back under center
-      this.createPlayer('rb', 'RB', { x: center, y: los - 42 }, play.routes['RB']), // 14 yards back
+      this.createPlayer('qb', 'QB', { x: center, y: los - 3 }, play.routes['QB']), // 1 yard back under center
+      this.createPlayer('rb', 'RB', { x: center, y: los - 21 }, play.routes['RB']), // 7 yards back
       this.createPlayer('wr1', 'WR', { x: 15, y: los + 3 }, play.routes['WR1']), // Far left sideline
       this.createPlayer('wr2', 'WR', { x: 145, y: los + 3 }, play.routes['WR2']), // Far right sideline
       this.createPlayer('te', 'TE', { x: center + 36, y: los + 3 }, play.routes['TE']), // Outside RT
-      this.createPlayer('lt', 'LT', { x: center - 30, y: los + 3 }),
-      this.createPlayer('lg', 'LG', { x: center - 15, y: los + 3 }),
+      this.createPlayer('lt', 'LT', { x: center - 24, y: los + 3 }),
+      this.createPlayer('lg', 'LG', { x: center - 12, y: los + 3 }),
       this.createPlayer('c', 'C', { x: center, y: los + 3 }),
-      this.createPlayer('rg', 'RG', { x: center + 15, y: los + 3 }),
-      this.createPlayer('rt', 'RT', { x: center + 30, y: los + 3 }),
+      this.createPlayer('rg', 'RG', { x: center + 12, y: los + 3 }),
+      this.createPlayer('rt', 'RT', { x: center + 24, y: los + 3 }),
     ];
 
     if (play.formation === 'SHOTGUN') {
-      players[0].location.y = los - 45; // QB 15 yards back in shotgun
-      players[1].location = { x: center + 18, y: los - 45 }; // RB next to QB
+      players[0].location.y = los - 15; // QB 5 yards back in shotgun
+      players[1].location = { x: center + 15, y: los - 15 }; // RB beside QB, offset to right
       players.push(this.createPlayer('slot1', 'WR', { x: center - 48, y: los + 3 }, play.routes['SLOT1']));
     } else if (play.formation === 'I_FORM') {
-      players[1].location.y = los - 30; // RB closer
-      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 24 }, play.routes['FB']));
+      players[1].location.y = los - 15; // RB 5 yards back
+      players.push(this.createPlayer('fb', 'FB', { x: center, y: los - 9 }, play.routes['FB'])); // FB 3 yards back
     }
 
     return players;
@@ -322,6 +475,7 @@ export class GameEngine {
     this.state.clock.isRunning = true;
     this.currentTime = 0;
     this.clockAccumulator = 0;
+    this.pendingHandoff = null;
 
     // Find QB for ball position and pocket center (don't assume player[0])
     // Support both lowercase 'qb' (default formation) and uppercase 'QB' (Play Designer)
@@ -332,6 +486,19 @@ export class GameEngine {
     // Store pocket center for scramble detection
     if (qb) {
       this.pocketCenter = { ...qb.location };
+    }
+
+    // Check for run play with designated ball carrier (for handoff)
+    const isRunPlay = this.currentPlay?.type === 'RUN' || this.originalPlay?.playType === 'RUN';
+    if (isRunPlay && this.originalPlay) {
+      const ballCarrierAssignment = this.originalPlay.assignments.find(a => a.isBallCarrier);
+      if (ballCarrierAssignment && ballCarrierAssignment.positionSlot.toLowerCase() !== 'qb') {
+        // Schedule handoff to RB after brief delay (0.25 seconds for handoff timing)
+        this.pendingHandoff = {
+          targetId: ballCarrierAssignment.positionSlot,
+          handoffTime: 0.25,
+        };
+      }
     }
 
     // Initialize route runner for all receivers
@@ -359,6 +526,9 @@ export class GameEngine {
     this.emitState();
   }
 
+  // Pending handoff for run plays
+  private pendingHandoff: { targetId: string; handoffTime: number } | null = null;
+
   private tick(): void {
     if (this.state.phase === 'WHISTLE') {
       this.stopTick();
@@ -367,6 +537,12 @@ export class GameEngine {
 
     this.currentTime += 1 / TICK_RATE;
     this.updateClock();
+
+    // Process pending handoff for run plays
+    if (this.pendingHandoff && this.currentTime >= this.pendingHandoff.handoffTime) {
+      this.executeHandoff(this.pendingHandoff.targetId);
+      this.pendingHandoff = null;
+    }
 
     // Update QB status for both AI systems
     const qb = this.getQB();
@@ -391,6 +567,23 @@ export class GameEngine {
     }
 
     this.emitState();
+  }
+
+  private executeHandoff(targetSlot: string): void {
+    // Find the target player by slot (case-insensitive)
+    const target = this.state.offensivePlayers.find(
+      p => p.id.toLowerCase() === targetSlot.toLowerCase() || p.position === targetSlot
+    );
+    if (target) {
+      this.state.ballCarrier = target.id;
+      this.state.ballLocation = { ...target.location };
+      // Trigger handoff visual effect at the RB's position
+      this.state.handoffEffect = {
+        x: target.location.x,
+        y: target.location.y,
+        startTime: this.currentTime,
+      };
+    }
   }
 
   private updateClock(): void {
@@ -425,34 +618,81 @@ export class GameEngine {
       ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.position)
     );
 
+    // Determine if this is a run play (ball carrier is not QB)
+    const isRunPlay = this.state.ballCarrier && !this.isQB(this.state.ballCarrier);
+    const ballCarrier = isRunPlay ? this.getPlayer(this.state.ballCarrier!) : null;
+
     // Update offensive players using RouteRunner
     this.state.offensivePlayers.forEach(player => {
       // Skip QB and ball carrier
       if (this.isQB(player.id) || player.id === this.state.ballCarrier) return;
 
-      // O-Line actively blocks nearest pass rusher
+      // O-Line blocking behavior
       if (['LT', 'LG', 'C', 'RG', 'RT'].includes(player.position)) {
-        const nearestRusher = this.findNearestPlayer(player.location, passRushers);
-        if (nearestRusher) {
-          const dist = this.distance(player.location, nearestRusher.location);
-          if (dist > 6) {
-            // Move toward rusher quickly to engage before they get past
-            const dir = this.normalize({
-              x: nearestRusher.location.x - player.location.x,
-              y: nearestRusher.location.y - player.location.y,
-            });
-            // O-line moves fast to intercept (0.4 units/tick)
-            player.location.x += dir.x * 0.4;
-            player.location.y += dir.y * 0.4;
-          } else {
-            // Once engaged, mirror the rusher's position to stay in front
-            const toQB = qb ? this.normalize({
-              x: qb.location.x - nearestRusher.location.x,
-              y: qb.location.y - nearestRusher.location.y,
-            }) : { x: 0, y: -1 };
-            // Position between rusher and QB
-            player.location.x = nearestRusher.location.x + toQB.x * 4;
-            player.location.y = nearestRusher.location.y + toQB.y * 4;
+        if (isRunPlay && ballCarrier) {
+          // RUN BLOCKING: Push forward and create lanes
+          // Find nearest defender to block (prioritize those near the ball carrier's path)
+          const nearbyDefenders = this.state.defensivePlayers.filter(d => {
+            const distToCarrier = this.distance(d.location, ballCarrier.location);
+            return distToCarrier < 50; // Within ~17 yards of carrier
+          });
+
+          const targetDefender = this.findNearestPlayer(player.location, nearbyDefenders.length > 0 ? nearbyDefenders : passRushers);
+
+          if (targetDefender) {
+            const dist = this.distance(player.location, targetDefender.location);
+
+            if (dist > 8) {
+              // Move toward defender to engage (run blocking is aggressive)
+              const dir = this.normalize({
+                x: targetDefender.location.x - player.location.x,
+                y: targetDefender.location.y - player.location.y,
+              });
+              // Run blockers drive forward fast
+              player.location.x += dir.x * 0.5;
+              player.location.y += dir.y * 0.5;
+            } else {
+              // Engaged - push defender away from ball carrier
+              const toBallCarrier = this.normalize({
+                x: ballCarrier.location.x - targetDefender.location.x,
+                y: ballCarrier.location.y - targetDefender.location.y,
+              });
+              // Drive block: push defender sideways/back
+              const pushDir = {
+                x: -toBallCarrier.x,
+                y: Math.max(0.3, -toBallCarrier.y), // Always push at least slightly downfield
+              };
+              player.location.x = targetDefender.location.x + pushDir.x * 5;
+              player.location.y = targetDefender.location.y + pushDir.y * 5;
+              // Also move the defender slightly (sustained block)
+              targetDefender.location.x += pushDir.x * 0.15;
+              targetDefender.location.y += pushDir.y * 0.15;
+            }
+          }
+        } else {
+          // PASS PROTECTION: Protect the pocket
+          const nearestRusher = this.findNearestPlayer(player.location, passRushers);
+          if (nearestRusher) {
+            const dist = this.distance(player.location, nearestRusher.location);
+            if (dist > 6) {
+              // Move toward rusher quickly to engage before they get past
+              const dir = this.normalize({
+                x: nearestRusher.location.x - player.location.x,
+                y: nearestRusher.location.y - player.location.y,
+              });
+              // O-line moves fast to intercept (0.4 units/tick)
+              player.location.x += dir.x * 0.4;
+              player.location.y += dir.y * 0.4;
+            } else {
+              // Once engaged, mirror the rusher's position to stay in front
+              const toQB = qb ? this.normalize({
+                x: qb.location.x - nearestRusher.location.x,
+                y: qb.location.y - nearestRusher.location.y,
+              }) : { x: 0, y: -1 };
+              // Position between rusher and QB
+              player.location.x = nearestRusher.location.x + toQB.x * 4;
+              player.location.y = nearestRusher.location.y + toQB.y * 4;
+            }
           }
         }
         return;
@@ -1276,17 +1516,20 @@ export class GameEngine {
   }
 
   resetForNextPlay(): void {
-    this.state.phase = 'PRE_SNAP';
+    this.state.phase = 'HUDDLE';
     this.state.clock.playClock = 40;
     this.state.ballCarrier = undefined;
     this.state.passFlight = undefined;
-    this.state.offensivePlayers = [];
-    this.state.defensivePlayers = [];
+    this.state.handoffEffect = undefined;
     this.state.selectedPlay = undefined;
     this.currentPlay = null;
     this.currentDefense = null;
     this.routeRunner.reset();
     this.defenseAI.reset();
+
+    // Create huddle formations for next play
+    this.state.offensivePlayers = this.createOffensiveHuddle(this.state.field.yardLine);
+    this.state.defensivePlayers = this.createDefensiveHuddle(this.state.field.yardLine);
     this.emitState();
   }
 
@@ -1498,7 +1741,7 @@ export class GameEngine {
   }
 
   private emitState(): void {
-    this.onStateChange({ ...this.state });
+    this.onStateChange({ ...this.state, currentTime: this.currentTime });
   }
 
   getState(): GameState {
