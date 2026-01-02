@@ -85,7 +85,7 @@ export class GameEngine {
 
   // Play duration tracking
   private playStartTime: number = 0;
-  private static readonly MAX_PLAY_DURATION = 7.0; // Max seconds before play is blown dead
+  private static readonly MAX_PLAY_DURATION = 12.0; // Max real seconds before play is blown dead (~36 game seconds)
 
   // Pre-snap play clock countdown
   private preSnapInterval: number | null = null;
