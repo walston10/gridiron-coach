@@ -1,5 +1,6 @@
 import React from 'react';
-import type { DraftProspect } from '../../types';
+import type { DraftProspect, PlayerStats } from '../../types';
+import { POSITION_RELEVANT_STATS } from '../../utils/draftGenerator';
 
 interface ProspectCardProps {
   prospect: DraftProspect;
@@ -12,6 +13,23 @@ export const ProspectCard: React.FC<ProspectCardProps> = ({ prospect, onClick, o
 
   const revealedCount = Object.keys(scoutedStats).length;
   const totalStats = 16;
+
+  // Get position-relevant stats for sorting display
+  const relevantStats = POSITION_RELEVANT_STATS[player.position] || [];
+
+  // Sort scouted stats: position-relevant first, then others
+  const sortedScoutedStats = Object.entries(scoutedStats).sort((a, b) => {
+    const aRelevantIdx = relevantStats.indexOf(a[0] as keyof PlayerStats);
+    const bRelevantIdx = relevantStats.indexOf(b[0] as keyof PlayerStats);
+    // If both are relevant, sort by priority (lower index = higher priority)
+    if (aRelevantIdx !== -1 && bRelevantIdx !== -1) return aRelevantIdx - bRelevantIdx;
+    // If only a is relevant, a comes first
+    if (aRelevantIdx !== -1) return -1;
+    // If only b is relevant, b comes first
+    if (bRelevantIdx !== -1) return 1;
+    // Neither relevant, keep alphabetical
+    return a[0].localeCompare(b[0]);
+  });
 
   return (
     <div
@@ -40,12 +58,17 @@ export const ProspectCard: React.FC<ProspectCardProps> = ({ prospect, onClick, o
       </div>
 
       <div className="grid grid-cols-2 gap-1 text-xs mb-3">
-        {Object.entries(scoutedStats).slice(0, 6).map(([stat, value]) => (
-          <div key={stat} className="flex justify-between">
-            <span className="text-gray-400 capitalize">{stat.slice(0, 8)}</span>
-            <span className="text-white">{value}</span>
-          </div>
-        ))}
+        {sortedScoutedStats.slice(0, 6).map(([stat, value]) => {
+          const isRelevant = relevantStats.includes(stat as keyof PlayerStats);
+          return (
+            <div key={stat} className="flex justify-between">
+              <span className={`capitalize ${isRelevant ? 'text-blue-400' : 'text-gray-500'}`}>
+                {stat.slice(0, 8)}
+              </span>
+              <span className="text-white">{value}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex gap-2">

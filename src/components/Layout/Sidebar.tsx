@@ -14,7 +14,6 @@ const NAV_ITEMS: { key: Page; label: string; icon: string }[] = [
   { key: 'designer', label: 'Play Designer', icon: '✏️' },
   { key: 'roster', label: 'Roster', icon: '👥' },
   { key: 'scouting', label: 'Scouting', icon: '🔍' },
-  { key: 'draft', label: 'Draft', icon: '📝' },
   { key: 'freeagency', label: 'Free Agency', icon: '💰' },
 ];
 

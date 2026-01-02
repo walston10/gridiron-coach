@@ -1,6 +1,25 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { DraftProspect, Position, Player } from '../types';
+import type { DraftProspect, Position, PlayerStats } from '../types';
 import { generatePlayer } from './playerGenerator';
+
+// Position-relevant stats for scouting - reveal these first
+const POSITION_RELEVANT_STATS: Record<string, (keyof PlayerStats)[]> = {
+  QB: ['throwPower', 'throwAccuracy', 'awareness', 'speed', 'agility', 'strength'],
+  RB: ['speed', 'acceleration', 'carrying', 'elusiveness', 'agility', 'catching', 'strength'],
+  WR: ['speed', 'acceleration', 'catching', 'routeRunning', 'agility', 'elusiveness'],
+  TE: ['catching', 'routeRunning', 'runBlock', 'passBlock', 'strength', 'speed'],
+  LT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
+  LG: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
+  C: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
+  RG: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
+  RT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
+  DE: ['passRush', 'tackle', 'strength', 'speed', 'agility', 'awareness'],
+  DT: ['passRush', 'tackle', 'strength', 'awareness', 'agility', 'acceleration'],
+  OLB: ['tackle', 'passRush', 'coverage', 'speed', 'agility', 'awareness'],
+  MLB: ['tackle', 'coverage', 'awareness', 'speed', 'strength', 'agility'],
+  CB: ['coverage', 'speed', 'agility', 'acceleration', 'awareness', 'tackle'],
+  FS: ['coverage', 'speed', 'awareness', 'tackle', 'agility', 'acceleration'],
+  SS: ['coverage', 'tackle', 'speed', 'awareness', 'strength', 'agility'],
+};
 
 export const generateDraftClass = (size: number = 250): DraftProspect[] => {
   const prospects: DraftProspect[] = [];
@@ -50,14 +69,28 @@ export const generateDraftClass = (size: number = 250): DraftProspect[] => {
 export const scoutProspect = (prospect: DraftProspect, pointsSpent: number): DraftProspect => {
   const statsToReveal = Math.min(Math.floor(pointsSpent / 10), 16);
   const allStats = Object.keys(prospect.player.stats) as (keyof typeof prospect.player.stats)[];
-  
+
+  // Get position-relevant stats for this player's position
+  const relevantStats = POSITION_RELEVANT_STATS[prospect.player.position] || allStats;
+
   const revealed = { ...prospect.scoutedStats };
-  
+
   for (let i = 0; i < statsToReveal; i++) {
     const unrevealed = allStats.filter(s => !(s in revealed));
     if (unrevealed.length === 0) break;
-    
-    const stat = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+
+    // Prioritize position-relevant stats first
+    const unrevealedRelevant = relevantStats.filter(s => !(s in revealed));
+    let stat: keyof typeof prospect.player.stats;
+
+    if (unrevealedRelevant.length > 0) {
+      // Pick from relevant stats first (in priority order)
+      stat = unrevealedRelevant[0];
+    } else {
+      // All relevant stats revealed, pick randomly from remaining
+      stat = unrevealed[Math.floor(Math.random() * unrevealed.length)];
+    }
+
     // Add some noise to scouted values
     const noise = Math.floor((Math.random() - 0.5) * 10);
     revealed[stat] = Math.min(99, Math.max(40, prospect.player.stats[stat] + noise));
@@ -69,3 +102,6 @@ export const scoutProspect = (prospect: DraftProspect, pointsSpent: number): Dra
     isFullyScouted: Object.keys(revealed).length >= 16,
   };
 };
+
+// Export for use in ProspectCard to filter displayed stats
+export { POSITION_RELEVANT_STATS };

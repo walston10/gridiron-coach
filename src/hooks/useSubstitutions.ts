@@ -3,10 +3,12 @@
  *
  * Manages substitution state during gameplay, integrating with
  * FatigueEngine for fatigue-based recommendations.
+ * Uses actual team roster from game store.
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { fatigueEngine } from '../engine/FatigueEngine';
+import { useGameStore } from '../stores/gameStore';
 import type {
   RosterPlayer,
   AutoSubSettings,
@@ -15,49 +17,47 @@ import type {
   PositionSlot,
 } from '../types/Substitution';
 import { OFFENSIVE_SLOTS, DEFENSIVE_SLOTS } from '../types/Substitution';
+import type { Player } from '../types/Player';
+import type { Position } from '../types/GameSim';
 
-// Generate demo roster players
-function generateDemoRoster(): RosterPlayer[] {
-  const players: RosterPlayer[] = [];
+// Valid positions for substitution system (excludes K/P which aren't in GameSim)
+const VALID_POSITIONS: Position[] = [
+  'QB', 'RB', 'FB', 'WR', 'TE', 'LT', 'LG', 'C', 'RG', 'RT',
+  'DE', 'DT', 'NT', 'OLB', 'MLB', 'ILB', 'CB', 'FS', 'SS'
+];
 
-  const names = {
-    QB: ['Patrick Mahomes', 'Aaron Rodgers', 'Josh Allen'],
-    RB: ['Derrick Henry', 'Saquon Barkley', 'Nick Chubb', 'Austin Ekeler'],
-    FB: ['Kyle Juszczyk', 'Alec Ingold'],
-    WR: ['Tyreek Hill', 'Justin Jefferson', 'Davante Adams', 'Jamarr Chase', 'Stefon Diggs', 'CeeDee Lamb'],
-    TE: ['Travis Kelce', 'Mark Andrews', 'George Kittle'],
-    LT: ['Trent Williams', 'Laremy Tunsil'],
-    LG: ['Quenton Nelson', 'Joel Bitonio'],
-    C: ['Jason Kelce', 'Frank Ragnow'],
-    RG: ['Zack Martin', 'Chris Lindstrom'],
-    RT: ['Penei Sewell', 'Lane Johnson'],
-    DE: ['Myles Garrett', 'Nick Bosa', 'Maxx Crosby', 'TJ Watt'],
-    DT: ['Aaron Donald', 'Chris Jones', 'Quinnen Williams', 'Dexter Lawrence'],
-    OLB: ['Micah Parsons', 'Khalil Mack', 'Matt Judon', 'Von Miller'],
-    MLB: ['Fred Warner', 'Bobby Wagner', 'Roquan Smith'],
-    CB: ['Jalen Ramsey', 'Sauce Gardner', 'Patrick Surtain', 'Derek Stingley'],
-    FS: ['Jessie Bates', 'Minkah Fitzpatrick'],
-    SS: ['Derwin James', 'Budda Baker'],
+// Convert game store Player to RosterPlayer for substitution system
+function convertToRosterPlayer(player: Player): RosterPlayer | null {
+  // Skip players with positions not in GameSim (K, P, etc.)
+  if (!VALID_POSITIONS.includes(player.position as Position)) {
+    return null;
+  }
+
+  return {
+    id: player.id,
+    name: player.lastName,
+    position: player.position as Position,
+    positions: [player.position as Position], // Could be expanded for multi-position players
+    overall: player.overall,
+    speed: player.stats.speed,
+    acceleration: player.stats.acceleration,
+    attributes: {
+      strength: player.stats.strength,
+      agility: player.stats.agility,
+      awareness: player.stats.awareness,
+      catching: player.stats.catching,
+      carrying: player.stats.carrying,
+      throwPower: player.stats.throwPower,
+      throwAccuracy: player.stats.throwAccuracy,
+      routeRunning: player.stats.routeRunning,
+      passBlock: player.stats.passBlock,
+      runBlock: player.stats.runBlock,
+      tackle: player.stats.tackle,
+      coverage: player.stats.coverage,
+      passRush: player.stats.passRush,
+      elusiveness: player.stats.elusiveness,
+    },
   };
-
-  let id = 1;
-  Object.entries(names).forEach(([pos, playerNames]) => {
-    playerNames.forEach((name, idx) => {
-      players.push({
-        id: `player_${id}`,
-        name: name.split(' ').pop() || name, // Last name only
-        position: pos as RosterPlayer['position'],
-        positions: [pos as RosterPlayer['position']],
-        overall: 90 - idx * 5 + Math.floor(Math.random() * 5),
-        speed: 70 + Math.floor(Math.random() * 25),
-        acceleration: 70 + Math.floor(Math.random() * 25),
-        attributes: {},
-      });
-      id++;
-    });
-  });
-
-  return players;
 }
 
 // Build initial depth chart
@@ -120,8 +120,17 @@ interface UseSubstitutionsReturn {
 }
 
 export function useSubstitutions(): UseSubstitutionsReturn {
-  // Initialize roster (memoized to persist across renders)
-  const roster = useMemo(() => generateDemoRoster(), []);
+  // Get team roster from game store
+  const { teams, userTeamId } = useGameStore();
+  const userTeam = teams.find(t => t.info.id === userTeamId);
+
+  // Convert actual roster to RosterPlayer format (filtering out invalid positions)
+  const roster = useMemo(() => {
+    if (!userTeam?.roster) return [];
+    return userTeam.roster
+      .map(convertToRosterPlayer)
+      .filter((p): p is RosterPlayer => p !== null);
+  }, [userTeam?.roster]);
 
   // Build initial depth charts (memoized - changes would need roster edit)
   const offenseDepthChart = useMemo(() =>
@@ -132,25 +141,27 @@ export function useSubstitutions(): UseSubstitutionsReturn {
   );
 
   // Current lineups (who's actually on the field)
-  const [offenseLineup, setOffenseLineup] = useState<Map<string, string>>(() => {
-    const map = new Map<string, string>();
+  const [offenseLineup, setOffenseLineup] = useState<Map<string, string>>(new Map());
+  const [defenseLineup, setDefenseLineup] = useState<Map<string, string>>(new Map());
+
+  // Initialize lineups when depth chart is ready
+  useEffect(() => {
+    const offMap = new Map<string, string>();
     offenseDepthChart.forEach(entry => {
       if (entry.starters.length > 0) {
-        map.set(entry.slot, entry.starters[0]);
+        offMap.set(entry.slot, entry.starters[0]);
       }
     });
-    return map;
-  });
+    setOffenseLineup(offMap);
 
-  const [defenseLineup, setDefenseLineup] = useState<Map<string, string>>(() => {
-    const map = new Map<string, string>();
+    const defMap = new Map<string, string>();
     defenseDepthChart.forEach(entry => {
       if (entry.starters.length > 0) {
-        map.set(entry.slot, entry.starters[0]);
+        defMap.set(entry.slot, entry.starters[0]);
       }
     });
-    return map;
-  });
+    setDefenseLineup(defMap);
+  }, [offenseDepthChart, defenseDepthChart]);
 
   // Auto-sub settings
   const [autoSubSettings, setAutoSubSettings] = useState<AutoSubSettings>({

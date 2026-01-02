@@ -1,4 +1,4 @@
-import type { Vector2, FieldPlayer, CoverageType, DefensivePlay, Position } from '../types/GameSim';
+import type { Vector2, FieldPlayer, CoverageType, DefensivePlay } from '../types/GameSim';
 
 /**
  * Defense AI phases:
@@ -429,7 +429,7 @@ export class DefenseAI {
         return this.pursuitMovement(defender);
 
       case 'SCRAMBLE_CONTAIN':
-        return this.scrambleContain(defender, state);
+        return this.scrambleContain(defender, state, offensivePlayers);
 
       default:
         return { x: 0, y: 0 };
@@ -735,31 +735,72 @@ export class DefenseAI {
     };
   }
 
-  private scrambleContain(defender: FieldPlayer, state: DefenderState): Vector2 {
-    // QB is scrambling - contain the edges, D-line pursue
+  private scrambleContain(
+    defender: FieldPlayer,
+    state: DefenderState,
+    offensivePlayers?: FieldPlayer[]
+  ): Vector2 {
+    // QB is scrambling but ball hasn't crossed LOS yet
+    // Key principle: SECONDARY STAYS IN COVERAGE until ball passes LOS
+    // Only D-line pursues and linebackers spy/contain
+
+    const qbBehindLOS = this.qbLocation.y < this.lineOfScrimmage;
+    const isSecondary = ['CB', 'FS', 'SS'].includes(defender.position);
+
+    // D-line always chases the scrambling QB
     if (['DE', 'DT', 'NT'].includes(defender.position)) {
-      // D-line chases
       return this.pursuitMovement(defender);
     }
 
-    if (['CB'].includes(defender.position)) {
-      // Corners contain the edges
-      const edgeX = defender.location.x < 80 ? 30 : 130;
-      const containPoint = { x: edgeX, y: this.qbLocation.y + 5 };
-
-      return this.normalize({
-        x: containPoint.x - defender.location.x,
-        y: containPoint.y - defender.location.y,
-      });
+    // CRITICAL: Secondary stays in coverage until ball crosses LOS
+    // This prevents leaving receivers wide open
+    if (isSecondary && qbBehindLOS && offensivePlayers) {
+      // Stay in coverage - don't abandon your assignment!
+      if (state.assignment.type === 'MAN' && state.manTarget) {
+        return this.manMovement(defender, state, offensivePlayers);
+      } else if (state.assignment.type === 'ZONE' && state.zoneBounds) {
+        return this.zoneMovement(defender, state, offensivePlayers);
+      }
     }
 
-    // Everyone else - controlled pursuit but watch for receivers
+    // Linebackers: contain the edges and spy, don't full-out chase
+    if (['MLB', 'ILB', 'OLB'].includes(defender.position)) {
+      // OLBs contain the edge on their side
+      if (defender.position === 'OLB') {
+        const onQbSide = (defender.location.x < 80) === (this.qbLocation.x < 80);
+        if (onQbSide) {
+          // Contain this edge
+          const edgeX = defender.location.x < 80 ? 35 : 125;
+          const containPoint = { x: edgeX, y: this.qbLocation.y };
+          const toContain = this.normalize({
+            x: containPoint.x - defender.location.x,
+            y: containPoint.y - defender.location.y,
+          });
+          return { x: toContain.x * 0.9, y: toContain.y * 0.9 };
+        }
+      }
+
+      // MLB spies QB - stays between QB and LOS
+      const idealX = this.qbLocation.x;
+      const idealY = (this.qbLocation.y + this.lineOfScrimmage) / 2;
+      const toIdeal = this.normalize({
+        x: idealX - defender.location.x,
+        y: idealY - defender.location.y,
+      });
+      return { x: toIdeal.x * 0.8, y: toIdeal.y * 0.8 };
+    }
+
+    // If QB crosses LOS, secondary can now pursue
+    if (!qbBehindLOS) {
+      return this.pursuitMovement(defender);
+    }
+
+    // Fallback: controlled movement toward QB
     const toQB = this.normalize({
       x: this.qbLocation.x - defender.location.x,
       y: this.qbLocation.y - defender.location.y,
     });
-
-    return { x: toQB.x * 0.7, y: toQB.y * 0.7 };
+    return { x: toQB.x * 0.5, y: toQB.y * 0.5 };
   }
 
   private findNearest(location: Vector2, players: FieldPlayer[]): FieldPlayer | null {
