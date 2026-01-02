@@ -10,7 +10,8 @@ export type Formation =
 
 export type RouteType =
   | 'STREAK' | 'POST' | 'CORNER' | 'OUT' | 'IN' | 'SLANT'
-  | 'CURL' | 'COMEBACK' | 'FLAT' | 'WHEEL' | 'DRAG' | 'BLOCK';
+  | 'CURL' | 'COMEBACK' | 'FLAT' | 'WHEEL' | 'DRAG' | 'BLOCK'
+  | 'SCREEN' | 'SWING' | 'DELAY' | 'RELEASE_BLOCK';  // Screen play routes
 
 export type CoverageType =
   | 'COVER_0' | 'COVER_1' | 'COVER_2' | 'COVER_3' | 'COVER_4'

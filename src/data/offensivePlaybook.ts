@@ -35,6 +35,26 @@ export const OFFENSIVE_PLAYBOOK: OffensivePlay[] = [
     description: 'Fake handoff, rollout right with TE flat route'
   },
   {
+    id: 'pa_deep_post',
+    name: 'PA Deep Post',
+    formation: 'I_FORM',
+    type: 'PLAY_ACTION',
+    routes: {
+      WR1: 'POST', WR2: 'CORNER', TE: 'DRAG', FB: 'BLOCK', RB: 'DELAY'
+    },
+    description: 'Fake handoff, safety bites, hit the deep post'
+  },
+  {
+    id: 'pa_wheel',
+    name: 'PA Wheel',
+    formation: 'SINGLEBACK',
+    type: 'PLAY_ACTION',
+    routes: {
+      WR1: 'STREAK', WR2: 'SLANT', TE: 'WHEEL', RB: 'WHEEL'
+    },
+    description: 'Fake handoff with wheel routes for big play potential'
+  },
+  {
     id: 'slants',
     name: 'Slants',
     formation: 'SHOTGUN',
@@ -70,9 +90,29 @@ export const OFFENSIVE_PLAYBOOK: OffensivePlay[] = [
     formation: 'SHOTGUN',
     type: 'SCREEN',
     routes: {
-      WR1: 'STREAK', WR2: 'STREAK', SLOT1: 'BLOCK', TE: 'BLOCK', RB: 'FLAT'
+      WR1: 'STREAK', WR2: 'STREAK', SLOT1: 'BLOCK', TE: 'RELEASE_BLOCK', RB: 'SCREEN'
     },
     description: 'Let rushers through, dump to RB with blockers'
+  },
+  {
+    id: 'swing_screen',
+    name: 'Swing Screen',
+    formation: 'SHOTGUN',
+    type: 'SCREEN',
+    routes: {
+      WR1: 'STREAK', WR2: 'BLOCK', SLOT1: 'RELEASE_BLOCK', TE: 'BLOCK', RB: 'SWING'
+    },
+    description: 'Quick swing to RB, WR sets up block'
+  },
+  {
+    id: 'wr_screen',
+    name: 'WR Screen',
+    formation: 'SHOTGUN',
+    type: 'SCREEN',
+    routes: {
+      WR1: 'SCREEN', WR2: 'STREAK', SLOT1: 'RELEASE_BLOCK', TE: 'BLOCK', RB: 'DELAY'
+    },
+    description: 'Quick screen to outside receiver'
   },
   {
     id: 'out_routes',

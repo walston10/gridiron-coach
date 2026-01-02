@@ -51,6 +51,11 @@ export class GameEngine {
   private pendingPAT: boolean = false;
   private lastKickResult: KickResult | null = null;
 
+  // Play action state
+  private playActionActive: boolean = false;
+  private playActionEndTime: number = 0;
+  private static readonly PLAY_ACTION_DURATION = 0.8; // Fake handoff duration in seconds
+
   // Player control state
   private playerInput: Vector2 = { x: 0, y: 0 };
   private lastInputTime: number = 0;
@@ -329,7 +334,10 @@ export class GameEngine {
       'FLAT': 'FLAT',
       'WHEEL': 'WHEEL',
       'BLOCK': 'BLOCK',
-      'SCREEN': 'FLAT',     // Treat screen as flat route
+      'SCREEN': 'SCREEN',   // Delayed release to flat (for RB screens)
+      'SWING': 'SWING',     // Quick release to outside
+      'DELAY': 'DELAY',     // Block then release
+      'RELEASE_BLOCK': 'RELEASE_BLOCK',  // OL release for screen blocking
       'CUSTOM': 'DRAG',     // Treat custom as drag (simple across field)
     };
     return routeMap[playRoute] || undefined;
@@ -641,6 +649,34 @@ export class GameEngine {
       }
     }
 
+    // Check for play action - QB fakes handoff before pass
+    const isPlayAction = this.currentPlay?.type === 'PLAY_ACTION';
+    if (isPlayAction) {
+      this.playActionActive = true;
+      this.playActionEndTime = GameEngine.PLAY_ACTION_DURATION;
+
+      // Find RB/FB for fake handoff visual
+      const fakeTarget = this.state.offensivePlayers.find(p =>
+        ['RB', 'FB'].includes(p.position) || p.id.toLowerCase() === 'rb' || p.id.toLowerCase() === 'fb'
+      );
+      if (fakeTarget) {
+        // Schedule fake handoff effect after 0.15 seconds
+        setTimeout(() => {
+          if (this.playActionActive) {
+            this.state.handoffEffect = {
+              x: fakeTarget.location.x,
+              y: fakeTarget.location.y,
+              startTime: this.currentTime,
+            };
+            this.emitState();
+          }
+        }, 150);
+      }
+    } else {
+      this.playActionActive = false;
+      this.playActionEndTime = 0;
+    }
+
     // Initialize route runner for all receivers
     this.routeRunner.reset();
     this.state.offensivePlayers.forEach(player => {
@@ -682,6 +718,11 @@ export class GameEngine {
     if (this.pendingHandoff && this.currentTime >= this.pendingHandoff.handoffTime) {
       this.executeHandoff(this.pendingHandoff.targetId);
       this.pendingHandoff = null;
+    }
+
+    // Process play action end
+    if (this.playActionActive && this.currentTime >= this.playActionEndTime) {
+      this.playActionActive = false;
     }
 
     // Update QB status for both AI systems
@@ -1684,6 +1725,9 @@ export class GameEngine {
   throwToSpot(clickLocation: Vector2): void {
     if (this.state.phase !== 'SNAP') return;
 
+    // Can't throw during play action fake
+    if (this.playActionActive) return;
+
     const qb = this.getQB();
     if (!qb) return;
 
@@ -2467,6 +2511,13 @@ export class GameEngine {
 
   getState(): GameState {
     return { ...this.state };
+  }
+
+  /**
+   * Check if QB is in play action fake (can't throw yet)
+   */
+  isPlayActionActive(): boolean {
+    return this.playActionActive;
   }
 
   destroy(): void {
