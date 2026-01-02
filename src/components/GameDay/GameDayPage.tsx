@@ -135,6 +135,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     moveBallCarrier,
     throwToSpot,
     nextPlay,
+    simulateCPUPlay, // For when user is on defense
     // Evasion moves
     juke,
     spin,
@@ -386,6 +387,9 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   const isPlayRunning = engineState.phase === 'SNAP' || engineState.phase === 'ACTIVE';
   const isPlayDead = engineState.phase === 'WHISTLE';
 
+  // User is on offense when their team (home) has possession
+  const isUserOffense = game.possession === 'home';
+
   // Kicking scenarios
   const pendingKickoff = isPendingKickoff();
   const pendingPAT = isPendingPAT();
@@ -415,8 +419,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
         >
           <GameCanvas game={game} width={960} height={540} />
 
-          {/* Spacebar snap instruction overlay */}
-          {isPreSnap && selectedPlay && (
+          {/* Spacebar snap instruction overlay - only on offense */}
+          {isPreSnap && selectedPlay && isUserOffense && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-green-500/30">
               <span className="text-green-400 text-sm font-semibold">
                 Press SPACE to snap the ball
@@ -433,11 +437,20 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
             </div>
           )}
 
-          {/* Throw instruction overlay */}
-          {isPlayRunning && engineState.ballCarrier?.toLowerCase() === 'qb' && (
+          {/* Throw instruction overlay - only on offense */}
+          {isPlayRunning && isUserOffense && engineState.ballCarrier?.toLowerCase() === 'qb' && (
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-yellow-500/30">
               <span className="text-yellow-400 text-sm font-semibold">
                 Click anywhere to throw the ball
+              </span>
+            </div>
+          )}
+
+          {/* Defense mode indicator */}
+          {isPlayRunning && !isUserOffense && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-red-500/30">
+              <span className="text-red-400 text-sm font-semibold">
+                CPU is running the play...
               </span>
             </div>
           )}
@@ -451,6 +464,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
         isPlayRunning={isPlayRunning}
         isPlayDead={isPlayDead}
         selectedPlayName={selectedPlay?.name}
+        isUserOffense={isUserOffense}
         down={game.fieldPosition.down}
         yardsToGo={game.fieldPosition.yardsToGo}
         yardLine={game.fieldPosition.yardLine}
@@ -478,6 +492,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
         onJuke={juke}
         onSpin={spin}
         onDive={dive}
+        onSimulateCPU={simulateCPUPlay}
         ballCarrier={engineState.ballCarrier}
       />
 
