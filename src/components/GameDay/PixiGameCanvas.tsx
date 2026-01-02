@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
 import type { LiveGame } from '../../types';
 
@@ -24,6 +24,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   const appRef = useRef<Application | null>(null);
   const fieldContainerRef = useRef<Container | null>(null);
   const dynamicContainerRef = useRef<Container | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   const ENGINE_WIDTH = 160;
   const VISIBLE_YARDS = 50;
@@ -62,6 +63,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
       fieldContainerRef.current = fieldContainer;
       dynamicContainerRef.current = dynamicContainer;
+      setIsReady(true);
     };
 
     initPixi();
@@ -71,6 +73,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
       }
+      setIsReady(false);
     };
   }, [width, height]);
 
@@ -444,7 +447,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       dynamicContainer.addChild(resultText);
     }
 
-  }, [game, width, height]);
+  }, [game, width, height, isReady]);
 
   return (
     <div className="relative rounded-xl overflow-hidden shadow-2xl border border-white/10">
