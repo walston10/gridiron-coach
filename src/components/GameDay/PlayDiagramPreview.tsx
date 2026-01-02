@@ -105,45 +105,105 @@ export const PlayDiagramPreview: React.FC<PlayDiagramPreviewProps> = ({
         const x = toCanvasX(assignment.startX);
         const y = toCanvasY(assignment.startY);
 
+        // PASS PROTECTION - short upward line with small bracket
+        if (blocking === 'PASS_PRO' || blocking === 'MAN') {
+          ctx.strokeStyle = '#60a5fa'; // Blue
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          // Draw a short vertical line upfield
+          ctx.moveTo(x, y - 10);
+          ctx.lineTo(x, y - 16);
+          ctx.stroke();
+          // Draw blocking marker (small semicircle facing up)
+          ctx.beginPath();
+          ctx.arc(x, y - 16, 3, Math.PI, 0);
+          ctx.stroke();
+        }
+
+        // PULL blocks - curved path around the line
         if (blocking === 'PULL_LEFT' || blocking === 'PULL_RIGHT') {
           const dir = blocking === 'PULL_LEFT' ? -1 : 1;
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#f59e0b'; // Orange
+          ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(x, y + 10);
-          ctx.lineTo(x, y + 18);
-          ctx.lineTo(x + (22 * dir), y + 18);
+          ctx.moveTo(x, y + 8);
+          ctx.lineTo(x, y + 16);
+          ctx.lineTo(x + (28 * dir), y + 16);
+          ctx.lineTo(x + (28 * dir), y - 8);
           ctx.stroke();
 
+          // Arrowhead
           ctx.fillStyle = '#f59e0b';
           ctx.beginPath();
-          const ax = x + (22 * dir);
-          ctx.moveTo(ax, y + 18);
-          ctx.lineTo(ax - (5 * dir), y + 15);
-          ctx.lineTo(ax - (5 * dir), y + 21);
+          const ax = x + (28 * dir);
+          ctx.moveTo(ax, y - 8);
+          ctx.lineTo(ax - 4, y - 2);
+          ctx.lineTo(ax + 4, y - 2);
           ctx.closePath();
           ctx.fill();
         }
 
+        // ZONE blocks - angled arrows showing direction
         if (blocking === 'ZONE_LEFT' || blocking === 'ZONE_RIGHT') {
           const dir = blocking === 'ZONE_LEFT' ? -1 : 1;
-          ctx.strokeStyle = '#22c55e';
-          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = '#22c55e'; // Green
+          ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.moveTo(x, y - 10);
-          ctx.lineTo(x + (8 * dir), y - 14);
+          ctx.lineTo(x + (12 * dir), y - 18);
           ctx.stroke();
 
+          // Arrowhead
           ctx.fillStyle = '#22c55e';
           ctx.beginPath();
-          const endX = x + (8 * dir);
-          const endY = y - 14;
-          const angle = Math.atan2(-4, 8 * dir);
+          const endX = x + (12 * dir);
+          const endY = y - 18;
+          const angle = Math.atan2(-8, 12 * dir);
           ctx.moveTo(endX, endY);
-          ctx.lineTo(endX - 4 * Math.cos(angle - 0.5), endY - 4 * Math.sin(angle - 0.5));
-          ctx.lineTo(endX - 4 * Math.cos(angle + 0.5), endY - 4 * Math.sin(angle + 0.5));
+          ctx.lineTo(endX - 5 * Math.cos(angle - 0.5), endY - 5 * Math.sin(angle - 0.5));
+          ctx.lineTo(endX - 5 * Math.cos(angle + 0.5), endY - 5 * Math.sin(angle + 0.5));
           ctx.closePath();
           ctx.fill();
+        }
+
+        // TRAP block - shows lineman letting defender through then blocking
+        if (blocking === 'TRAP') {
+          ctx.strokeStyle = '#ec4899'; // Pink
+          ctx.lineWidth = 2;
+          // Down, across, then up to trap
+          ctx.beginPath();
+          ctx.moveTo(x, y + 6);
+          ctx.lineTo(x, y + 14);
+          ctx.lineTo(x + 20, y + 14);
+          ctx.lineTo(x + 20, y - 10);
+          ctx.stroke();
+
+          // X at the end for the trap hit
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x + 16, y - 14);
+          ctx.lineTo(x + 24, y - 6);
+          ctx.moveTo(x + 24, y - 14);
+          ctx.lineTo(x + 16, y - 6);
+          ctx.stroke();
+        }
+
+        // DOUBLE TEAM - two lines converging
+        if (blocking === 'DOUBLE_TEAM') {
+          ctx.strokeStyle = '#a855f7'; // Purple
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, y - 10);
+          ctx.lineTo(x, y - 20);
+          ctx.stroke();
+
+          // Double line marker
+          ctx.beginPath();
+          ctx.moveTo(x - 5, y - 18);
+          ctx.lineTo(x + 5, y - 18);
+          ctx.moveTo(x - 5, y - 22);
+          ctx.lineTo(x + 5, y - 22);
+          ctx.stroke();
         }
       }
     });

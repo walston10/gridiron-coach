@@ -51,7 +51,7 @@ export const useLiveGameStore = create<LiveGameStore>((set, get) => ({
       game: {
         id: `game-${Date.now()}`,
         state: 'PRE_SNAP',
-        clock: { quarter: 1, minutes: 15, seconds: 0, isRunning: false },
+        clock: { quarter: 1, minutes: 15, seconds: 0, playClock: 40, isRunning: false },
         fieldPosition: { yardLine: 25, down: 1, yardsToGo: 10 },
         possession: 'home',
         homeTeam: { teamId: homeTeamId, score: 0, timeoutsRemaining: 3 },
@@ -217,7 +217,7 @@ export const useLiveGameStore = create<LiveGameStore>((set, get) => ({
           game: {
             ...state.game,
             state: nextQuarter === 3 ? 'HALFTIME' : 'PLAY_DEAD',
-            clock: { quarter: nextQuarter as 1 | 2 | 3 | 4, minutes: 15, seconds: 0, isRunning: false },
+            clock: { quarter: nextQuarter as 1 | 2 | 3 | 4, minutes: 15, seconds: 0, playClock: 40, isRunning: false },
             playerPositions: updatedPositions,
           },
         };

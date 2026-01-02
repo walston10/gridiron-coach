@@ -22,6 +22,7 @@ export type GameClock = {
   quarter: 1 | 2 | 3 | 4;
   minutes: number;
   seconds: number;
+  playClock: number;
   isRunning: boolean;
 };
 

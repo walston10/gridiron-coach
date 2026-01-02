@@ -34,6 +34,7 @@ export interface RouteDefinition {
 }
 
 // Route definitions with realistic football concepts
+// Field units: 1 yard = 3 units, so stemDistance = yards * 3
 const ROUTE_DEFINITIONS: Record<RouteType, RouteDefinition> = {
   // STREAK/GO - straight up the field
   STREAK: {
@@ -46,54 +47,54 @@ const ROUTE_DEFINITIONS: Record<RouteType, RouteDefinition> = {
     isTimingRoute: false,
   },
 
-  // POST - stem 10-12 yards, break inside at 45 degrees
+  // POST - stem 12-15 yards, break inside at 45 degrees toward goalpost
   POST: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 36, // ~12 yards
+    stemDistance: 42, // 14 yards - realistic NFL depth
     breakDirection: { x: 0.7, y: 0.7 }, // 45 degree inside
-    breakDuration: 0.3,
+    breakDuration: 0.35,
     finalDirection: { x: 0.5, y: 0.87 }, // Continue on post angle
     settleTime: 3.5,
     isTimingRoute: false,
   },
 
-  // CORNER - stem 10-12 yards, break outside at 45 degrees
+  // CORNER/FLAG - stem 12-15 yards, break outside toward pylon
   CORNER: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 36,
-    breakDirection: { x: -0.7, y: 0.7 }, // 45 degree outside (negative x = toward sideline)
-    breakDuration: 0.3,
+    stemDistance: 42, // 14 yards - same as post for combo routes
+    breakDirection: { x: -0.7, y: 0.7 }, // 45 degree outside (toward sideline)
+    breakDuration: 0.35,
     finalDirection: { x: -0.5, y: 0.87 },
     settleTime: 3.5,
     isTimingRoute: false,
   },
 
-  // OUT - stem 8-10 yards, sharp break to sideline
+  // OUT - stem 10-12 yards, sharp 90 degree break to sideline
   OUT: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 27, // ~9 yards
+    stemDistance: 33, // 11 yards
     breakDirection: { x: -1, y: 0 }, // 90 degree to sideline
-    breakDuration: 0.2,
+    breakDuration: 0.25,
     finalDirection: { x: -1, y: 0 },
-    settleTime: 2.0,
+    settleTime: 2.2,
     isTimingRoute: true,
   },
 
-  // IN/DIG - stem 8-10 yards, sharp break inside
+  // IN/DIG - stem 10-14 yards, sharp 90 degree break inside
   IN: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 27,
+    stemDistance: 36, // 12 yards for dig route
     breakDirection: { x: 1, y: 0 }, // 90 degree inside
-    breakDuration: 0.2,
+    breakDuration: 0.25,
     finalDirection: { x: 1, y: 0 },
-    settleTime: 2.0,
+    settleTime: 2.4,
     isTimingRoute: true,
   },
 
-  // SLANT - quick inside break at 45 degrees
+  // SLANT - quick 3-step inside break at 45 degrees
   SLANT: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 6, // ~2 yards, very quick
+    stemDistance: 9, // 3 yards, quick route
     breakDirection: { x: 0.7, y: 0.7 },
     breakDuration: 0.15,
     finalDirection: { x: 0.6, y: 0.8 },
@@ -101,57 +102,57 @@ const ROUTE_DEFINITIONS: Record<RouteType, RouteDefinition> = {
     isTimingRoute: true,
   },
 
-  // CURL/HITCH - stem 8-10 yards, turn back to QB
+  // CURL/HITCH - stem 10-12 yards, turn back to face QB
   CURL: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 27,
-    breakDirection: { x: 0, y: -0.3 }, // Turn back slightly
-    breakDuration: 0.3,
-    finalDirection: { x: 0, y: -0.2 }, // Settle facing QB
-    settleTime: 2.2,
+    stemDistance: 33, // 11 yards - proper curl depth
+    breakDirection: { x: 0, y: -0.5 }, // Turn back toward QB
+    breakDuration: 0.35,
+    finalDirection: { x: 0, y: -0.3 }, // Settle facing QB
+    settleTime: 2.4,
     isTimingRoute: true,
   },
 
-  // COMEBACK - stem 12-15 yards, come back toward sideline
+  // COMEBACK - stem 15-18 yards, come back toward sideline at 45 degrees
   COMEBACK: {
     stemDirection: { x: 0, y: 1 },
-    stemDistance: 42, // ~14 yards
+    stemDistance: 48, // 16 yards
     breakDirection: { x: -0.5, y: -0.87 }, // Back toward sideline
-    breakDuration: 0.4,
+    breakDuration: 0.45,
     finalDirection: { x: -0.7, y: -0.7 },
-    settleTime: 3.0,
+    settleTime: 3.2,
     isTimingRoute: true,
   },
 
-  // FLAT - quick out to the flat, stay shallow
+  // FLAT - quick out to the flat, stay shallow (RB/TE checkdown)
   FLAT: {
-    stemDirection: { x: -0.3, y: 0.2 },
-    stemDistance: 9, // ~3 yards
+    stemDirection: { x: -0.3, y: 0.3 },
+    stemDistance: 9, // 3 yards out
     breakDirection: { x: -1, y: 0.1 },
     breakDuration: 0.2,
-    finalDirection: { x: -0.9, y: 0.1 },
-    settleTime: 1.2,
+    finalDirection: { x: -0.9, y: 0.15 },
+    settleTime: 1.3,
     isTimingRoute: true,
   },
 
-  // DRAG - shallow cross, run across the field
+  // DRAG - shallow cross, 2-3 yards deep across the field (mesh routes)
   DRAG: {
-    stemDirection: { x: 0, y: 0.5 },
-    stemDistance: 6,
+    stemDirection: { x: 0, y: 0.4 },
+    stemDistance: 9, // 3 yards depth before crossing
     breakDirection: { x: 1, y: 0.1 },
-    breakDuration: 0.1,
+    breakDuration: 0.15,
     finalDirection: { x: 1, y: 0.05 },
     settleTime: 2.5,
     isTimingRoute: false,
   },
 
-  // WHEEL - start flat, then wheel up the sideline
+  // WHEEL - start flat, arc up the sideline (RB route)
   WHEEL: {
-    stemDirection: { x: -0.8, y: 0.2 },
-    stemDistance: 12,
-    breakDirection: { x: -0.3, y: 0.95 },
-    breakDuration: 0.4,
-    finalDirection: { x: -0.1, y: 1 },
+    stemDirection: { x: -0.8, y: 0.3 },
+    stemDistance: 15, // 5 yards to sideline
+    breakDirection: { x: -0.3, y: 0.95 }, // Arc upfield
+    breakDuration: 0.5,
+    finalDirection: { x: -0.1, y: 1 }, // Up the sideline
     settleTime: 3.5,
     isTimingRoute: false,
   },

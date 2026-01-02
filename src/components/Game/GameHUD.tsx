@@ -79,7 +79,15 @@ export const GameHUD: React.FC<GameHUDProps> = ({
 
         <div className="text-center">
           <div className="text-xs text-gray-400">Q{clock.quarter}</div>
-          <div className="text-xl font-mono">{formatClock()}</div>
+          <div className="flex items-center gap-2">
+            <div className="text-xl font-mono">{formatClock()}</div>
+            {/* Clock stopped indicator */}
+            {!clock.isRunning && phase !== 'PRE_SNAP' && phase !== 'WHISTLE' && (
+              <div className="text-xs px-1.5 py-0.5 rounded bg-yellow-600 text-yellow-100">
+                STOPPED
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -112,22 +120,31 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {/* Last Play Result */}
       {lastResult && phase === 'WHISTLE' && (
         <div className={`px-4 py-2 text-sm ${
+          lastResult.delayOfGame ? 'bg-yellow-900 text-yellow-200' :
+          lastResult.penalty ? 'bg-yellow-900 text-yellow-200' :
           lastResult.touchdown ? 'bg-green-900 text-green-200' :
           lastResult.turnover ? 'bg-red-900 text-red-200' :
           lastResult.incomplete ? 'bg-gray-700 text-gray-300' :
           lastResult.yardsGained > 0 ? 'bg-blue-900 text-blue-200' :
           'bg-orange-900 text-orange-200'
         }`}>
-          {lastResult.touchdown && '🏈 TOUCHDOWN!'}
-          {lastResult.turnover && `⚠️ ${lastResult.turnoverType}!`}
-          {lastResult.incomplete && 'Pass Incomplete'}
-          {lastResult.sack && `Sack! Lost ${Math.abs(lastResult.yardsGained)} yards`}
-          {!lastResult.touchdown && !lastResult.turnover && !lastResult.incomplete && !lastResult.sack && (
+          {lastResult.delayOfGame && '⏱️ DELAY OF GAME - 5 yard penalty'}
+          {!lastResult.delayOfGame && lastResult.penalty && (
+            `🚩 ${lastResult.penalty.type.replace(/_/g, ' ')} - ${lastResult.penalty.yards} yards`
+          )}
+          {!lastResult.penalty && lastResult.touchdown && '🏈 TOUCHDOWN!'}
+          {!lastResult.penalty && lastResult.turnover && `⚠️ ${lastResult.turnoverType}!`}
+          {!lastResult.penalty && lastResult.incomplete && 'Pass Incomplete'}
+          {!lastResult.penalty && lastResult.sack && `Sack! Lost ${Math.abs(lastResult.yardsGained)} yards`}
+          {!lastResult.penalty && !lastResult.touchdown && !lastResult.turnover && !lastResult.incomplete && !lastResult.sack && (
             lastResult.yardsGained >= 0
               ? `Gain of ${lastResult.yardsGained} yards`
               : `Loss of ${Math.abs(lastResult.yardsGained)} yards`
           )}
-          {lastResult.outOfBounds && ' (out of bounds)'}
+          {!lastResult.penalty && lastResult.outOfBounds && ' (out of bounds)'}
+          {lastResult.clockStops && !lastResult.delayOfGame && !lastResult.penalty && (
+            <span className="ml-2 text-xs opacity-75">(Clock stopped)</span>
+          )}
         </div>
       )}
     </div>

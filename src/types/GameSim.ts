@@ -127,6 +127,8 @@ export interface PlayResult {
   sack: boolean;
   safety?: boolean;
   tackledBy?: string;
+  clockStops: boolean;  // Whether the game clock should stop after this play
+  delayOfGame?: boolean; // Play clock expired
   penalty?: {
     type: string;
     team: 'offense' | 'defense';

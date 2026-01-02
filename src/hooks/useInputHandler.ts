@@ -63,8 +63,8 @@ export function useInputHandler({
 
     const direction: Vector2 = { x: 0, y: 0 };
 
-    if (state.up) direction.y = 1;    // Up field (toward opponent endzone)
-    if (state.down) direction.y = -1; // Back
+    if (state.up) direction.y = -1;   // W = Forward (toward opponent endzone)
+    if (state.down) direction.y = 1;  // S = Backward (toward own endzone)
     if (state.left) direction.x = -1;
     if (state.right) direction.x = 1;
 
