@@ -22,7 +22,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const draw = useCallback((ctx: CanvasRenderingContext2D, _frameCount: number) => {
     const ENGINE_WIDTH = 160;  // Sideline to sideline
-    const ENGINE_HEIGHT = 360; // End to end (120 yards * 3)
+
+    // Coordinate conversion helpers - matches GameEngine exactly
+    // Engine uses: Y = (yardLine + 10) * 3 (10-yard endzone offset)
+    const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
+    const engineYToYardLine = (y: number) => Math.floor(y / 3) - 10;
 
     // Isometric camera settings
     // Camera is behind the offense, looking downfield
@@ -31,10 +35,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const VISIBLE_YARDS = 50; // How much field depth to show
     const HORIZON_Y = 80; // Where the "horizon" is on screen (top area)
-    const YARDS_TO_UNITS = 3.6; // 3.6 engine units per yard (360 units / 100 yards)
+    const YARDS_TO_UNITS = 3; // 3 engine units per yard (matches engine)
 
     // Calculate viewport - follow ball carrier during active play
-    const losEngineY = (game.fieldPosition.yardLine / 100) * ENGINE_HEIGHT;
+    const losEngineY = yardLineToEngineY(game.fieldPosition.yardLine);
 
     // Determine camera focus point
     let cameraFocusY = losEngineY;
@@ -54,9 +58,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // This keeps more of the downfield visible
     const viewportStartY = cameraFocusY - 12 * YARDS_TO_UNITS; // 12 yards behind focus
 
-    // Clamp to field bounds (include end zones: -10 to 110 yard range in engine coords)
-    const minViewport = -10 * YARDS_TO_UNITS; // Show own end zone
-    const maxViewport = ENGINE_HEIGHT + 10 * YARDS_TO_UNITS - VISIBLE_YARDS * YARDS_TO_UNITS; // Show opponent end zone
+    // Clamp to field bounds (include end zones)
+    // Own endzone: yardLine -10 to 0, engineY 0 to 30
+    // Opponent endzone: yardLine 100 to 110, engineY 330 to 360
+    const minViewport = yardLineToEngineY(-10); // Y = 0 (own endzone back)
+    const maxViewport = yardLineToEngineY(100 + 10) - VISIBLE_YARDS * YARDS_TO_UNITS; // Show opponent end zone
     const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
     const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
 
@@ -101,14 +107,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Draw the field with perspective
     // Draw grass stripes (every 5 yards)
-    const startYard = Math.floor((clampedStartY / ENGINE_HEIGHT) * 100);
-    const endYard = Math.ceil((clampedEndY / ENGINE_HEIGHT) * 100);
+    const startYard = engineYToYardLine(clampedStartY);
+    const endYard = engineYToYardLine(clampedEndY);
 
     for (let yard = Math.floor(startYard / 5) * 5; yard <= Math.ceil(endYard / 5) * 5; yard += 5) {
       if (yard < 0 || yard > 100) continue;
 
-      const engineY1 = (yard / 100) * ENGINE_HEIGHT;
-      const engineY2 = ((yard + 5) / 100) * ENGINE_HEIGHT;
+      const engineY1 = yardLineToEngineY(yard);
+      const engineY2 = yardLineToEngineY(yard + 5);
 
       // Get corners of this stripe in screen space
       const topLeft = toScreen(0, engineY2);
@@ -128,13 +134,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // Draw endzones if visible
-    // Own end zone: y < 0 (behind our goal line at y=0)
-    const ownEndzoneBottom = -10 * YARDS_TO_UNITS; // 10 yards deep
-    if (clampedStartY < 0) {
+    // Own end zone: yardLine -10 to 0, engineY 0 to 30
+    const ownGoalLineY = yardLineToEngineY(0); // Y = 30
+    const ownEndzoneBackY = yardLineToEngineY(-10); // Y = 0
+    if (clampedStartY < ownGoalLineY) {
       // Own endzone (near camera, behind our goal line)
-      const endzoneStart = Math.max(ownEndzoneBottom, clampedStartY);
-      const topLeft = toScreen(0, 0);
-      const topRight = toScreen(ENGINE_WIDTH, 0);
+      const endzoneStart = Math.max(ownEndzoneBackY, clampedStartY);
+      const topLeft = toScreen(0, ownGoalLineY);
+      const topRight = toScreen(ENGINE_WIDTH, ownGoalLineY);
       const bottomLeft = toScreen(0, endzoneStart);
       const bottomRight = toScreen(ENGINE_WIDTH, endzoneStart);
 
@@ -148,15 +155,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fill();
     }
 
-    // Opponent end zone: y > ENGINE_HEIGHT (beyond their goal line at y=360)
-    const oppEndzoneTop = ENGINE_HEIGHT + 10 * YARDS_TO_UNITS; // 10 yards deep
-    if (clampedEndY > ENGINE_HEIGHT) {
+    // Opponent end zone: yardLine 100 to 110, engineY 330 to 360
+    const oppGoalLineY = yardLineToEngineY(100); // Y = 330
+    const oppEndzoneBackY = yardLineToEngineY(110); // Y = 360
+    if (clampedEndY > oppGoalLineY) {
       // Opponent endzone (far from camera, beyond 100 yard line)
-      const endzoneEnd = Math.min(oppEndzoneTop, clampedEndY);
+      const endzoneEnd = Math.min(oppEndzoneBackY, clampedEndY);
       const topLeft = toScreen(0, endzoneEnd);
       const topRight = toScreen(ENGINE_WIDTH, endzoneEnd);
-      const bottomLeft = toScreen(0, ENGINE_HEIGHT);
-      const bottomRight = toScreen(ENGINE_WIDTH, ENGINE_HEIGHT);
+      const bottomLeft = toScreen(0, oppGoalLineY);
+      const bottomRight = toScreen(ENGINE_WIDTH, oppGoalLineY);
 
       ctx.fillStyle = '#1e3a5f';
       ctx.beginPath();
@@ -172,7 +180,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     for (let yard = Math.floor(startYard / 5) * 5; yard <= endYard; yard += 5) {
       if (yard < 0 || yard > 100) continue;
 
-      const engineY = (yard / 100) * ENGINE_HEIGHT;
+      const engineY = yardLineToEngineY(yard);
       const left = toScreen(0, engineY);
       const right = toScreen(ENGINE_WIDTH, engineY);
 
@@ -212,7 +220,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     for (let yard = Math.floor(startYard / 10) * 10; yard <= endYard; yard += 10) {
       if (yard <= 0 || yard >= 100) continue;
 
-      const engineY = (yard / 100) * ENGINE_HEIGHT;
+      const engineY = yardLineToEngineY(yard);
       const pos = toScreen(ENGINE_WIDTH / 2, engineY);
       const num = yard <= 50 ? yard : 100 - yard;
 
@@ -245,7 +253,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // Draw first down line (yellow line)
     const firstDownYard = game.fieldPosition.yardLine + game.fieldPosition.yardsToGo;
     if (firstDownYard <= 100) {
-      const fdEngineY = (firstDownYard / 100) * ENGINE_HEIGHT;
+      const fdEngineY = yardLineToEngineY(firstDownYard);
       const fdLeft = toScreen(0, fdEngineY);
       const fdRight = toScreen(ENGINE_WIDTH, fdEngineY);
 
@@ -258,6 +266,71 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.lineTo(fdRight.x, fdRight.y);
       ctx.stroke();
       ctx.shadowBlur = 0;
+    }
+
+    // Draw coverage overlay when Tab is held (pre-snap coverage read)
+    if (game.showCoverageOverlay && game.coverageOverlay) {
+      const { zones, manCoverage } = game.coverageOverlay;
+
+      // Draw zone areas
+      zones.forEach(zone => {
+        const { bounds } = zone;
+        const topLeft = toScreen(bounds.minX, bounds.maxY);
+        const topRight = toScreen(bounds.maxX, bounds.maxY);
+        const bottomLeft = toScreen(bounds.minX, bounds.minY);
+        const bottomRight = toScreen(bounds.maxX, bounds.minY);
+
+        // Semi-transparent zone fill
+        let zoneColor = 'rgba(255, 165, 0, 0.25)'; // Orange for underneath
+        if (zone.zone.includes('DEEP')) {
+          zoneColor = 'rgba(0, 191, 255, 0.25)'; // Cyan for deep
+        } else if (zone.zone.includes('FLAT')) {
+          zoneColor = 'rgba(50, 205, 50, 0.25)'; // Green for flats
+        }
+
+        ctx.fillStyle = zoneColor;
+        ctx.beginPath();
+        ctx.moveTo(bottomLeft.x, bottomLeft.y);
+        ctx.lineTo(bottomRight.x, bottomRight.y);
+        ctx.lineTo(topRight.x, topRight.y);
+        ctx.lineTo(topLeft.x, topLeft.y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Zone border
+        ctx.strokeStyle = zoneColor.replace('0.25', '0.6');
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Zone label
+        const anchor = toScreen(bounds.anchorPoint.x, bounds.anchorPoint.y);
+        const shortLabel = zone.zone.replace('DEEP_', 'D-').replace('_LEFT', ' L').replace('_RIGHT', ' R').replace('_MID', ' M');
+        ctx.font = `bold ${Math.max(10, 12 * anchor.scale)}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.textAlign = 'center';
+        ctx.fillText(shortLabel, anchor.x, anchor.y);
+      });
+
+      // Draw man coverage lines
+      manCoverage.forEach(man => {
+        const defender = game.playerPositions.find(p => p.id === man.defenderId);
+        const target = game.playerPositions.find(p => p.id === man.targetId);
+
+        if (defender && target) {
+          const defPos = toScreen(defender.x, defender.y);
+          const tarPos = toScreen(target.x, target.y);
+
+          // Draw line from defender to their man
+          ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(defPos.x, defPos.y);
+          ctx.lineTo(tarPos.x, tarPos.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      });
     }
 
     // Sort players by depth (far players drawn first)

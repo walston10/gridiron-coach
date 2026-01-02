@@ -470,55 +470,72 @@ export class DefenseAI {
     if (!state.zoneBounds) return { x: 0, y: 0 };
 
     const zone = state.zoneBounds;
+    const coverageRating = (defender.coverage ?? 70) / 100;
+    const isDeepZone = state.assignment.zone?.includes('DEEP') ?? false;
 
-    // Find receivers in or near this zone
+    // Find receivers in or near this zone - expand search area
     const receiversInZone = offensivePlayers.filter(p => {
       if (!['WR', 'TE', 'RB'].includes(p.position)) return false;
-      // Check if receiver is in or approaching zone
-      return p.location.x >= zone.minX - 10 && p.location.x <= zone.maxX + 10 &&
-             p.location.y >= zone.minY - 10 && p.location.y <= zone.maxY + 30;
+      // Wider detection area for zone defense
+      return p.location.x >= zone.minX - 15 && p.location.x <= zone.maxX + 15 &&
+             p.location.y >= zone.minY - 15 && p.location.y <= zone.maxY + 40;
     });
 
     if (receiversInZone.length > 0) {
-      // Move toward nearest receiver in zone
+      // Move toward nearest receiver in zone - more aggressively
       const nearest = this.findNearest(defender.location, receiversInZone);
       if (nearest) {
-        const dir = this.normalize({
+        const distToReceiver = this.distance(defender.location, nearest.location);
+        const toReceiver = this.normalize({
           x: nearest.location.x - defender.location.x,
           y: nearest.location.y - defender.location.y,
         });
-        // Don't completely abandon zone - blend toward receiver
+
+        // Close receivers get more aggressive tracking
+        // Deep zone defenders need to maintain depth more
+        let receiverWeight = 0.85;
+        if (distToReceiver < 20) {
+          // Very close - stick to receiver
+          receiverWeight = 0.95 + coverageRating * 0.05;
+        } else if (isDeepZone && distToReceiver > 50) {
+          // Deep zone and receiver far - prioritize depth
+          receiverWeight = 0.5;
+        }
+
         const toAnchor = this.normalize({
           x: zone.anchorPoint.x - defender.location.x,
           y: zone.anchorPoint.y - defender.location.y,
         });
+
+        const speed = 0.9 + coverageRating * 0.2; // 0.97-1.1 based on coverage
         return {
-          x: dir.x * 0.7 + toAnchor.x * 0.3,
-          y: dir.y * 0.7 + toAnchor.y * 0.3,
+          x: (toReceiver.x * receiverWeight + toAnchor.x * (1 - receiverWeight)) * speed,
+          y: (toReceiver.y * receiverWeight + toAnchor.y * (1 - receiverWeight)) * speed,
         };
       }
     }
 
-    // No receivers in zone - move toward anchor point
+    // No receivers in zone - move toward anchor point quickly
     const toAnchor = {
       x: zone.anchorPoint.x - defender.location.x,
       y: zone.anchorPoint.y - defender.location.y,
     };
     const distToAnchor = Math.sqrt(toAnchor.x ** 2 + toAnchor.y ** 2);
 
-    // Once near anchor, HOLD POSITION - don't drift toward QB
+    // Once near anchor, HOLD POSITION - scan for threats
     if (distToAnchor < 8) {
-      // At anchor - stay in zone, only minor lateral adjustments to watch QB
-      // DO NOT move toward QB, just shift slightly within zone
+      // At anchor - stay in zone, look for receivers approaching
+      // Minor lateral adjustments based on QB position
       const qbSide = this.qbLocation.x < defender.location.x ? -1 : 1;
       return {
-        x: qbSide * 0.05, // Tiny lateral shift to face QB
+        x: qbSide * 0.08, // Small lateral shift to face QB
         y: 0, // Hold depth
       };
     }
 
-    // Move toward anchor point
-    return this.normalize(toAnchor);
+    // Move toward anchor point at good speed
+    const dir = this.normalize(toAnchor);
+    return { x: dir.x * 0.9, y: dir.y * 0.9 };
   }
 
   private manMovement(
@@ -565,30 +582,30 @@ export class DefenseAI {
     const distToTarget = Math.sqrt(toTarget.x ** 2 + toTarget.y ** 2);
     const dir = this.normalize(toTarget);
 
-    // Position: stay slightly behind and inside the receiver
+    // Position: stay tight on the receiver
     // Better coverage = tighter positioning allowed
-    const idealOffset = 5 - matchupAdvantage * 3; // 3.5-6.5 units based on matchup
+    const idealOffset = 4 - matchupAdvantage * 2; // 3-5 units based on matchup
 
-    // Speed multiplier based on coverage skill
-    const baseSpeedMult = 0.85 + coverageSkill * 0.3; // 0.92-1.15 based on coverage
+    // Speed multiplier based on coverage skill - increased for stickier coverage
+    const baseSpeedMult = 0.95 + coverageSkill * 0.25; // 1.02-1.2 based on coverage
 
-    if (distToTarget > 20) {
-      // Way too far - sprint to catch up
-      const catchUpSpeed = 1.2 + coverageSkill * 0.3; // 1.27-1.5 based on skill
+    if (distToTarget > 25) {
+      // Way too far - sprint to catch up at max speed
+      const catchUpSpeed = 1.4 + coverageSkill * 0.35; // 1.47-1.75 based on skill
       return { x: dir.x * catchUpSpeed, y: dir.y * catchUpSpeed };
-    } else if (distToTarget > 10) {
+    } else if (distToTarget > 12) {
       // Too far - run hard to close gap
-      return { x: dir.x * baseSpeedMult * 1.2, y: dir.y * baseSpeedMult * 1.2 };
+      return { x: dir.x * baseSpeedMult * 1.3, y: dir.y * baseSpeedMult * 1.3 };
     } else if (distToTarget > idealOffset) {
-      // Closing distance - maintain pursuit
-      return { x: dir.x * baseSpeedMult, y: dir.y * baseSpeedMult };
+      // Closing distance - maintain pursuit with good speed
+      return { x: dir.x * baseSpeedMult * 1.1, y: dir.y * baseSpeedMult * 1.1 };
     } else {
-      // In good position - mirror receiver's movement, stay tight
+      // In good position - mirror receiver's movement, stay TIGHT
       // Better coverage = tighter mirroring
-      const mirrorTightness = 0.8 + coverageSkill * 0.2; // 0.86-1.0 based on skill
+      const mirrorTightness = 0.9 + coverageSkill * 0.15; // 0.97-1.05 based on skill
 
       // Add slight inside leverage (toward center of field)
-      const insideBias = defender.location.x < 80 ? 0.1 : -0.1;
+      const insideBias = defender.location.x < 80 ? 0.12 : -0.12;
       return {
         x: dir.x * mirrorTightness + insideBias,
         y: dir.y * mirrorTightness,
@@ -657,42 +674,49 @@ export class DefenseAI {
   }
 
   private reactToBall(defender: FieldPlayer, state: DefenderState): Vector2 {
-    // Ball is in the air - break toward it based on position and distance
+    // Ball is in the air - BREAK HARD toward it!
     const distToBall = this.distance(defender.location, this.ballLocation);
     const toBall = this.normalize({
       x: this.ballLocation.x - defender.location.x,
       y: this.ballLocation.y - defender.location.y,
     });
 
-    // Only nearby defenders should break hard on the ball
-    // Far defenders should maintain positioning and close gradually
+    // Get defender's reaction/coverage ratings
+    const coverageRating = (defender.coverage ?? 70) / 100;
+    const speedRating = (defender.speed ?? 70) / 100;
     const isDB = ['CB', 'FS', 'SS'].includes(defender.position);
+    const isLB = ['MLB', 'ILB', 'OLB'].includes(defender.position);
 
-    if (distToBall < 40) {
-      // Close enough to make a play - sprint to ball
-      const reactionSpeed = isDB ? 1.3 : 1.0;
-      return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+    // DBs have the best ball skills and break fastest
+    // Reaction speed based on distance and position
+    let reactionSpeed: number;
+
+    if (distToBall < 30) {
+      // Very close - sprint at full speed, try to make the play
+      reactionSpeed = isDB ? 1.5 + coverageRating * 0.3 : 1.2 + speedRating * 0.2;
+    } else if (distToBall < 50) {
+      // Close enough to potentially make a play - move fast
+      reactionSpeed = isDB ? 1.3 + coverageRating * 0.2 : 1.0 + speedRating * 0.15;
     } else if (distToBall < 80) {
-      // Medium range - move toward ball but don't abandon all coverage
-      const reactionSpeed = isDB ? 0.8 : 0.5;
-      return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
+      // Medium range - break toward ball decisively
+      reactionSpeed = isDB ? 1.1 : (isLB ? 0.9 : 0.7);
     } else {
-      // Far from ball - maintain zone responsibility, drift slowly
-      // Deep safeties shouldn't abandon their deep coverage entirely
+      // Far from ball - close on the landing spot but don't overcommit
       if (state.zoneBounds) {
         const toAnchor = this.normalize({
           x: state.zoneBounds.anchorPoint.x - defender.location.x,
           y: state.zoneBounds.anchorPoint.y - defender.location.y,
         });
-        // Blend: 30% toward ball, 70% toward zone (stay in coverage)
+        // Blend: 50% toward ball, 50% toward zone
         return {
-          x: toBall.x * 0.3 + toAnchor.x * 0.7,
-          y: toBall.y * 0.3 + toAnchor.y * 0.7,
+          x: (toBall.x * 0.5 + toAnchor.x * 0.5) * 0.8,
+          y: (toBall.y * 0.5 + toAnchor.y * 0.5) * 0.8,
         };
       }
-      // No zone - slow approach
-      return { x: toBall.x * 0.4, y: toBall.y * 0.4 };
+      reactionSpeed = 0.6;
     }
+
+    return { x: toBall.x * reactionSpeed, y: toBall.y * reactionSpeed };
   }
 
   private pursuitMovement(defender: FieldPlayer): Vector2 {
@@ -765,4 +789,56 @@ export class DefenseAI {
   getDefenderState(defenderId: string): DefenderState | undefined {
     return this.defenderStates.get(defenderId);
   }
+
+  // Get coverage overlay data for pre-snap visualization
+  getCoverageOverlay(): CoverageOverlayData {
+    const zones: ZoneOverlay[] = [];
+    const manCoverage: ManCoverageOverlay[] = [];
+    const rushers: RushOverlay[] = [];
+
+    this.defenderStates.forEach((state, defenderId) => {
+      if (state.assignment.type === 'ZONE' && state.zoneBounds) {
+        zones.push({
+          defenderId,
+          zone: state.assignment.zone!,
+          bounds: state.zoneBounds,
+        });
+      } else if (state.assignment.type === 'MAN' && state.manTarget) {
+        manCoverage.push({
+          defenderId,
+          targetId: state.manTarget,
+        });
+      } else if (state.assignment.type === 'RUSH' || state.assignment.type === 'BLITZ') {
+        rushers.push({
+          defenderId,
+          rushType: state.assignment.rushType || 'INSIDE',
+        });
+      }
+    });
+
+    return { zones, manCoverage, rushers };
+  }
+}
+
+// Types for coverage overlay visualization
+export interface ZoneOverlay {
+  defenderId: string;
+  zone: ZoneType;
+  bounds: ZoneBounds;
+}
+
+export interface ManCoverageOverlay {
+  defenderId: string;
+  targetId: string;
+}
+
+export interface RushOverlay {
+  defenderId: string;
+  rushType: 'INSIDE' | 'OUTSIDE' | 'BULL' | 'CONTAIN';
+}
+
+export interface CoverageOverlayData {
+  zones: ZoneOverlay[];
+  manCoverage: ManCoverageOverlay[];
+  rushers: RushOverlay[];
 }

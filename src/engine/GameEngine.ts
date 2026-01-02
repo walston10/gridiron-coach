@@ -2520,6 +2520,13 @@ export class GameEngine {
     return this.playActionActive;
   }
 
+  /**
+   * Get coverage overlay data for pre-snap visualization
+   */
+  getCoverageOverlay(): import('./DefenseAI').CoverageOverlayData {
+    return this.defenseAI.getCoverageOverlay();
+  }
+
   destroy(): void {
     this.stopTick();
     this.routeRunner.reset();

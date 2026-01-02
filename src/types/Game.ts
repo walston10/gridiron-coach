@@ -1,4 +1,5 @@
 import type { Play } from './Play';
+import type { CoverageOverlayData } from '../engine/DefenseAI';
 
 export type GameState = 
   | 'PRE_SNAP' 
@@ -63,4 +64,6 @@ export type LiveGame = {
       accepted: boolean;
     };
   };
+  coverageOverlay?: CoverageOverlayData;
+  showCoverageOverlay?: boolean;
 };
