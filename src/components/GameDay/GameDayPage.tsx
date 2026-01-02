@@ -3,7 +3,7 @@ import { useGameStore } from '../../stores/gameStore';
 import { useGameEngine } from '../../hooks/useGameEngine';
 import { useControls } from '../../hooks/useControls';
 import { useSubstitutions } from '../../hooks/useSubstitutions';
-import { GameCanvas } from './GameCanvas';
+import { PixiGameCanvas } from './PixiGameCanvas';
 import { Scoreboard } from './Scoreboard';
 import { ControlDeck } from './ControlDeck';
 import { PlayCallModal } from './PlayCallModal';
@@ -512,7 +512,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
             className="relative cursor-crosshair"
             onClick={handleCanvasClick}
           >
-            <GameCanvas game={game} width={showSubPanel ? 700 : 860} height={showSubPanel ? 400 : 490} />
+            <PixiGameCanvas game={game} width={showSubPanel ? 700 : 860} height={showSubPanel ? 400 : 490} />
 
             {/* Spacebar snap instruction overlay - only on offense */}
             {isPreSnap && selectedPlay && isUserOffense && (
