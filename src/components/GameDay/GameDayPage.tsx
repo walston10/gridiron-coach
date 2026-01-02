@@ -21,7 +21,9 @@ function adaptGameStateToLiveGame(
   engineState: GameState,
   homeTeamId: string,
   awayTeamId: string,
-  selectedPlay: Play | null
+  selectedPlay: Play | null,
+  coverageOverlay?: import('../../engine/DefenseAI').CoverageOverlayData,
+  showCoverageOverlay?: boolean
 ): LiveGame {
   // Map engine phase to UI state
   const stateMap: Record<string, LiveGameState> = {
@@ -125,6 +127,8 @@ function adaptGameStateToLiveGame(
     ballInFlight,
     handoffEffect,
     playResult,
+    coverageOverlay,
+    showCoverageOverlay,
   };
 }
 
@@ -152,12 +156,14 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     isPendingPAT,
     isInFieldGoalRange,
     lastKickResult,
+    getCoverageOverlay,
   } = useGameEngine();
   const controls = useControls();
   const substitutions = useSubstitutions();
   const [showPlayCall, setShowPlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
   const [showSubPanel, setShowSubPanel] = useState(true);
+  const [showCoverageOverlay, setShowCoverageOverlay] = useState(false);
 
   // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
@@ -258,6 +264,28 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Tab key to show coverage overlay (like Madden R2)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        setShowCoverageOverlay(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Tab') {
+        setShowCoverageOverlay(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   const handlePlaySelect = useCallback((play: Play) => {
     setSelectedPlay(play);
     engineSelectPlay(play);
@@ -285,19 +313,24 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
 
     // Isometric view settings - must match GameCanvas
     const ENGINE_WIDTH = 160;
-    const ENGINE_HEIGHT = 360;
     const VISIBLE_YARDS = 50;
+    const YARDS_TO_UNITS = 3;
     const HORIZON_Y = 80;
     const fieldMarginX = 50;
     const fieldTop = HORIZON_Y;
     const fieldBottom = rect.height - 40;
     const fieldHeight = fieldBottom - fieldTop;
 
+    // Coordinate conversion - matches GameEngine exactly
+    const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
+
     // Calculate viewport bounds (same as GameCanvas)
-    const losEngineY = (engineState.field.yardLine / 100) * ENGINE_HEIGHT;
-    const viewportStartY = losEngineY - 15 * 3.6;
-    const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
-    const clampedEndY = clampedStartY + VISIBLE_YARDS * 3.6;
+    const losEngineY = yardLineToEngineY(engineState.field.yardLine);
+    const viewportStartY = losEngineY - 12 * YARDS_TO_UNITS;
+    const minViewport = yardLineToEngineY(-10);
+    const maxViewport = yardLineToEngineY(110) - VISIBLE_YARDS * YARDS_TO_UNITS;
+    const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
 
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -378,11 +411,14 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   }
 
   // Adapt engine state for UI components
+  const coverageData = showCoverageOverlay ? getCoverageOverlay() : undefined;
   const game = adaptGameStateToLiveGame(
     engineState,
     userTeamId!,
     oppTeam.info.id,
-    selectedPlay
+    selectedPlay,
+    coverageData,
+    showCoverageOverlay
   );
 
   const isHuddle = engineState.phase === 'HUDDLE';

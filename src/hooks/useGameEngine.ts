@@ -160,6 +160,10 @@ export function useGameEngine() {
     return engineRef.current?.shouldPunt() ?? false;
   }, []);
 
+  const getCoverageOverlay = useCallback(() => {
+    return engineRef.current?.getCoverageOverlay() ?? { zones: [], manCoverage: [], rushers: [] };
+  }, []);
+
   return {
     gameState,
     playbook: OFFENSIVE_PLAYBOOK,
@@ -186,5 +190,6 @@ export function useGameEngine() {
     isInFieldGoalRange,
     shouldPunt,
     lastKickResult,
+    getCoverageOverlay,
   };
 }
