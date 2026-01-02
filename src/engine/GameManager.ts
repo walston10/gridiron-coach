@@ -352,6 +352,33 @@ export class GameManager {
     this.onStateChange({ ...this.state });
   }
 
+  // TIMEOUT MANAGEMENT
+  callTimeout(team: 'home' | 'away'): boolean {
+    // Check if team has timeouts remaining
+    if (team === 'home' && this.state.homeTimeouts > 0) {
+      this.state.homeTimeouts--;
+      this.state.clock.isRunning = false;
+      this.emitState();
+      return true;
+    } else if (team === 'away' && this.state.awayTimeouts > 0) {
+      this.state.awayTimeouts--;
+      this.state.clock.isRunning = false;
+      this.emitState();
+      return true;
+    }
+    return false;
+  }
+
+  getTimeouts(team: 'home' | 'away'): number {
+    return team === 'home' ? this.state.homeTimeouts : this.state.awayTimeouts;
+  }
+
+  canCallTimeout(team: 'home' | 'away'): boolean {
+    const hasTimeouts = team === 'home' ? this.state.homeTimeouts > 0 : this.state.awayTimeouts > 0;
+    // Can only call timeouts during PLAY phase (between plays)
+    return hasTimeouts && this.state.gamePhase === 'PLAY';
+  }
+
   // For testing / debug
   setState(partial: Partial<GameManagerState>): void {
     this.state = { ...this.state, ...partial };

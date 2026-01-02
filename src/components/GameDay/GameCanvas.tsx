@@ -415,10 +415,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     if (game.state === 'PLAY_DEAD' && game.playResult) {
       const result = game.playResult;
       let text = '';
+      let subText = '';
       let color = '#ffffff';
       let glowColor = '#3b82f6';
 
-      if (result.touchdown) {
+      // Check for penalty first
+      if (result.penalty) {
+        const p = result.penalty;
+        text = `FLAG: ${p.description.toUpperCase()}`;
+        subText = `${p.yards} YARD PENALTY - ${p.team === 'offense' ? 'OFFENSE' : 'DEFENSE'}`;
+        color = '#fbbf24'; // Yellow for flags
+        glowColor = '#fbbf24';
+      } else if (result.touchdown) {
         text = 'TOUCHDOWN!';
         color = '#fbbf24';
         glowColor = '#fbbf24';
@@ -464,6 +472,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Fill again on top
       ctx.fillStyle = color;
       ctx.fillText(text, width / 2, height / 2 - 20);
+
+      // Draw subtext for penalties
+      if (subText) {
+        ctx.font = 'bold 24px Inter, system-ui, sans-serif';
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = color;
+        ctx.fillText(subText, width / 2, height / 2 + 25);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.strokeText(subText, width / 2, height / 2 + 25);
+        ctx.fillStyle = color;
+        ctx.fillText(subText, width / 2, height / 2 + 25);
+      }
     }
 
   }, [game, width, height]);

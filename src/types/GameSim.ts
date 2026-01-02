@@ -126,6 +126,14 @@ export interface PlayResult {
   sack: boolean;
   safety?: boolean;
   tackledBy?: string;
+  penalty?: {
+    type: string;
+    team: 'offense' | 'defense';
+    yards: number;
+    description: string;
+    accepted: boolean;
+    automaticFirstDown: boolean;
+  };
 }
 
 // Full game state

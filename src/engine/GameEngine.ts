@@ -12,6 +12,8 @@ import { RouteRunner } from './RouteRunner';
 import { DefenseAI } from './DefenseAI';
 import { KickingEngine } from './KickingEngine';
 import type { KickResult, KickingRatings } from './KickingEngine';
+import { PenaltyEngine } from './PenaltyEngine';
+import type { Penalty, PlayContext } from './PenaltyEngine';
 import type { Play } from '../types';
 
 const FIELD_WIDTH = 160;   // 53.3 yards * 3
@@ -27,6 +29,13 @@ export class GameEngine {
   private routeRunner: RouteRunner;
   private defenseAI: DefenseAI;
   private kickingEngine: KickingEngine;
+  private penaltyEngine: PenaltyEngine;
+
+  // Penalty tracking
+  private pendingPenalty: Penalty | null = null;
+  private qbWasSacked: boolean = false;
+  private qbWasScrambling: boolean = false;
+  private passWasThrown: boolean = false;
 
   // Timing
   private currentTime: number = 0;
@@ -73,6 +82,7 @@ export class GameEngine {
     this.routeRunner = new RouteRunner();
     this.defenseAI = new DefenseAI();
     this.kickingEngine = new KickingEngine(true); // Auto-resolve returns
+    this.penaltyEngine = new PenaltyEngine(1.0);  // Normal penalty frequency
   }
 
   private createInitialState(): GameState {
@@ -1480,10 +1490,62 @@ export class GameEngine {
     this.stopTick();
     this.state.phase = 'WHISTLE';
 
+    // Track for penalty detection
+    this.qbWasSacked = true;
+
     const startYardLine = this.state.field.yardLine;
     const carrier = this.getQB();
     const endYardLine = carrier ? this.yToYardLine(carrier.location.y) : startYardLine;
     const yardsLost = startYardLine - endYardLine;
+
+    // Check for roughing the passer penalty
+    const playContext: PlayContext = {
+      playType: 'PASS',
+      down: this.state.field.down,
+      yardsToGo: this.state.field.yardsToGo,
+      yardLine: this.state.field.yardLine,
+      passInAir: this.passWasThrown,
+      qbSacked: true,
+      qbScrambling: false,
+    };
+
+    const penalty = this.penaltyEngine.checkPlayPenalty(playContext);
+    if (penalty && penalty.type === 'ROUGHING_THE_PASSER') {
+      const penaltyCalc = this.penaltyEngine.calculatePenaltyResult(
+        penalty,
+        startYardLine,
+        this.state.field.down,
+        this.state.field.yardsToGo,
+        -yardsLost
+      );
+
+      this.state.lastResult = {
+        yardsGained: -yardsLost,
+        turnover: false,
+        touchdown: false,
+        outOfBounds: false,
+        incomplete: false,
+        sack: true,
+        tackledBy: defenderId,
+        penalty: {
+          type: penalty.type,
+          team: penalty.team,
+          yards: penalty.yards,
+          description: penalty.description,
+          accepted: true,
+          automaticFirstDown: penalty.automatic_first_down,
+        },
+      };
+
+      // Apply penalty
+      this.state.field.yardLine = penaltyCalc.newYardLine;
+      this.state.field.down = penaltyCalc.newDown;
+      this.state.field.yardsToGo = penaltyCalc.newYardsToGo;
+
+      this.resetPenaltyTracking();
+      this.emitState();
+      return;
+    }
 
     this.state.lastResult = {
       yardsGained: -yardsLost,
@@ -1496,6 +1558,7 @@ export class GameEngine {
     };
 
     this.advanceFieldPosition(-yardsLost, false, false);
+    this.resetPenaltyTracking();
     this.emitState();
   }
 
@@ -1669,6 +1732,10 @@ export class GameEngine {
       elapsedTime: 0,
       intendedTarget: intendedTarget?.id,
     };
+
+    // Track for penalty detection
+    this.passWasThrown = true;
+    this.qbWasScrambling = isScrambling;
 
     this.state.ballCarrier = undefined;
     this.state.phase = 'ACTIVE';
@@ -2019,6 +2086,61 @@ export class GameEngine {
     const endYardLine = carrier ? this.yToYardLine(carrier.location.y) : startYardLine;
     const yardsGained = endYardLine - startYardLine;
 
+    // Check for penalties during the play (not on touchdowns or turnovers usually)
+    let penaltyResult = undefined;
+    if (!touchdown && !turnover && !safety) {
+      const playContext: PlayContext = {
+        playType: this.currentPlay?.type || 'PASS',
+        down: this.state.field.down,
+        yardsToGo: this.state.field.yardsToGo,
+        yardLine: this.state.field.yardLine,
+        passInAir: this.passWasThrown,
+        qbSacked: this.qbWasSacked,
+        qbScrambling: this.qbWasScrambling,
+      };
+
+      const penalty = this.penaltyEngine.checkPlayPenalty(playContext);
+      if (penalty) {
+        const penaltyCalc = this.penaltyEngine.calculatePenaltyResult(
+          penalty,
+          startYardLine,
+          this.state.field.down,
+          this.state.field.yardsToGo,
+          yardsGained
+        );
+
+        penaltyResult = {
+          type: penalty.type,
+          team: penalty.team,
+          yards: penalty.yards,
+          description: penalty.description,
+          accepted: true,  // Auto-accept for now
+          automaticFirstDown: penalty.automatic_first_down,
+        };
+
+        // Apply penalty instead of normal advancement
+        this.state.field.yardLine = penaltyCalc.newYardLine;
+        this.state.field.down = penaltyCalc.newDown;
+        this.state.field.yardsToGo = penaltyCalc.newYardsToGo;
+
+        this.state.lastResult = {
+          yardsGained,
+          turnover: false,
+          touchdown: false,
+          outOfBounds,
+          incomplete: false,
+          sack: false,
+          tackledBy,
+          penalty: penaltyResult,
+        };
+
+        // Reset penalty tracking
+        this.resetPenaltyTracking();
+        this.emitState();
+        return;
+      }
+    }
+
     this.state.lastResult = {
       yardsGained: safety ? -startYardLine : yardsGained,
       turnover: turnover || false,
@@ -2034,7 +2156,17 @@ export class GameEngine {
     if (!safety) {
       this.advanceFieldPosition(yardsGained, touchdown, turnover || false);
     }
+
+    // Reset penalty tracking
+    this.resetPenaltyTracking();
     this.emitState();
+  }
+
+  private resetPenaltyTracking(): void {
+    this.pendingPenalty = null;
+    this.qbWasSacked = false;
+    this.qbWasScrambling = false;
+    this.passWasThrown = false;
   }
 
   private advanceFieldPosition(yards: number, touchdown: boolean, turnover: boolean): void {

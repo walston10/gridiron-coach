@@ -29,8 +29,11 @@ export interface KickPlayState {
   ballLocation: Vector2;
   targetLocation?: Vector2;   // For FG - the uprights
   landingSpot?: Vector2;      // Where ball will land
+  landingYardLine: number;    // Yard line where ball lands
   hangTime?: number;          // Seconds in air
+  elapsedTime: number;        // Time since kick
   result?: KickResult;
+  kickingTeam: 'home' | 'away';
 }
 
 // Default kicker ratings (will come from roster later)
@@ -93,8 +96,101 @@ export class KickingEngine {
       };
     }
 
-    // Future: return full KickPlayState for animated return
-    throw new Error('Full return gameplay not yet implemented');
+    // Return state for animated return - let caller handle it
+    return {
+      type: 'KICKOFF',
+      success: true,
+      distance: kickDistance,
+      netYards: 0,
+      newYardLine: 100 - landingYardLine,  // Will be updated after return
+      touchback: false,
+      returnYards: 0,
+      blocked: false,
+      possession: kickingTeam === 'home' ? 'away' : 'home',
+    };
+  }
+
+  // Start a kickoff and get the play state for animated return
+  startKickoff(
+    kickingTeam: 'home' | 'away',
+    kicker: KickingRatings = DEFAULT_KICKER
+  ): KickPlayState {
+    const FIELD_WIDTH = 160;
+    const FIELD_HEIGHT = 360;
+
+    // Kick distance based on power
+    const baseDistance = 55 + (kicker.kickPower / 99) * 20;
+    const variance = (Math.random() - 0.5) * 10;
+    const kickDistance = Math.round(baseDistance + variance);
+
+    // Kickoff from 35 yard line
+    const kickerY = (35 / 100) * FIELD_HEIGHT;
+    const landingYardLine = Math.min(kickDistance - 35, 100);
+
+    // Landing spot with some horizontal variance
+    const landingY = (landingYardLine / 100) * FIELD_HEIGHT;
+    const landingX = FIELD_WIDTH / 2 + (Math.random() - 0.5) * 60;
+
+    // Hang time based on distance (2.5-4.5 seconds typical)
+    const hangTime = 2.5 + (kickDistance / 75) * 2;
+
+    return {
+      type: 'KICKOFF',
+      phase: 'KICK',
+      kickerLocation: { x: FIELD_WIDTH / 2, y: kickerY },
+      ballLocation: { x: FIELD_WIDTH / 2, y: kickerY },
+      landingSpot: { x: landingX, y: landingY },
+      landingYardLine,
+      hangTime,
+      elapsedTime: 0,
+      kickingTeam,
+    };
+  }
+
+  // Start a punt and get the play state for animated return
+  startPunt(
+    puntingTeam: 'home' | 'away',
+    yardLine: number,
+    punter: KickingRatings = DEFAULT_KICKER
+  ): KickPlayState {
+    const FIELD_WIDTH = 160;
+    const FIELD_HEIGHT = 360;
+
+    // Punt distance based on power
+    const baseDistance = 35 + (punter.puntPower / 99) * 20;
+    const variance = (Math.random() - 0.5) * 10;
+    const puntDistance = Math.round(baseDistance + variance);
+
+    const kickerY = (yardLine / 100) * FIELD_HEIGHT;
+    const landingYardLine = Math.min(yardLine + puntDistance, 100);
+
+    // Landing spot
+    const landingY = (landingYardLine / 100) * FIELD_HEIGHT;
+    const landingX = FIELD_WIDTH / 2 + (Math.random() - 0.5) * 40;
+
+    // Hang time (3-5 seconds typical for punts)
+    const hangTime = 3 + (puntDistance / 50) * 2;
+
+    return {
+      type: 'PUNT',
+      phase: 'KICK',
+      kickerLocation: { x: FIELD_WIDTH / 2, y: kickerY },
+      ballLocation: { x: FIELD_WIDTH / 2, y: kickerY },
+      landingSpot: { x: landingX, y: landingY },
+      landingYardLine,
+      hangTime,
+      elapsedTime: 0,
+      kickingTeam: puntingTeam,
+    };
+  }
+
+  // Check if ball should be a touchback
+  shouldTouchback(landingYardLine: number, type: KickType): boolean {
+    if (type === 'KICKOFF') {
+      return landingYardLine >= 100 || (landingYardLine >= 95 && Math.random() < 0.7);
+    } else {
+      return landingYardLine >= 100;
+    }
   }
 
   // PUNT
