@@ -61,6 +61,9 @@ export class GameEngine {
     cooldownEnd: 0,
   };
 
+  // CPU control state (for when user is on defense)
+  private cpuControlEnabled: boolean = false;
+
   // Clock accumulator for smooth timing
   private clockAccumulator: number = 0;
 
@@ -658,6 +661,55 @@ export class GameEngine {
         y: target.location.y,
         startTime: this.currentTime,
       };
+
+      // Give RB initial momentum based on run play type
+      const runScheme = this.originalPlay?.runBlockingScheme;
+      const playName = this.originalPlay?.name?.toLowerCase() || '';
+      const center = FIELD_WIDTH / 2;
+
+      // Determine initial direction based on play
+      let initialDir: Vector2 = { x: 0, y: -1 }; // Default: straight upfield
+
+      if (runScheme === 'OUTSIDE_ZONE' || playName.includes('sweep') || playName.includes('toss')) {
+        // Outside runs - run toward the sideline first, then upfield
+        // Choose the side with more space or where the play is designed to go
+        const distFromLeft = target.location.x;
+        const distFromRight = FIELD_WIDTH - target.location.x;
+
+        if (distFromRight > distFromLeft) {
+          // More space on right, go right
+          initialDir = { x: 0.8, y: -0.6 };
+        } else {
+          // More space on left, go left
+          initialDir = { x: -0.8, y: -0.6 };
+        }
+      } else if (playName.includes('counter') || playName.includes('trap')) {
+        // Counter/trap - fake one way, go the other
+        initialDir = target.location.x > center
+          ? { x: -0.5, y: -0.9 }  // Go left
+          : { x: 0.5, y: -0.9 };  // Go right
+      } else if (playName.includes('draw')) {
+        // Draw - delayed handoff, go straight up the middle
+        initialDir = { x: 0, y: -1 };
+      } else {
+        // Inside runs (dive, zone, etc.) - straight up with slight variation
+        const gapOffset = (Math.random() - 0.5) * 0.3;
+        initialDir = { x: gapOffset, y: -1 };
+      }
+
+      // Normalize and set initial velocity
+      const mag = Math.sqrt(initialDir.x ** 2 + initialDir.y ** 2);
+      const speedRating = target.speed || 75;
+      const initialSpeed = (speedRating / 100) * 0.5; // Half speed to start
+
+      target.velocity = {
+        x: (initialDir.x / mag) * initialSpeed,
+        y: (initialDir.y / mag) * initialSpeed,
+      };
+
+      // Set player input to continue in this direction momentarily
+      this.playerInput = { x: initialDir.x / mag, y: initialDir.y / mag };
+      this.lastInputTime = this.currentTime;
     }
   }
 
@@ -705,11 +757,14 @@ export class GameEngine {
       // O-Line blocking behavior
       if (['LT', 'LG', 'C', 'RG', 'RT'].includes(player.position)) {
         if (isRunPlay && ballCarrier) {
-          // RUN BLOCKING: Push forward and create lanes
-          // Find nearest defender to block (prioritize those near the ball carrier's path)
+          // RUN BLOCKING: Scheme-specific blocking behavior
+          const runScheme = this.originalPlay?.runBlockingScheme || 'INSIDE_ZONE';
+          const playSide = ballCarrier.velocity.x > 0.1 ? 'RIGHT' : ballCarrier.velocity.x < -0.1 ? 'LEFT' : 'CENTER';
+
+          // Find nearest defender to block
           const nearbyDefenders = this.state.defensivePlayers.filter(d => {
             const distToCarrier = this.distance(d.location, ballCarrier.location);
-            return distToCarrier < 50; // Within ~17 yards of carrier
+            return distToCarrier < 50;
           });
 
           const targetDefender = this.findNearestPlayer(player.location, nearbyDefenders.length > 0 ? nearbyDefenders : passRushers);
@@ -717,31 +772,82 @@ export class GameEngine {
           if (targetDefender) {
             const dist = this.distance(player.location, targetDefender.location);
 
-            if (dist > 8) {
-              // Move toward defender to engage (run blocking is aggressive)
-              const dir = this.normalize({
-                x: targetDefender.location.x - player.location.x,
-                y: targetDefender.location.y - player.location.y,
-              });
-              // Run blockers drive forward fast
-              player.location.x += dir.x * 0.5;
-              player.location.y += dir.y * 0.5;
+            if (runScheme === 'OUTSIDE_ZONE') {
+              // OUTSIDE ZONE: Reach blocks - move laterally first, then engage
+              const reachDir = playSide === 'RIGHT' ? 1 : playSide === 'LEFT' ? -1 : 0;
+
+              if (dist > 8) {
+                // Reach toward play side while moving to defender
+                const dir = this.normalize({
+                  x: (targetDefender.location.x - player.location.x) + reachDir * 5,
+                  y: targetDefender.location.y - player.location.y,
+                });
+                player.location.x += dir.x * 0.45;
+                player.location.y += dir.y * 0.45;
+              } else {
+                // Engaged - seal defender to backside
+                const sealDir = { x: reachDir * 0.7, y: 0.7 };
+                player.location.x = targetDefender.location.x - sealDir.x * 5;
+                player.location.y = targetDefender.location.y - sealDir.y * 3;
+                // Push defender to backside
+                targetDefender.location.x -= reachDir * 0.2;
+                targetDefender.location.y += 0.15;
+              }
+            } else if (runScheme === 'POWER') {
+              // POWER: Pulling guards, down blocks
+              const isPullingGuard = (player.position === 'RG' && playSide === 'LEFT')
+                || (player.position === 'LG' && playSide === 'RIGHT');
+
+              if (isPullingGuard) {
+                // Pull around to lead block
+                const pullTarget = {
+                  x: ballCarrier.location.x + (playSide === 'RIGHT' ? 10 : -10),
+                  y: ballCarrier.location.y + 5,
+                };
+                const pullDir = this.normalize({
+                  x: pullTarget.x - player.location.x,
+                  y: pullTarget.y - player.location.y,
+                });
+                player.location.x += pullDir.x * 0.6;
+                player.location.y += pullDir.y * 0.6;
+              } else {
+                // Down block - drive defender down
+                if (dist > 8) {
+                  const dir = this.normalize({
+                    x: targetDefender.location.x - player.location.x,
+                    y: targetDefender.location.y - player.location.y,
+                  });
+                  player.location.x += dir.x * 0.5;
+                  player.location.y += dir.y * 0.5;
+                } else {
+                  // Drive block down
+                  const downDir = playSide === 'RIGHT' ? -1 : 1;
+                  player.location.x = targetDefender.location.x + downDir * 3;
+                  player.location.y = targetDefender.location.y;
+                  targetDefender.location.x += downDir * 0.2;
+                }
+              }
             } else {
-              // Engaged - push defender away from ball carrier
-              const toBallCarrier = this.normalize({
-                x: ballCarrier.location.x - targetDefender.location.x,
-                y: ballCarrier.location.y - targetDefender.location.y,
-              });
-              // Drive block: push defender sideways/back
-              const pushDir = {
-                x: -toBallCarrier.x,
-                y: Math.max(0.3, -toBallCarrier.y), // Always push at least slightly downfield
-              };
-              player.location.x = targetDefender.location.x + pushDir.x * 5;
-              player.location.y = targetDefender.location.y + pushDir.y * 5;
-              // Also move the defender slightly (sustained block)
-              targetDefender.location.x += pushDir.x * 0.15;
-              targetDefender.location.y += pushDir.y * 0.15;
+              // INSIDE ZONE: Double teams and combos to linebacker
+              if (dist > 8) {
+                const dir = this.normalize({
+                  x: targetDefender.location.x - player.location.x,
+                  y: targetDefender.location.y - player.location.y,
+                });
+                player.location.x += dir.x * 0.5;
+                player.location.y += dir.y * 0.5;
+              } else {
+                // Drive block - push straight ahead
+                const toBallCarrier = this.normalize({
+                  x: ballCarrier.location.x - targetDefender.location.x,
+                  y: ballCarrier.location.y - targetDefender.location.y,
+                });
+                const pushDir = { x: -toBallCarrier.x, y: Math.max(0.3, -toBallCarrier.y) };
+                player.location.x = targetDefender.location.x + pushDir.x * 5;
+                player.location.y = targetDefender.location.y + pushDir.y * 5;
+                targetDefender.location.x += pushDir.x * 0.15;
+                targetDefender.location.y += pushDir.y * 0.15;
+              }
             }
           }
         } else {
@@ -829,21 +935,26 @@ export class GameEngine {
       defender.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, defender.location.x));
     });
 
-    // Update ball carrier physics (User Control)
+    // Update ball carrier physics (User Control or CPU Control)
     if (this.state.ballCarrier) {
       const carrier = this.getPlayer(this.state.ballCarrier);
       if (carrier) {
-        // Reset input if stale (> 0.3s) to prevent stuck controls - increased from 0.15s
-        if (this.currentTime - this.lastInputTime > 0.3) {
-          this.playerInput = { x: 0, y: 0 };
-        }
-
-        // Handle active evasion moves
-        if (this.evasionState.active) {
-          this.updateEvasionMove(carrier);
+        if (this.cpuControlEnabled) {
+          // CPU controls the ball carrier - simple AI
+          this.updateCPUBallCarrier(carrier);
         } else {
-          // Normal movement physics with improved feel
-          this.updateNormalMovement(carrier);
+          // Reset input if stale (> 0.3s) to prevent stuck controls - increased from 0.15s
+          if (this.currentTime - this.lastInputTime > 0.3) {
+            this.playerInput = { x: 0, y: 0 };
+          }
+
+          // Handle active evasion moves
+          if (this.evasionState.active) {
+            this.updateEvasionMove(carrier);
+          } else {
+            // Normal movement physics with improved feel
+            this.updateNormalMovement(carrier);
+          }
         }
 
         // Keep in bounds
@@ -853,6 +964,103 @@ export class GameEngine {
         // Sync ball location
         this.state.ballLocation = { ...carrier.location };
       }
+    }
+  }
+
+  // CPU AI for controlling the ball carrier when user is on defense
+  private updateCPUBallCarrier(carrier: FieldPlayer): void {
+    const isQB = this.isQB(carrier.id);
+
+    if (isQB && this.state.phase === 'SNAP') {
+      // QB behavior: look for open receiver or scramble
+      const receivers = this.state.offensivePlayers.filter(p =>
+        ['WR', 'TE', 'RB'].includes(p.position) && p.id !== carrier.id
+      );
+
+      // Check if any receiver is open (no defender within 15 units)
+      const openReceiver = receivers.find(r => {
+        const nearestDefender = this.getNearestDefender(r.location);
+        return nearestDefender && this.distance(r.location, nearestDefender.location) > 15;
+      });
+
+      // Check for pressure (defender within 10 units of QB)
+      const qbPressure = this.state.defensivePlayers.some(d =>
+        this.distance(carrier.location, d.location) < 10
+      );
+
+      // After 2 seconds or under pressure with open receiver, throw
+      if ((this.currentTime > 2 || qbPressure) && openReceiver) {
+        // Add some inaccuracy
+        const targetX = openReceiver.location.x + (Math.random() - 0.5) * 10;
+        const targetY = openReceiver.location.y + (Math.random() - 0.5) * 10;
+        this.throwToSpot({ x: targetX, y: targetY });
+        return;
+      }
+
+      // After 3 seconds, scramble or throw it away
+      if (this.currentTime > 3) {
+        if (qbPressure) {
+          // Throw it away (out of bounds)
+          this.throwToSpot({ x: -10, y: carrier.location.y });
+        } else if (openReceiver) {
+          // Throw to open receiver
+          this.throwToSpot({ x: openReceiver.location.x, y: openReceiver.location.y });
+        }
+        return;
+      }
+
+      // Pocket movement - stay in pocket but avoid pressure
+      const nearestRusher = this.state.defensivePlayers.find(d =>
+        ['DE', 'DT'].includes(d.position) && this.distance(carrier.location, d.location) < 20
+      );
+
+      if (nearestRusher) {
+        // Move away from pressure
+        const awayDir = this.normalize({
+          x: carrier.location.x - nearestRusher.location.x,
+          y: Math.min(0, carrier.location.y - nearestRusher.location.y), // Don't go forward
+        });
+        this.playerInput = awayDir;
+        this.lastInputTime = this.currentTime;
+        this.updateNormalMovement(carrier);
+      }
+    } else {
+      // Ball carrier (after handoff or catch) - run toward endzone avoiding defenders
+      // Find gaps between defenders
+      const nearDefenders = this.state.defensivePlayers.filter(d =>
+        this.distance(carrier.location, d.location) < 40
+      );
+
+      let moveDir: Vector2 = { x: 0, y: 1 }; // Default: run straight upfield
+
+      if (nearDefenders.length > 0) {
+        // Find the best lane - where there are fewer defenders
+        const leftDensity = nearDefenders.filter(d => d.location.x < carrier.location.x).length;
+        const rightDensity = nearDefenders.filter(d => d.location.x > carrier.location.x).length;
+
+        if (leftDensity < rightDensity) {
+          moveDir = { x: -0.3, y: 1 }; // Drift left
+        } else if (rightDensity < leftDensity) {
+          moveDir = { x: 0.3, y: 1 }; // Drift right
+        }
+
+        // Check for immediate threats (within 12 units)
+        const immediateThreat = nearDefenders.find(d =>
+          this.distance(carrier.location, d.location) < 12
+        );
+
+        if (immediateThreat) {
+          // Try to avoid - cut opposite direction
+          const cutDir = immediateThreat.location.x > carrier.location.x ? -1 : 1;
+          moveDir = { x: cutDir * 0.8, y: 0.6 };
+        }
+      }
+
+      // Normalize and apply
+      const mag = Math.sqrt(moveDir.x ** 2 + moveDir.y ** 2);
+      this.playerInput = { x: moveDir.x / mag, y: moveDir.y / mag };
+      this.lastInputTime = this.currentTime;
+      this.updateNormalMovement(carrier);
     }
   }
 
@@ -1127,9 +1335,15 @@ export class GameEngine {
   // PLAYER CONTROLS
   moveBallCarrier(direction: Vector2): void {
     if (this.state.phase !== 'SNAP' && this.state.phase !== 'ACTIVE') return;
+    if (this.cpuControlEnabled) return; // Ignore player input when CPU is controlling
 
     this.playerInput = direction;
     this.lastInputTime = this.currentTime;
+  }
+
+  // Enable/disable CPU control of ball carrier (for defense mode)
+  enableCPUControl(enabled: boolean): void {
+    this.cpuControlEnabled = enabled;
   }
 
   // EVASION MOVES
@@ -1599,6 +1813,7 @@ export class GameEngine {
     this.state.selectedPlay = undefined;
     this.currentPlay = null;
     this.currentDefense = null;
+    this.cpuControlEnabled = false; // Reset CPU control
     this.routeRunner.reset();
     this.defenseAI.reset();
 

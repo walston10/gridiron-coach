@@ -80,6 +80,33 @@ export function useGameEngine() {
     setLastKickResult(null);
   }, []);
 
+  // Simulate a full CPU offensive play (when user is on defense)
+  const simulateCPUPlay = useCallback(() => {
+    if (!engineRef.current || !cpuRef.current || !gameState) return;
+
+    // CPU selects an offensive play
+    const cpuOffense = cpuRef.current.callOffensivePlay(
+      gameState.field,
+      gameState.score.away - gameState.score.home,
+      gameState.clock.minutes * 60 + gameState.clock.seconds
+    );
+
+    // Set up CPU offense (user is on defense)
+    engineRef.current.setOffensivePlay(cpuOffense);
+
+    // Auto-set defense since user isn't picking
+    engineRef.current.setAutoCPUDefense();
+
+    // Snap after a brief delay for huddle animation
+    setTimeout(() => {
+      if (engineRef.current) {
+        engineRef.current.snap();
+        // Enable CPU ball carrier control
+        engineRef.current.enableCPUControl(true);
+      }
+    }, 1500); // Wait for huddle break animation
+  }, [gameState]);
+
   // Kicking plays
   const kickoff = useCallback(() => {
     if (!engineRef.current) return null;
@@ -143,6 +170,7 @@ export function useGameEngine() {
     throwToSpot,
     handoff,
     nextPlay,
+    simulateCPUPlay, // For when user is on defense
     // Evasion moves
     juke,
     spin,

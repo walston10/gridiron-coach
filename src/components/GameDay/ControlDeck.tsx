@@ -7,6 +7,7 @@ interface ControlDeckProps {
   isPlayRunning: boolean;
   isPlayDead: boolean;
   selectedPlayName?: string;
+  isUserOffense: boolean; // Whether user's team has possession
 
   // Field position
   down: number;
@@ -50,6 +51,7 @@ interface ControlDeckProps {
   onJuke: () => void;
   onSpin: () => void;
   onDive: () => void;
+  onSimulateCPU?: () => void; // Simulate CPU offense play
 
   // Ball carrier info
   ballCarrier?: string;
@@ -61,6 +63,7 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
   isPlayRunning,
   isPlayDead,
   selectedPlayName,
+  isUserOffense,
   down,
   yardsToGo,
   yardLine,
@@ -84,6 +87,7 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
   onJuke,
   onSpin,
   onDive,
+  onSimulateCPU,
   ballCarrier,
 }) => {
   const getDownSuffix = (d: number) => {
@@ -101,14 +105,29 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
 
   const getLastPlayText = () => {
     if (!lastResult) return null;
-    if (lastResult.touchdown) return { text: `TOUCHDOWN! ${userTeamName} SCORES!`, type: 'success' };
-    if (lastResult.incomplete) return { text: 'INCOMPLETE PASS', type: 'neutral' };
-    if (lastResult.sack) return { text: `SACK! ${lastResult.yardsGained} YARDS`, type: 'danger' };
-    if (lastResult.turnover) return { text: `TURNOVER - ${lastResult.turnoverType}`, type: 'danger' };
-    if (lastResult.safety) return { text: `SAFETY! ${oppTeamName} +2`, type: 'danger' };
-    const prefix = lastResult.yardsGained >= 0 ? '+' : '';
-    const type = lastResult.yardsGained > 5 ? 'success' : lastResult.yardsGained >= 0 ? 'neutral' : 'danger';
-    return { text: `${prefix}${lastResult.yardsGained} YARDS`, type };
+    // When on defense, good/bad is reversed from the result perspective
+    if (isUserOffense) {
+      // User was on offense
+      if (lastResult.touchdown) return { text: `TOUCHDOWN! ${userTeamName} SCORES!`, type: 'success' };
+      if (lastResult.incomplete) return { text: 'INCOMPLETE PASS', type: 'neutral' };
+      if (lastResult.sack) return { text: `SACK! ${lastResult.yardsGained} YARDS`, type: 'danger' };
+      if (lastResult.turnover) return { text: `TURNOVER - ${lastResult.turnoverType}`, type: 'danger' };
+      if (lastResult.safety) return { text: `SAFETY! ${oppTeamName} +2`, type: 'danger' };
+      const prefix = lastResult.yardsGained >= 0 ? '+' : '';
+      const type = lastResult.yardsGained > 5 ? 'success' : lastResult.yardsGained >= 0 ? 'neutral' : 'danger';
+      return { text: `${prefix}${lastResult.yardsGained} YARDS`, type };
+    } else {
+      // User was on defense - reverse the colors
+      if (lastResult.touchdown) return { text: `TOUCHDOWN! ${oppTeamName} SCORES!`, type: 'danger' };
+      if (lastResult.incomplete) return { text: 'INCOMPLETE - GOOD D!', type: 'success' };
+      if (lastResult.sack) return { text: `SACK! ${Math.abs(lastResult.yardsGained)} YARD LOSS!`, type: 'success' };
+      if (lastResult.turnover) return { text: `TURNOVER! ${lastResult.turnoverType}!`, type: 'success' };
+      if (lastResult.safety) return { text: `SAFETY! ${userTeamName} +2`, type: 'success' };
+      const yards = lastResult.yardsGained;
+      const type = yards <= 0 ? 'success' : yards <= 3 ? 'neutral' : 'danger';
+      const prefix = yards >= 0 ? '+' : '';
+      return { text: `${oppTeamName} ${prefix}${yards} YARDS`, type };
+    }
   };
 
   const lastPlayInfo = getLastPlayText();
@@ -199,8 +218,8 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
               </button>
             )}
 
-            {/* Normal Pre-Snap */}
-            {isPreSnap && !pendingKickoff && !pendingPAT && (
+            {/* Normal Pre-Snap - OFFENSE */}
+            {isPreSnap && !pendingKickoff && !pendingPAT && isUserOffense && (
               <>
                 <button
                   onClick={onCallPlay}
@@ -232,8 +251,25 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
               </>
             )}
 
-            {/* 4th Down Options */}
-            {isPreSnap && !pendingKickoff && !pendingPAT && isFourthDown && (
+            {/* Normal Pre-Snap - DEFENSE */}
+            {isPreSnap && !pendingKickoff && !pendingPAT && !isUserOffense && (
+              <>
+                <div className="px-4 py-2 bg-red-500/20 rounded-lg border border-red-500/30">
+                  <div className="text-xs text-red-400 uppercase font-bold">ON DEFENSE</div>
+                  <div className="text-red-300 text-sm">{oppTeamName} has the ball</div>
+                </div>
+
+                <button
+                  onClick={onSimulateCPU}
+                  className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-lg shadow-lg shadow-red-500/25 transition-all hover:scale-105"
+                >
+                  RUN CPU PLAY
+                </button>
+              </>
+            )}
+
+            {/* 4th Down Options - Only show on offense */}
+            {isPreSnap && !pendingKickoff && !pendingPAT && isFourthDown && isUserOffense && (
               <div className="flex items-center gap-2 ml-2 pl-4 border-l border-slate-700">
                 {inFGRange && (
                   <button
@@ -290,6 +326,15 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
           {/* Right - Phase Indicator & Controls Help */}
           <div className="flex-1 flex justify-end">
             <div className="text-right">
+              {/* Offense/Defense indicator */}
+              <div className={`
+                inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2 mr-2
+                ${isUserOffense
+                  ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                  : 'bg-red-500/20 text-red-400 border border-red-500/30'}
+              `}>
+                {isUserOffense ? 'OFFENSE' : 'DEFENSE'}
+              </div>
               <div className={`
                 inline-block px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2
                 ${phase === 'HUDDLE' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : ''}
@@ -301,13 +346,19 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
                 {pendingPAT ? 'EXTRA POINT' : pendingKickoff ? 'KICKOFF' :
                   phase === 'BREAKING_HUDDLE' ? 'BREAK!' : phase.replace('_', ' ')}
               </div>
-              {isPlayRunning && (
+              {isPlayRunning && isUserOffense && (
                 <div className="text-xs text-slate-500">
                   <div>WASD/Arrows to move</div>
                   <div>SHIFT to sprint</div>
                   {ballCarrier?.toLowerCase() === 'qb' && (
                     <div className="text-yellow-400">Click field to throw</div>
                   )}
+                </div>
+              )}
+              {isPlayRunning && !isUserOffense && (
+                <div className="text-xs text-slate-500">
+                  <div className="text-red-400">CPU has the ball</div>
+                  <div>Watch the play unfold</div>
                 </div>
               )}
             </div>
