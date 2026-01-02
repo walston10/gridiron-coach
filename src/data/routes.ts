@@ -10,93 +10,95 @@ export type RouteTemplate = {
   requiresMirror: boolean;
 };
 
-// Routes are relative to player position
+// Route visual templates for play diagrams
+// Coordinates are relative to player position
 // Negative Y = upfield (toward defense/endzone)
 // Positive X = right, Negative X = left
+// Scale: roughly 1 unit = 1 yard for visualization
 
 export const ROUTES: RouteTemplate[] = [
   {
     type: 'GO',
     name: 'Go / Fly',
     description: 'Straight vertical route',
-    basePoints: [{ x: 0, y: -5 }, { x: 0, y: -15 }, { x: 0, y: -30 }],
+    basePoints: [{ x: 0, y: -8 }, { x: 0, y: -20 }, { x: 0, y: -35 }],
     requiresMirror: false,
   },
   {
     type: 'SLANT',
     name: 'Slant',
-    description: 'Quick inside diagonal',
-    basePoints: [{ x: 0, y: -3 }, { x: 8, y: -10 }],
+    description: 'Quick 3-step inside diagonal',
+    basePoints: [{ x: 0, y: -3 }, { x: 10, y: -12 }],
     requiresMirror: true,
   },
   {
     type: 'IN',
     name: 'In / Dig',
-    description: 'Vertical then break inside',
-    basePoints: [{ x: 0, y: -10 }, { x: 15, y: -10 }],
+    description: '12 yard vertical then 90 degree break inside',
+    basePoints: [{ x: 0, y: -12 }, { x: 18, y: -12 }],
     requiresMirror: true,
   },
   {
     type: 'OUT',
     name: 'Out',
-    description: 'Vertical then break to sideline',
-    basePoints: [{ x: 0, y: -10 }, { x: -12, y: -10 }],
+    description: '10-12 yard vertical then 90 degree break to sideline',
+    basePoints: [{ x: 0, y: -11 }, { x: -14, y: -11 }],
     requiresMirror: true,
   },
   {
     type: 'CURL',
     name: 'Curl / Hitch',
-    description: 'Vertical then turn back to QB',
-    basePoints: [{ x: 0, y: -10 }, { x: 0, y: -8 }],
+    description: '10-12 yard vertical then turn back to QB',
+    basePoints: [{ x: 0, y: -11 }, { x: 0, y: -9 }],
     requiresMirror: false,
   },
   {
     type: 'COMEBACK',
     name: 'Comeback',
-    description: 'Deep vertical then come back to sideline',
-    basePoints: [{ x: 0, y: -15 }, { x: -5, y: -12 }],
+    description: '15-18 yard vertical then come back toward sideline',
+    basePoints: [{ x: 0, y: -16 }, { x: -6, y: -13 }],
     requiresMirror: true,
   },
   {
     type: 'POST',
     name: 'Post',
-    description: 'Vertical then angle to goalpost',
-    basePoints: [{ x: 0, y: -12 }, { x: 10, y: -25 }],
+    description: '12-15 yard vertical then 45 degree break to goalpost',
+    basePoints: [{ x: 0, y: -14 }, { x: 12, y: -28 }],
     requiresMirror: true,
   },
   {
     type: 'CORNER',
     name: 'Corner / Flag',
-    description: 'Vertical then break to pylon',
-    basePoints: [{ x: 0, y: -12 }, { x: -12, y: -25 }],
+    description: '12-15 yard vertical then 45 degree break to pylon',
+    basePoints: [{ x: 0, y: -14 }, { x: -14, y: -28 }],
     requiresMirror: true,
   },
   {
     type: 'DRAG',
     name: 'Drag',
-    description: 'Shallow cross all the way across',
-    basePoints: [{ x: 0, y: -2 }, { x: 25, y: -2 }],
+    description: '2-3 yard depth then shallow cross (mesh route)',
+    basePoints: [{ x: 0, y: -3 }, { x: 28, y: -3 }],
     requiresMirror: true,
   },
   {
     type: 'FLAT',
     name: 'Flat',
-    description: 'Quick route to the flat',
-    basePoints: [{ x: -10, y: -2 }],
+    description: 'Quick route to the flat (checkdown)',
+    basePoints: [{ x: -8, y: -2 }, { x: -14, y: -1 }],
     requiresMirror: true,
   },
   {
     type: 'WHEEL',
     name: 'Wheel',
-    description: 'Arc to flat then up sideline',
-    basePoints: [{ x: -5, y: 0 }, { x: -12, y: -5 }, { x: -12, y: -25 }],
+    description: 'Arc to flat then wheel up the sideline',
+    basePoints: [{ x: -5, y: -1 }, { x: -14, y: -6 }, { x: -14, y: -25 }],
     requiresMirror: true,
   },
   {
     type: 'SCREEN',
     name: 'Screen',
     description: 'Let defenders through, catch behind line',
-    basePoints: [{ x: -8, y: 3 }],
+    basePoints: [{ x: -10, y: 2 }],
     requiresMirror: true,
   },
 ];

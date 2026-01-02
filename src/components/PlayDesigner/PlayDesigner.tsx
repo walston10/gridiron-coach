@@ -18,6 +18,8 @@ const BLOCKING_NAMES: Record<BlockingAssignment, string> = {
   'ZONE_RIGHT': 'Zone R',
   'PULL_LEFT': 'Pull L',
   'PULL_RIGHT': 'Pull R',
+  'TRAP': 'Trap',
+  'DOUBLE_TEAM': 'Double',
 };
 
 const RUN_ASSIGNMENTS: { value: RunAssignment; label: string }[] = [

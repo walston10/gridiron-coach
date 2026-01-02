@@ -465,13 +465,53 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
 
       {/* Main Content - Field + Substitution Panel */}
       <div className="flex-1 flex">
+        {/* Left sidebar - Game Controls */}
+        <div className="w-48 p-4 flex flex-col gap-3">
+          {/* Coverage overlay toggle */}
+          <button
+            onMouseDown={() => setShowCoverageOverlay(true)}
+            onMouseUp={() => setShowCoverageOverlay(false)}
+            onMouseLeave={() => setShowCoverageOverlay(false)}
+            className={`px-4 py-3 rounded-lg font-semibold text-sm transition-all ${
+              showCoverageOverlay
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                : 'bg-gray-800/80 text-gray-300 hover:bg-gray-700 border border-gray-700'
+            }`}
+            title="Hold to show defensive coverage zones"
+          >
+            {showCoverageOverlay ? 'Coverage ON' : 'Show Coverage'}
+          </button>
+
+          {/* Game controls info */}
+          <div className="bg-gray-800/60 rounded-lg p-3 text-xs">
+            <div className="text-gray-400 mb-2 font-medium">Controls</div>
+            <div className="space-y-1.5 text-gray-500">
+              <div><span className="text-gray-400">WASD/Arrows:</span> Move</div>
+              <div><span className="text-gray-400">Shift:</span> Sprint</div>
+              <div><span className="text-gray-400">Space:</span> Snap ball</div>
+              <div><span className="text-gray-400">Click:</span> Throw</div>
+            </div>
+          </div>
+
+          {/* Field position info */}
+          {engineState && (
+            <div className="bg-gray-800/60 rounded-lg p-3 text-xs mt-auto">
+              <div className="text-gray-400 mb-2 font-medium">Drive</div>
+              <div className="space-y-1 text-gray-300">
+                <div>Ball on: <span className="text-white font-medium">{engineState.field.yardLine}</span></div>
+                <div>To go: <span className="text-white font-medium">{100 - engineState.field.yardLine} yds</span></div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Field area */}
         <div className="flex-1 flex items-center justify-center p-6">
           <div
             className="relative cursor-crosshair"
             onClick={handleCanvasClick}
           >
-            <GameCanvas game={game} width={showSubPanel ? 800 : 960} height={showSubPanel ? 450 : 540} />
+            <GameCanvas game={game} width={showSubPanel ? 700 : 860} height={showSubPanel ? 400 : 490} />
 
             {/* Spacebar snap instruction overlay - only on offense */}
             {isPreSnap && selectedPlay && isUserOffense && (
