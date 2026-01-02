@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 import { useGameEngine } from '../../hooks/useGameEngine';
 import { useControls } from '../../hooks/useControls';
+import { useSubstitutions } from '../../hooks/useSubstitutions';
 import { GameCanvas } from './GameCanvas';
 import { Scoreboard } from './Scoreboard';
 import { ControlDeck } from './ControlDeck';
 import { PlayCallModal } from './PlayCallModal';
+import { SubstitutionPanel } from './SubstitutionPanel';
 import type { Play } from '../../types';
 import type { LiveGame, GameState as LiveGameState } from '../../types/Game';
 import type { GameState, Vector2 } from '../../types/GameSim';
@@ -152,8 +154,10 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     lastKickResult,
   } = useGameEngine();
   const controls = useControls();
+  const substitutions = useSubstitutions();
   const [showPlayCall, setShowPlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
+  const [showSubPanel, setShowSubPanel] = useState(true);
 
   // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
@@ -399,7 +403,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
       {/* Top Bar - Scoreboard */}
-      <div className="p-4 pb-0">
+      <div className="p-4 pb-0 flex items-center justify-between">
         <Scoreboard
           clock={game.clock}
           homeTeam={{ ...game.homeTeam, name: userTeam.info.name }}
@@ -409,52 +413,95 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
           yardsToGo={game.fieldPosition.yardsToGo}
           yardLine={game.fieldPosition.yardLine}
         />
+        {/* Toggle sub panel button */}
+        <button
+          onClick={() => setShowSubPanel(!showSubPanel)}
+          className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            showSubPanel
+              ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+              : 'bg-gray-700/50 text-gray-400 border border-gray-600/30'
+          }`}
+          title="Toggle depth chart"
+        >
+          Roster
+        </button>
       </div>
 
-      {/* Main Content - Field */}
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div
-          className="relative cursor-crosshair"
-          onClick={handleCanvasClick}
-        >
-          <GameCanvas game={game} width={960} height={540} />
+      {/* Main Content - Field + Substitution Panel */}
+      <div className="flex-1 flex">
+        {/* Field area */}
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div
+            className="relative cursor-crosshair"
+            onClick={handleCanvasClick}
+          >
+            <GameCanvas game={game} width={showSubPanel ? 800 : 960} height={showSubPanel ? 450 : 540} />
 
-          {/* Spacebar snap instruction overlay - only on offense */}
-          {isPreSnap && selectedPlay && isUserOffense && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-green-500/30">
-              <span className="text-green-400 text-sm font-semibold">
-                Press SPACE to snap the ball
-              </span>
-            </div>
-          )}
+            {/* Spacebar snap instruction overlay - only on offense */}
+            {isPreSnap && selectedPlay && isUserOffense && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-green-500/30">
+                <span className="text-green-400 text-sm font-semibold">
+                  Press SPACE to snap the ball
+                </span>
+              </div>
+            )}
 
-          {/* Breaking huddle indicator */}
-          {isBreakingHuddle && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-blue-500/30">
-              <span className="text-blue-400 text-sm font-semibold">
-                Breaking huddle...
-              </span>
-            </div>
-          )}
+            {/* Breaking huddle indicator */}
+            {isBreakingHuddle && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-blue-500/30">
+                <span className="text-blue-400 text-sm font-semibold">
+                  Breaking huddle...
+                </span>
+              </div>
+            )}
 
-          {/* Throw instruction overlay - only on offense */}
-          {isPlayRunning && isUserOffense && engineState.ballCarrier?.toLowerCase() === 'qb' && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-yellow-500/30">
-              <span className="text-yellow-400 text-sm font-semibold">
-                Click anywhere to throw the ball
-              </span>
-            </div>
-          )}
+            {/* Throw instruction overlay - only on offense */}
+            {isPlayRunning && isUserOffense && engineState.ballCarrier?.toLowerCase() === 'qb' && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-yellow-500/30">
+                <span className="text-yellow-400 text-sm font-semibold">
+                  Click anywhere to throw the ball
+                </span>
+              </div>
+            )}
 
-          {/* Defense mode indicator */}
-          {isPlayRunning && !isUserOffense && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-red-500/30">
-              <span className="text-red-400 text-sm font-semibold">
-                CPU is running the play...
-              </span>
-            </div>
-          )}
+            {/* Defense mode indicator */}
+            {isPlayRunning && !isUserOffense && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full border border-red-500/30">
+                <span className="text-red-400 text-sm font-semibold">
+                  CPU is running the play...
+                </span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Substitution Panel - Right sidebar */}
+        {showSubPanel && (
+          <SubstitutionPanel
+            side={isUserOffense ? 'offense' : 'defense'}
+            roster={substitutions.roster}
+            currentLineup={isUserOffense ? substitutions.offenseLineup : substitutions.defenseLineup}
+            depthChart={isUserOffense ? substitutions.offenseDepthChart : substitutions.defenseDepthChart}
+            fatigueData={isUserOffense ? substitutions.offenseFatigue : substitutions.defenseFatigue}
+            autoSubSettings={substitutions.autoSubSettings}
+            onSubstitute={(slot, playerId) => {
+              if (isUserOffense) {
+                substitutions.substituteOffense(slot, playerId);
+              } else {
+                substitutions.substituteDefense(slot, playerId);
+              }
+            }}
+            onToggleAutoSub={substitutions.toggleAutoSub}
+            onAutoSubAll={() => {
+              if (isUserOffense) {
+                substitutions.autoSubOffense();
+              } else {
+                substitutions.autoSubDefense();
+              }
+            }}
+            showPanel={showSubPanel}
+          />
+        )}
       </div>
 
       {/* Bottom Bar - Control Deck */}
