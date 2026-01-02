@@ -16,6 +16,7 @@ interface UseInputHandlerProps {
   onThrow: (location: Vector2) => void;
   onHandoff: () => void;
   onNextPlay: () => void;
+  onTimeout?: () => void;
   phase: 'PRE_SNAP' | 'SNAP' | 'ACTIVE' | 'TACKLE' | 'WHISTLE';
   enabled?: boolean;
 }
@@ -27,6 +28,7 @@ export function useInputHandler({
   onThrow,
   onHandoff,
   onNextPlay,
+  onTimeout,
   phase,
   enabled = true,
 }: UseInputHandlerProps) {
@@ -91,7 +93,7 @@ export function useInputHandler({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Prevent default for game keys
-      if (['w', 'a', 's', 'd', ' ', 'e', 'Enter'].includes(e.key.toLowerCase())) {
+      if (['w', 'a', 's', 'd', ' ', 'e', 't', 'Enter'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
 
@@ -120,6 +122,11 @@ export function useInputHandler({
         case 'e': // Handoff
           if (phase === 'SNAP') {
             onHandoff();
+          }
+          break;
+        case 't': // Timeout
+          if (phase === 'PRE_SNAP' || phase === 'WHISTLE') {
+            onTimeout?.();
           }
           break;
         case 'enter':
@@ -157,7 +164,7 @@ export function useInputHandler({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [enabled, phase, onSnap, onHandoff, onNextPlay]);
+  }, [enabled, phase, onSnap, onHandoff, onNextPlay, onTimeout]);
 
   // Start/stop movement loop based on phase
   useEffect(() => {

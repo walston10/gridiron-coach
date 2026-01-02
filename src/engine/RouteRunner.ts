@@ -2,13 +2,14 @@ import type { Vector2, RouteType, FieldPlayer } from '../types/GameSim';
 
 /**
  * Route phases:
+ * DELAY - Waiting before starting route (for screen/delay routes)
  * STEM - Initial straight run off the line
  * BREAK - The cut/break point of the route
  * FINAL - The final direction after the break
  * SETTLE - Route complete, find open space (for timing routes)
  * SCRAMBLE - QB extended play, work back to QB
  */
-export type RoutePhase = 'STEM' | 'BREAK' | 'FINAL' | 'SETTLE' | 'SCRAMBLE';
+export type RoutePhase = 'DELAY' | 'STEM' | 'BREAK' | 'FINAL' | 'SETTLE' | 'SCRAMBLE';
 
 export interface RouteState {
   phase: RoutePhase;
@@ -28,6 +29,8 @@ export interface RouteDefinition {
   finalDirection: Vector2;    // Final route direction
   settleTime: number;         // When to settle and find space (seconds from snap)
   isTimingRoute: boolean;     // Does this route have a specific timing window?
+  delayTime?: number;         // Delay before starting the route (for screen/delay routes)
+  isBlockingRoute?: boolean;  // Does this route involve blocking first?
 }
 
 // Route definitions with realistic football concepts
@@ -163,6 +166,56 @@ const ROUTE_DEFINITIONS: Record<RouteType, RouteDefinition> = {
     settleTime: 999,
     isTimingRoute: false,
   },
+
+  // SCREEN - delay then release to flat (for RB on screen passes)
+  SCREEN: {
+    stemDirection: { x: 0, y: 0 },  // Stay in place during delay
+    stemDistance: 3,
+    breakDirection: { x: -0.8, y: 0.2 },  // Release to flat
+    breakDuration: 0.3,
+    finalDirection: { x: -0.9, y: 0.1 },
+    settleTime: 2.5,
+    isTimingRoute: true,
+    delayTime: 1.2,  // Wait 1.2 seconds before releasing
+  },
+
+  // SWING - quick release to outside, shallow route
+  SWING: {
+    stemDirection: { x: -0.9, y: 0.3 },  // Quick outside release
+    stemDistance: 12,
+    breakDirection: { x: -0.7, y: 0.7 },  // Turn upfield
+    breakDuration: 0.2,
+    finalDirection: { x: -0.3, y: 0.95 },  // Up the sideline
+    settleTime: 2.0,
+    isTimingRoute: true,
+    delayTime: 0,
+  },
+
+  // DELAY - block briefly then release into short route
+  DELAY: {
+    stemDirection: { x: 0, y: 0 },  // Block at LOS
+    stemDistance: 0,
+    breakDirection: { x: 0.3, y: 0.8 },  // Release up and inside
+    breakDuration: 0.3,
+    finalDirection: { x: 0.2, y: 0.9 },
+    settleTime: 3.0,
+    isTimingRoute: false,
+    delayTime: 1.5,  // Block for 1.5 seconds first
+    isBlockingRoute: true,
+  },
+
+  // RELEASE_BLOCK - for OL on screen plays, release and get downfield to block
+  RELEASE_BLOCK: {
+    stemDirection: { x: 0, y: 0 },  // Fake block
+    stemDistance: 0,
+    breakDirection: { x: -0.5, y: 0.87 },  // Release toward flat
+    breakDuration: 0.5,
+    finalDirection: { x: -0.3, y: 0.95 },  // Get downfield
+    settleTime: 3.0,
+    isTimingRoute: false,
+    delayTime: 0.8,  // Fake block for 0.8 seconds
+    isBlockingRoute: true,
+  },
 };
 
 export class RouteRunner {
@@ -188,8 +241,11 @@ export class RouteRunner {
 
     this.snapTime = currentTime;
 
+    const def = ROUTE_DEFINITIONS[player.route];
+    const hasDelay = def.delayTime && def.delayTime > 0;
+
     const routeState: RouteState = {
-      phase: 'STEM',
+      phase: hasDelay ? 'DELAY' : 'STEM',
       startLocation: { ...player.location },
       currentTarget: this.calculateStemTarget(player),
       phaseStartTime: currentTime,
@@ -296,6 +352,17 @@ export class RouteRunner {
     const timeSincePhaseStart = currentTime - state.phaseStartTime;
 
     switch (state.phase) {
+      case 'DELAY':
+        // Check if delay time has passed
+        const delayTime = def.delayTime || 0;
+        if (timeSincePhaseStart >= delayTime) {
+          state.phase = 'STEM';
+          state.phaseStartTime = currentTime;
+          // Reset start location for distance calculations after delay
+          state.startLocation = { ...player.location };
+        }
+        break;
+
       case 'STEM':
         // Check if we've run far enough to break
         if (distanceTraveled >= def.stemDistance * 0.9) {
@@ -306,8 +373,11 @@ export class RouteRunner {
         break;
 
       case 'BREAK':
-        // Break phase is time-based
-        if (timeSincePhaseStart >= def.breakDuration) {
+        // Break phase is time-based, but skilled route runners break faster
+        const routeSkill = this.getRouteSkillFactor(player);
+        // Elite route runners (0.9+) break 30% faster, poor ones (0.5) 25% slower
+        const adjustedBreakDuration = def.breakDuration * (1.25 - routeSkill * 0.55);
+        if (timeSincePhaseStart >= adjustedBreakDuration) {
           state.phase = 'FINAL';
           state.phaseStartTime = currentTime;
         }
@@ -328,6 +398,17 @@ export class RouteRunner {
     }
   }
 
+  /**
+   * Get route running skill factor - affects break sharpness and speed
+   * Higher skill = sharper cuts, faster through breaks
+   */
+  private getRouteSkillFactor(player: FieldPlayer): number {
+    const routeRunning = player.routeRunning ?? 70;
+    const agility = player.agility ?? 70;
+    // Route running is primary, agility helps with cuts
+    return (routeRunning * 0.7 + agility * 0.3) / 100;
+  }
+
   private getPhaseMovement(
     player: FieldPlayer,
     state: RouteState,
@@ -337,7 +418,19 @@ export class RouteRunner {
     // Side multiplier - flip routes for players on right side of field
     const sideMultiplier = state.startLocation.x < 80 ? 1 : -1;
 
+    // Route running skill affects break sharpness (speed during break phase)
+    const routeSkill = this.getRouteSkillFactor(player);
+
     switch (state.phase) {
+      case 'DELAY':
+        // During delay, player stays in place (or simulates blocking)
+        // For blocking routes, stay put. For screen routes, slight drift
+        if (def.isBlockingRoute) {
+          return { x: 0, y: 0 };  // Hold position (blocking)
+        }
+        // Slight back-and-forth motion to simulate pass blocking check
+        return { x: 0, y: -0.1 };
+
       case 'STEM':
         return {
           x: def.stemDirection.x * sideMultiplier,
@@ -345,9 +438,12 @@ export class RouteRunner {
         };
 
       case 'BREAK':
+        // Better route runners maintain more speed through breaks (sharper cuts)
+        // Elite (0.9+): 1.15x speed, Poor (0.5): 0.85x speed
+        const breakSharpness = 0.7 + routeSkill * 0.5;
         return {
-          x: def.breakDirection.x * sideMultiplier,
-          y: def.breakDirection.y,
+          x: def.breakDirection.x * sideMultiplier * breakSharpness,
+          y: def.breakDirection.y * breakSharpness,
         };
 
       case 'FINAL':

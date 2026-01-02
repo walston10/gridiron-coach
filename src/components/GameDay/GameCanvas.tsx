@@ -31,14 +31,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const VISIBLE_YARDS = 50; // How much field depth to show
     const HORIZON_Y = 80; // Where the "horizon" is on screen (top area)
+    const YARDS_TO_UNITS = 3.6; // 3.6 engine units per yard (360 units / 100 yards)
 
-    // Calculate viewport based on LOS
+    // Calculate viewport - follow ball carrier during active play
     const losEngineY = (game.fieldPosition.yardLine / 100) * ENGINE_HEIGHT;
-    const viewportStartY = losEngineY - 15 * 3.6; // 15 yards behind LOS
 
-    // Clamp to field bounds
-    const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
-    const clampedEndY = clampedStartY + VISIBLE_YARDS * 3.6;
+    // Determine camera focus point
+    let cameraFocusY = losEngineY;
+
+    // During active play, follow the ball carrier or ball in flight
+    if (game.state === 'PLAY_RUNNING' || game.state === 'SNAP') {
+      if (game.ballInFlight) {
+        // Follow ball in air
+        cameraFocusY = game.ballInFlight.y;
+      } else if (game.ballCarrier) {
+        // Follow ball carrier - keep them in lower third of screen
+        cameraFocusY = game.ballCarrier.y;
+      }
+    }
+
+    // Position camera so focus point is in lower portion of visible area
+    // This keeps more of the downfield visible
+    const viewportStartY = cameraFocusY - 12 * YARDS_TO_UNITS; // 12 yards behind focus
+
+    // Clamp to field bounds (include end zones: -10 to 110 yard range in engine coords)
+    const minViewport = -10 * YARDS_TO_UNITS; // Show own end zone
+    const maxViewport = ENGINE_HEIGHT + 10 * YARDS_TO_UNITS - VISIBLE_YARDS * YARDS_TO_UNITS; // Show opponent end zone
+    const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
 
     // Screen layout
     const fieldMarginX = 50;
@@ -108,14 +128,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // Draw endzones if visible
+    // Own end zone: y < 0 (behind our goal line at y=0)
+    const ownEndzoneBottom = -10 * YARDS_TO_UNITS; // 10 yards deep
     if (clampedStartY < 0) {
-      // Own endzone (near camera)
+      // Own endzone (near camera, behind our goal line)
+      const endzoneStart = Math.max(ownEndzoneBottom, clampedStartY);
       const topLeft = toScreen(0, 0);
       const topRight = toScreen(ENGINE_WIDTH, 0);
-      const bottomLeft = toScreen(0, clampedStartY);
-      const bottomRight = toScreen(ENGINE_WIDTH, clampedStartY);
+      const bottomLeft = toScreen(0, endzoneStart);
+      const bottomRight = toScreen(ENGINE_WIDTH, endzoneStart);
 
-      ctx.fillStyle = '#5f1e1e';
+      ctx.fillStyle = '#5f1e1e'; // Red end zone
       ctx.beginPath();
       ctx.moveTo(bottomLeft.x, bottomLeft.y);
       ctx.lineTo(bottomRight.x, bottomRight.y);
@@ -125,10 +148,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.fill();
     }
 
+    // Opponent end zone: y > ENGINE_HEIGHT (beyond their goal line at y=360)
+    const oppEndzoneTop = ENGINE_HEIGHT + 10 * YARDS_TO_UNITS; // 10 yards deep
     if (clampedEndY > ENGINE_HEIGHT) {
-      // Opponent endzone (far from camera)
-      const topLeft = toScreen(0, clampedEndY);
-      const topRight = toScreen(ENGINE_WIDTH, clampedEndY);
+      // Opponent endzone (far from camera, beyond 100 yard line)
+      const endzoneEnd = Math.min(oppEndzoneTop, clampedEndY);
+      const topLeft = toScreen(0, endzoneEnd);
+      const topRight = toScreen(ENGINE_WIDTH, endzoneEnd);
       const bottomLeft = toScreen(0, ENGINE_HEIGHT);
       const bottomRight = toScreen(ENGINE_WIDTH, ENGINE_HEIGHT);
 
@@ -389,10 +415,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     if (game.state === 'PLAY_DEAD' && game.playResult) {
       const result = game.playResult;
       let text = '';
+      let subText = '';
       let color = '#ffffff';
       let glowColor = '#3b82f6';
 
-      if (result.touchdown) {
+      // Check for penalty first
+      if (result.penalty) {
+        const p = result.penalty;
+        text = `FLAG: ${p.description.toUpperCase()}`;
+        subText = `${p.yards} YARD PENALTY - ${p.team === 'offense' ? 'OFFENSE' : 'DEFENSE'}`;
+        color = '#fbbf24'; // Yellow for flags
+        glowColor = '#fbbf24';
+      } else if (result.touchdown) {
         text = 'TOUCHDOWN!';
         color = '#fbbf24';
         glowColor = '#fbbf24';
@@ -438,6 +472,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Fill again on top
       ctx.fillStyle = color;
       ctx.fillText(text, width / 2, height / 2 - 20);
+
+      // Draw subtext for penalties
+      if (subText) {
+        ctx.font = 'bold 24px Inter, system-ui, sans-serif';
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = color;
+        ctx.fillText(subText, width / 2, height / 2 + 25);
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.strokeText(subText, width / 2, height / 2 + 25);
+        ctx.fillStyle = color;
+        ctx.fillText(subText, width / 2, height / 2 + 25);
+      }
     }
 
   }, [game, width, height]);

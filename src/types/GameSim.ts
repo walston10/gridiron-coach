@@ -10,7 +10,8 @@ export type Formation =
 
 export type RouteType =
   | 'STREAK' | 'POST' | 'CORNER' | 'OUT' | 'IN' | 'SLANT'
-  | 'CURL' | 'COMEBACK' | 'FLAT' | 'WHEEL' | 'DRAG' | 'BLOCK';
+  | 'CURL' | 'COMEBACK' | 'FLAT' | 'WHEEL' | 'DRAG' | 'BLOCK'
+  | 'SCREEN' | 'SWING' | 'DELAY' | 'RELEASE_BLOCK';  // Screen play routes
 
 export type CoverageType =
   | 'COVER_0' | 'COVER_1' | 'COVER_2' | 'COVER_3' | 'COVER_4'
@@ -39,6 +40,19 @@ export interface FieldPlayer {
   accuracy?: number;    // QB only: 1-99
   armStrength?: number; // QB only: 1-99
   catch?: number;       // WR/TE/RB/DB: 1-99
+  // Physical attributes
+  strength?: number;    // 1-99: affects blocking, tackling, carrying
+  agility?: number;     // 1-99: affects route running, evasion
+  // Skill ratings
+  tackle?: number;      // 1-99: defensive tackling ability
+  elusiveness?: number; // 1-99: ball carrier evasion
+  coverage?: number;    // 1-99: pass coverage skill
+  routeRunning?: number; // 1-99: receiver route precision
+  passRush?: number;    // 1-99: defensive pass rushing
+  awareness?: number;   // 1-99: football IQ
+  passBlock?: number;   // 1-99: pass protection
+  runBlock?: number;    // 1-99: run blocking
+  carrying?: number;    // 1-99: ball security
 }
 
 // Pass in flight tracking
@@ -113,6 +127,14 @@ export interface PlayResult {
   sack: boolean;
   safety?: boolean;
   tackledBy?: string;
+  penalty?: {
+    type: string;
+    team: 'offense' | 'defense';
+    yards: number;
+    description: string;
+    accepted: boolean;
+    automaticFirstDown: boolean;
+  };
 }
 
 // Full game state

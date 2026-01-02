@@ -12,6 +12,9 @@ import { RouteRunner } from './RouteRunner';
 import { DefenseAI } from './DefenseAI';
 import { KickingEngine } from './KickingEngine';
 import type { KickResult, KickingRatings } from './KickingEngine';
+import { PenaltyEngine } from './PenaltyEngine';
+import type { Penalty, PlayContext } from './PenaltyEngine';
+import { FatigueEngine } from './FatigueEngine';
 import type { Play } from '../types';
 
 const FIELD_WIDTH = 160;   // 53.3 yards * 3
@@ -27,6 +30,14 @@ export class GameEngine {
   private routeRunner: RouteRunner;
   private defenseAI: DefenseAI;
   private kickingEngine: KickingEngine;
+  private penaltyEngine: PenaltyEngine;
+  private fatigueEngine: FatigueEngine;
+
+  // Penalty tracking
+  private pendingPenalty: Penalty | null = null;
+  private qbWasSacked: boolean = false;
+  private qbWasScrambling: boolean = false;
+  private passWasThrown: boolean = false;
 
   // Timing
   private currentTime: number = 0;
@@ -39,6 +50,11 @@ export class GameEngine {
   private pendingKickoff: boolean = false;
   private pendingPAT: boolean = false;
   private lastKickResult: KickResult | null = null;
+
+  // Play action state
+  private playActionActive: boolean = false;
+  private playActionEndTime: number = 0;
+  private static readonly PLAY_ACTION_DURATION = 0.8; // Fake handoff duration in seconds
 
   // Player control state
   private playerInput: Vector2 = { x: 0, y: 0 };
@@ -73,6 +89,8 @@ export class GameEngine {
     this.routeRunner = new RouteRunner();
     this.defenseAI = new DefenseAI();
     this.kickingEngine = new KickingEngine(true); // Auto-resolve returns
+    this.penaltyEngine = new PenaltyEngine(1.0);  // Normal penalty frequency
+    this.fatigueEngine = new FatigueEngine(true); // Enable fatigue system
   }
 
   private createInitialState(): GameState {
@@ -316,7 +334,10 @@ export class GameEngine {
       'FLAT': 'FLAT',
       'WHEEL': 'WHEEL',
       'BLOCK': 'BLOCK',
-      'SCREEN': 'FLAT',     // Treat screen as flat route
+      'SCREEN': 'SCREEN',   // Delayed release to flat (for RB screens)
+      'SWING': 'SWING',     // Quick release to outside
+      'DELAY': 'DELAY',     // Block then release
+      'RELEASE_BLOCK': 'RELEASE_BLOCK',  // OL release for screen blocking
       'CUSTOM': 'DRAG',     // Treat custom as drag (simple across field)
     };
     return routeMap[playRoute] || undefined;
@@ -520,26 +541,75 @@ export class GameEngine {
   }
 
   private createPlayer(id: string, position: Position, location: Vector2, route?: RouteType): FieldPlayer {
+    // Generate base stats with some variance
+    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
     const base: FieldPlayer = {
       id,
       position,
       location,
       velocity: { x: 0, y: 0 },
-      speed: 70 + Math.random() * 20,
-      acceleration: 70 + Math.random() * 20,
+      speed: randomStat(70),
+      acceleration: randomStat(70),
       route,
+      // Universal physical attributes
+      strength: randomStat(70),
+      agility: randomStat(70),
+      awareness: randomStat(65, 25),
     };
 
     // Position-specific stats
     if (position === 'QB') {
-      base.accuracy = 65 + Math.random() * 25;
-      base.armStrength = 65 + Math.random() * 25;
+      base.accuracy = randomStat(65, 25);
+      base.armStrength = randomStat(65, 25);
+      base.carrying = randomStat(50, 30); // QBs have lower carrying by default
+      base.elusiveness = randomStat(55, 30);
     }
-    if (['WR', 'TE', 'RB'].includes(position)) {
-      base.catch = 60 + Math.random() * 30;
+
+    // Skill positions - receivers
+    if (['WR', 'TE'].includes(position)) {
+      base.catch = randomStat(60, 30);
+      base.routeRunning = randomStat(65, 25);
+      base.elusiveness = randomStat(60, 30);
+      base.carrying = randomStat(55, 25);
     }
+
+    // Running backs
+    if (['RB', 'FB'].includes(position)) {
+      base.catch = randomStat(55, 30);
+      base.carrying = randomStat(70, 25);
+      base.elusiveness = randomStat(65, 30);
+      base.routeRunning = randomStat(50, 30);
+      base.runBlock = position === 'FB' ? randomStat(65, 25) : randomStat(45, 30);
+    }
+
+    // Offensive line
+    if (['LT', 'LG', 'C', 'RG', 'RT'].includes(position)) {
+      base.passBlock = randomStat(70, 25);
+      base.runBlock = randomStat(70, 25);
+      base.strength = randomStat(80, 15); // OL are stronger
+    }
+
+    // Defensive line
+    if (['DE', 'DT', 'NT'].includes(position)) {
+      base.passRush = randomStat(70, 25);
+      base.tackle = randomStat(70, 25);
+      base.strength = randomStat(80, 15); // DL are stronger
+    }
+
+    // Linebackers
+    if (['OLB', 'MLB', 'ILB'].includes(position)) {
+      base.passRush = randomStat(60, 30);
+      base.tackle = randomStat(75, 20);
+      base.coverage = randomStat(55, 30);
+    }
+
+    // Secondary (DBs)
     if (['CB', 'FS', 'SS'].includes(position)) {
-      base.catch = 40 + Math.random() * 35;
+      base.catch = randomStat(40, 35);
+      base.coverage = randomStat(70, 25);
+      base.tackle = randomStat(55, 30);
+      base.speed = randomStat(75, 20); // DBs are faster
     }
 
     return base;
@@ -577,6 +647,34 @@ export class GameEngine {
           handoffTime: 0.25,
         };
       }
+    }
+
+    // Check for play action - QB fakes handoff before pass
+    const isPlayAction = this.currentPlay?.type === 'PLAY_ACTION';
+    if (isPlayAction) {
+      this.playActionActive = true;
+      this.playActionEndTime = GameEngine.PLAY_ACTION_DURATION;
+
+      // Find RB/FB for fake handoff visual
+      const fakeTarget = this.state.offensivePlayers.find(p =>
+        ['RB', 'FB'].includes(p.position) || p.id.toLowerCase() === 'rb' || p.id.toLowerCase() === 'fb'
+      );
+      if (fakeTarget) {
+        // Schedule fake handoff effect after 0.15 seconds
+        setTimeout(() => {
+          if (this.playActionActive) {
+            this.state.handoffEffect = {
+              x: fakeTarget.location.x,
+              y: fakeTarget.location.y,
+              startTime: this.currentTime,
+            };
+            this.emitState();
+          }
+        }, 150);
+      }
+    } else {
+      this.playActionActive = false;
+      this.playActionEndTime = 0;
     }
 
     // Initialize route runner for all receivers
@@ -620,6 +718,11 @@ export class GameEngine {
     if (this.pendingHandoff && this.currentTime >= this.pendingHandoff.handoffTime) {
       this.executeHandoff(this.pendingHandoff.targetId);
       this.pendingHandoff = null;
+    }
+
+    // Process play action end
+    if (this.playActionActive && this.currentTime >= this.playActionEndTime) {
+      this.playActionActive = false;
     }
 
     // Update QB status for both AI systems
@@ -761,6 +864,11 @@ export class GameEngine {
           const runScheme = this.originalPlay?.runBlockingScheme || 'INSIDE_ZONE';
           const playSide = ballCarrier.velocity.x > 0.1 ? 'RIGHT' : ballCarrier.velocity.x < -0.1 ? 'LEFT' : 'CENTER';
 
+          // Get blocker's run blocking effectiveness (0.6-1.1 range for ratings 40-99)
+          const runBlockRating = player.runBlock ?? 70;
+          const strengthRating = player.strength ?? 70;
+          const blockEffectiveness = 0.6 + ((runBlockRating * 0.7 + strengthRating * 0.3) / 100) * 0.5;
+
           // Find nearest defender to block
           const nearbyDefenders = this.state.defensivePlayers.filter(d => {
             const distToCarrier = this.distance(d.location, ballCarrier.location);
@@ -772,6 +880,14 @@ export class GameEngine {
           if (targetDefender) {
             const dist = this.distance(player.location, targetDefender.location);
 
+            // Defender's resistance - strong/high-tackle defenders are harder to block
+            const defStrength = targetDefender.strength ?? 70;
+            const defTackle = targetDefender.tackle ?? 70;
+            const defResistance = (defStrength * 0.6 + defTackle * 0.4) / 100;
+
+            // Push effectiveness = blocker skill vs defender resistance
+            const pushPower = Math.max(0.05, (blockEffectiveness - defResistance * 0.5) * 0.4);
+
             if (runScheme === 'OUTSIDE_ZONE') {
               // OUTSIDE ZONE: Reach blocks - move laterally first, then engage
               const reachDir = playSide === 'RIGHT' ? 1 : playSide === 'LEFT' ? -1 : 0;
@@ -782,16 +898,17 @@ export class GameEngine {
                   x: (targetDefender.location.x - player.location.x) + reachDir * 5,
                   y: targetDefender.location.y - player.location.y,
                 });
-                player.location.x += dir.x * 0.45;
-                player.location.y += dir.y * 0.45;
+                const moveSpeed = 0.35 + blockEffectiveness * 0.15; // 0.44-0.52 based on rating
+                player.location.x += dir.x * moveSpeed;
+                player.location.y += dir.y * moveSpeed;
               } else {
                 // Engaged - seal defender to backside
                 const sealDir = { x: reachDir * 0.7, y: 0.7 };
                 player.location.x = targetDefender.location.x - sealDir.x * 5;
                 player.location.y = targetDefender.location.y - sealDir.y * 3;
-                // Push defender to backside
-                targetDefender.location.x -= reachDir * 0.2;
-                targetDefender.location.y += 0.15;
+                // Push defender to backside - scaled by blocking skill
+                targetDefender.location.x -= reachDir * pushPower;
+                targetDefender.location.y += pushPower * 0.75;
               }
             } else if (runScheme === 'POWER') {
               // POWER: Pulling guards, down blocks
@@ -799,7 +916,8 @@ export class GameEngine {
                 || (player.position === 'LG' && playSide === 'RIGHT');
 
               if (isPullingGuard) {
-                // Pull around to lead block
+                // Pull around to lead block - speed based on agility/awareness
+                const pullSpeed = 0.5 + blockEffectiveness * 0.15;
                 const pullTarget = {
                   x: ballCarrier.location.x + (playSide === 'RIGHT' ? 10 : -10),
                   y: ballCarrier.location.y + 5,
@@ -808,8 +926,8 @@ export class GameEngine {
                   x: pullTarget.x - player.location.x,
                   y: pullTarget.y - player.location.y,
                 });
-                player.location.x += pullDir.x * 0.6;
-                player.location.y += pullDir.y * 0.6;
+                player.location.x += pullDir.x * pullSpeed;
+                player.location.y += pullDir.y * pullSpeed;
               } else {
                 // Down block - drive defender down
                 if (dist > 8) {
@@ -817,14 +935,15 @@ export class GameEngine {
                     x: targetDefender.location.x - player.location.x,
                     y: targetDefender.location.y - player.location.y,
                   });
-                  player.location.x += dir.x * 0.5;
-                  player.location.y += dir.y * 0.5;
+                  const moveSpeed = 0.4 + blockEffectiveness * 0.15;
+                  player.location.x += dir.x * moveSpeed;
+                  player.location.y += dir.y * moveSpeed;
                 } else {
                   // Drive block down
                   const downDir = playSide === 'RIGHT' ? -1 : 1;
                   player.location.x = targetDefender.location.x + downDir * 3;
                   player.location.y = targetDefender.location.y;
-                  targetDefender.location.x += downDir * 0.2;
+                  targetDefender.location.x += downDir * pushPower;
                 }
               }
             } else {
@@ -834,8 +953,9 @@ export class GameEngine {
                   x: targetDefender.location.x - player.location.x,
                   y: targetDefender.location.y - player.location.y,
                 });
-                player.location.x += dir.x * 0.5;
-                player.location.y += dir.y * 0.5;
+                const moveSpeed = 0.4 + blockEffectiveness * 0.15;
+                player.location.x += dir.x * moveSpeed;
+                player.location.y += dir.y * moveSpeed;
               } else {
                 // Drive block - push straight ahead
                 const toBallCarrier = this.normalize({
@@ -845,8 +965,8 @@ export class GameEngine {
                 const pushDir = { x: -toBallCarrier.x, y: Math.max(0.3, -toBallCarrier.y) };
                 player.location.x = targetDefender.location.x + pushDir.x * 5;
                 player.location.y = targetDefender.location.y + pushDir.y * 5;
-                targetDefender.location.x += pushDir.x * 0.15;
-                targetDefender.location.y += pushDir.y * 0.15;
+                targetDefender.location.x += pushDir.x * pushPower;
+                targetDefender.location.y += pushDir.y * pushPower;
               }
             }
           }
@@ -855,24 +975,50 @@ export class GameEngine {
           const nearestRusher = this.findNearestPlayer(player.location, passRushers);
           if (nearestRusher) {
             const dist = this.distance(player.location, nearestRusher.location);
+
+            // Get blocker's pass blocking effectiveness
+            const passBlockRating = player.passBlock ?? 70;
+            const strengthRating = player.strength ?? 70;
+            const awarenessRating = player.awareness ?? 70;
+            // Awareness helps recognize blitzes, strength helps anchor, passBlock is technique
+            const blockEffectiveness = (passBlockRating * 0.5 + strengthRating * 0.3 + awarenessRating * 0.2) / 100;
+
+            // Rusher's pass rush ability
+            const rusherPassRush = nearestRusher.passRush ?? 70;
+            const rusherStrength = nearestRusher.strength ?? 70;
+            const rusherSpeed = nearestRusher.speed ?? 70;
+            const rushEffectiveness = (rusherPassRush * 0.5 + rusherStrength * 0.25 + rusherSpeed * 0.25) / 100;
+
             if (dist > 6) {
               // Move toward rusher quickly to engage before they get past
               const dir = this.normalize({
                 x: nearestRusher.location.x - player.location.x,
                 y: nearestRusher.location.y - player.location.y,
               });
-              // O-line moves fast to intercept (0.4 units/tick)
-              player.location.x += dir.x * 0.4;
-              player.location.y += dir.y * 0.4;
+              // O-line moves to intercept - speed based on awareness (recognition)
+              const interceptSpeed = 0.3 + (awarenessRating / 100) * 0.2; // 0.44-0.5 based on awareness
+              player.location.x += dir.x * interceptSpeed;
+              player.location.y += dir.y * interceptSpeed;
             } else {
               // Once engaged, mirror the rusher's position to stay in front
               const toQB = qb ? this.normalize({
                 x: qb.location.x - nearestRusher.location.x,
                 y: qb.location.y - nearestRusher.location.y,
               }) : { x: 0, y: -1 };
-              // Position between rusher and QB
-              player.location.x = nearestRusher.location.x + toQB.x * 4;
-              player.location.y = nearestRusher.location.y + toQB.y * 4;
+
+              // Position between rusher and QB - better blockers maintain position better
+              // If rusher is winning, they push the blocker back
+              const blockWinMargin = blockEffectiveness - rushEffectiveness;
+              const anchorDistance = 4 + blockWinMargin * 3; // 3-5 units based on matchup
+              player.location.x = nearestRusher.location.x + toQB.x * Math.max(2, anchorDistance);
+              player.location.y = nearestRusher.location.y + toQB.y * Math.max(2, anchorDistance);
+
+              // If pass rusher is winning, they can push the blocker back toward QB
+              if (blockWinMargin < 0 && qb) {
+                const pushback = Math.abs(blockWinMargin) * 0.08;
+                nearestRusher.location.x += toQB.x * pushback;
+                nearestRusher.location.y += toQB.y * pushback;
+              }
             }
           }
         }
@@ -887,8 +1033,9 @@ export class GameEngine {
           this.state.defensivePlayers
         );
         player.velocity = movement;
-        player.location.x += movement.x * (player.speed / 100);
-        player.location.y += movement.y * (player.speed / 100);
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        player.location.x += movement.x * (effectiveSpeed / 100);
+        player.location.y += movement.y * (effectiveSpeed / 100);
 
         // Keep in bounds
         player.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, player.location.x));
@@ -912,8 +1059,9 @@ export class GameEngine {
           this.currentTime
         );
         defender.velocity = movement;
-        // Realistic speed: ~10 yards/sec max
-        const speedMult = (defender.speed / 100) * 0.5;
+        // Realistic speed: ~10 yards/sec max, modified by fatigue
+        const effectiveSpeed = this.getEffectiveSpeed(defender);
+        const speedMult = (effectiveSpeed / 100) * 0.5;
         defender.location.x += movement.x * speedMult;
         defender.location.y += movement.y * speedMult;
       } else if (this.state.ballCarrier && !this.isQB(this.state.ballCarrier)) {
@@ -924,8 +1072,9 @@ export class GameEngine {
             x: carrier.location.x - defender.location.x,
             y: carrier.location.y - defender.location.y,
           });
-          // Pursuit speed - slightly faster than coverage (players sprint harder)
-          const speedMult = (defender.speed / 100) * 0.6;
+          // Pursuit speed - slightly faster than coverage (players sprint harder), modified by fatigue
+          const effectiveSpeed = this.getEffectiveSpeed(defender);
+          const speedMult = (effectiveSpeed / 100) * 0.6;
           defender.location.x += dir.x * speedMult;
           defender.location.y += dir.y * speedMult;
         }
@@ -1168,25 +1317,51 @@ export class GameEngine {
       y: target.y - defender.location.y,
     });
 
-    // Base speed: ~10 yards/sec max = 30 units/sec = 0.5 units/tick at 60fps
-    let speedMult = (defender.speed / 100) * 0.5;
+    // Defender's pass rush ability
+    const passRushRating = defender.passRush ?? 70;
+    const defStrength = defender.strength ?? 70;
+    const defSpeed = defender.speed ?? 70;
+    // Pass rush combines technique, power, and speed
+    const rushSkill = (passRushRating * 0.5 + defStrength * 0.25 + defSpeed * 0.25) / 100;
+
+    // Base speed scaled by defender's speed rating
+    let speedMult = (defSpeed / 100) * 0.5;
 
     // If blocker is engaged (within 8 units = ~2.7 yards), they're blocking
     if (nearestBlocker && minDist < 8) {
-      // Engaged in block - very slow movement, essentially stuck
-      speedMult *= 0.1; // 90% reduction when blocked
+      // Get blocker's pass blocking skill
+      const blockerPassBlock = nearestBlocker.passBlock ?? 70;
+      const blockerStrength = nearestBlocker.strength ?? 70;
+      const blockSkill = (blockerPassBlock * 0.6 + blockerStrength * 0.4) / 100;
 
-      // Both players push against each other slightly
+      // Win rate determines how stuck the defender is
+      const winMargin = rushSkill - blockSkill;
+
+      // Base is 90% reduction when blocked, but elite rushers can shed blocks faster
+      const blockReduction = Math.max(0.05, 0.1 + winMargin * 0.3); // 5-25% speed when blocked
+      speedMult *= blockReduction;
+
+      // Push battle - winner moves the other player
       const pushDir = this.normalize({
         x: defender.location.x - nearestBlocker.location.x,
         y: defender.location.y - nearestBlocker.location.y,
       });
-      nearestBlocker.location.x -= pushDir.x * 0.05;
-      nearestBlocker.location.y -= pushDir.y * 0.05;
+
+      if (winMargin > 0) {
+        // Rusher winning - push blocker back
+        nearestBlocker.location.x -= pushDir.x * winMargin * 0.1;
+        nearestBlocker.location.y -= pushDir.y * winMargin * 0.1;
+      } else {
+        // Blocker winning - rusher gets pushed
+        defender.location.x += pushDir.x * Math.abs(winMargin) * 0.05;
+        defender.location.y += pushDir.y * Math.abs(winMargin) * 0.05;
+      }
     } else if (nearestBlocker && minDist < 15) {
       // Approaching blocker - slow down as they engage
+      // Better rushers maintain more speed approaching
       const engageFactor = (minDist - 8) / 7; // 0 at dist 8, 1 at dist 15
-      speedMult *= 0.1 + engageFactor * 0.4; // 10-50% speed when near blocker
+      const baseSlowdown = 0.1 + rushSkill * 0.15; // 0.17-0.25 at engagement based on rush skill
+      speedMult *= baseSlowdown + engageFactor * (0.5 - baseSlowdown);
     }
 
     defender.location.x += dir.x * speedMult;
@@ -1218,7 +1393,16 @@ export class GameEngine {
             // Sack! QB tackled at or behind LOS
             this.resolveSack(defender.id);
           } else {
-            this.endPlay(false, false, defender.id);
+            // Check for fumble on big hit
+            const fumbleChance = this.calculateBigHitFumbleChance(carrier, defender, carrierSpeed);
+            const isFumble = Math.random() < fumbleChance;
+
+            if (isFumble) {
+              // Fumble! Turnover
+              this.endPlay(false, false, defender.id, true, false, 'FUMBLE');
+            } else {
+              this.endPlay(false, false, defender.id);
+            }
           }
           return; // Only one tackle per frame
         }
@@ -1253,48 +1437,167 @@ export class GameEngine {
     const proximityFactor = 1 - (distance / 5);
     const baseChance = 0.4 + proximityFactor * 0.4; // 40-80% base range when in contact
 
-    // Defender tackling ability (use speed as proxy for now, ideally would have tackle rating)
-    const defenderSkill = defender.speed / 100; // 0.7-0.9 typically
+    // Defender tackling ability - use tackle rating with strength as secondary factor
+    // tackle: primary skill, strength: helps finish tackles
+    const tackleRating = defender.tackle ?? 70;
+    const strengthRating = defender.strength ?? 70;
+    const defenderSkill = (tackleRating * 0.7 + strengthRating * 0.3) / 100;
 
-    // Carrier evasion ability (speed + acceleration as proxy for elusiveness)
-    const carrierEvasion = (carrier.speed + carrier.acceleration) / 200;
+    // Carrier evasion ability - use elusiveness rating with speed/agility as factors
+    const elusivenessRating = carrier.elusiveness ?? 70;
+    const agilityRating = carrier.agility ?? 70;
+    const carrierEvasion = (elusivenessRating * 0.6 + agilityRating * 0.25 + carrier.speed * 0.15) / 100;
 
     // Speed penalty - harder to tackle a fast-moving carrier
     const speedPenalty = Math.min(carrierSpeed / 8, 0.3); // Up to 30% penalty for max speed
 
-    // Evasion move bonus - much harder to tackle during juke/spin/dive
+    // Strength differential - strong defenders can muscle through, strong carriers break tackles
+    const carrierStrength = carrier.strength ?? 70;
+    const strengthDiff = (strengthRating - carrierStrength) / 200; // -0.15 to +0.15 range
+
+    // Evasion move bonus - effectiveness scaled by carrier's elusiveness
     let evasionBonus = 0;
     if (this.evasionState.active) {
+      const elusivenessMultiplier = 0.7 + (elusivenessRating / 100) * 0.6; // 0.7-1.3x based on elusiveness
       switch (this.evasionState.type) {
         case 'JUKE':
-          evasionBonus = 0.4; // 40% reduction in tackle chance
+          evasionBonus = 0.35 * elusivenessMultiplier; // 24-46% reduction based on elusiveness
           break;
         case 'SPIN':
-          evasionBonus = 0.5; // 50% reduction - spins are very effective
+          evasionBonus = 0.45 * elusivenessMultiplier; // 31-59% reduction - spins are very effective
           break;
         case 'DIVE':
-          evasionBonus = 0.2; // 20% reduction - dives are more about distance
+          evasionBonus = 0.18 * elusivenessMultiplier; // 13-23% reduction - dives are more about distance
           break;
       }
     }
 
     // Calculate final tackle probability
-    let tackleChance = baseChance * (1 + (defenderSkill - carrierEvasion) * 0.5);
+    let tackleChance = baseChance * (1 + (defenderSkill - carrierEvasion) * 0.6);
+    tackleChance += strengthDiff; // Strength advantage/disadvantage
     tackleChance -= speedPenalty;
     tackleChance -= evasionBonus;
 
-    // Clamp between 10% and 95%
-    return Math.max(0.1, Math.min(0.95, tackleChance));
+    // Clamp between 5% and 95%
+    return Math.max(0.05, Math.min(0.95, tackleChance));
+  }
+
+  /**
+   * Calculate fumble chance on a big hit
+   * Big hits occur when defender has high tackle+strength vs carrier's ball security
+   * Fumbles are rare - base ~1.5%, modified by ratings
+   */
+  private calculateBigHitFumbleChance(
+    carrier: FieldPlayer,
+    defender: FieldPlayer,
+    carrierSpeed: number
+  ): number {
+    // Hit power: tackle (70%) + strength (30%) - how hard the defender hits
+    const tackleRating = defender.tackle ?? 70;
+    const defenderStrength = defender.strength ?? 70;
+    const hitPower = tackleRating * 0.7 + defenderStrength * 0.3;
+
+    // Ball security: carrying rating is primary, strength helps hold on
+    const carryingRating = carrier.carrying ?? 70;
+    const carrierStrength = carrier.strength ?? 70;
+    const ballSecurity = carryingRating * 0.8 + carrierStrength * 0.2;
+
+    // Speed factor: higher carrier speed = more vulnerable (momentum transfers)
+    // Speed is in game units, normalize to 0-1 range (max speed ~6-8)
+    const speedVulnerability = Math.min(carrierSpeed / 7, 1) * 0.015; // Up to 1.5% extra
+
+    // Base fumble chance: 1.5%
+    // Modified by hit power vs ball security differential
+    // Each point of difference = 0.03% change
+    const ratingDiff = (hitPower - ballSecurity) / 100;
+    const baseFumble = 0.015;
+
+    // Calculate final fumble chance
+    // Elite ball carrier (95 carrying) vs average hitter (70): ~0.7% fumble
+    // Average carrier (70 carrying) vs elite hitter (95): ~2.3% fumble
+    let fumbleChance = baseFumble + ratingDiff * 0.025 + speedVulnerability;
+
+    // Big hit threshold: only trigger fumble check if defender has significant hit power
+    // If hit power is below 60, almost no fumble chance
+    if (hitPower < 60) {
+      fumbleChance *= 0.3; // 70% reduction for weak hitters
+    }
+
+    // Elite ball security (90+) provides extra protection
+    if (carryingRating >= 90) {
+      fumbleChance *= 0.6; // 40% reduction for elite ball carriers
+    }
+
+    // Add fatigue-based fumble increase
+    // Exhausted players (85+ fatigue) can add up to 3% extra fumble chance
+    const fatigueFumbleBonus = this.getFatigueFumbleBonus(carrier.id);
+    fumbleChance += fatigueFumbleBonus;
+
+    // Clamp between 0.2% and 6% (higher cap with fatigue)
+    // Even the worst case should be rare, even the best should have some chance
+    return Math.max(0.002, Math.min(0.06, fumbleChance));
   }
 
   private resolveSack(defenderId: string): void {
     this.stopTick();
     this.state.phase = 'WHISTLE';
 
+    // Track for penalty detection
+    this.qbWasSacked = true;
+
     const startYardLine = this.state.field.yardLine;
     const carrier = this.getQB();
     const endYardLine = carrier ? this.yToYardLine(carrier.location.y) : startYardLine;
     const yardsLost = startYardLine - endYardLine;
+
+    // Check for roughing the passer penalty
+    const playContext: PlayContext = {
+      playType: 'PASS',
+      down: this.state.field.down,
+      yardsToGo: this.state.field.yardsToGo,
+      yardLine: this.state.field.yardLine,
+      passInAir: this.passWasThrown,
+      qbSacked: true,
+      qbScrambling: false,
+    };
+
+    const penalty = this.penaltyEngine.checkPlayPenalty(playContext);
+    if (penalty && penalty.type === 'ROUGHING_THE_PASSER') {
+      const penaltyCalc = this.penaltyEngine.calculatePenaltyResult(
+        penalty,
+        startYardLine,
+        this.state.field.down,
+        this.state.field.yardsToGo,
+        -yardsLost
+      );
+
+      this.state.lastResult = {
+        yardsGained: -yardsLost,
+        turnover: false,
+        touchdown: false,
+        outOfBounds: false,
+        incomplete: false,
+        sack: true,
+        tackledBy: defenderId,
+        penalty: {
+          type: penalty.type,
+          team: penalty.team,
+          yards: penalty.yards,
+          description: penalty.description,
+          accepted: true,
+          automaticFirstDown: penalty.automatic_first_down,
+        },
+      };
+
+      // Apply penalty
+      this.state.field.yardLine = penaltyCalc.newYardLine;
+      this.state.field.down = penaltyCalc.newDown;
+      this.state.field.yardsToGo = penaltyCalc.newYardsToGo;
+
+      this.resetPenaltyTracking();
+      this.emitState();
+      return;
+    }
 
     this.state.lastResult = {
       yardsGained: -yardsLost,
@@ -1307,6 +1610,7 @@ export class GameEngine {
     };
 
     this.advanceFieldPosition(-yardsLost, false, false);
+    this.resetPenaltyTracking();
     this.emitState();
   }
 
@@ -1421,6 +1725,9 @@ export class GameEngine {
   throwToSpot(clickLocation: Vector2): void {
     if (this.state.phase !== 'SNAP') return;
 
+    // Can't throw during play action fake
+    if (this.playActionActive) return;
+
     const qb = this.getQB();
     if (!qb) return;
 
@@ -1442,7 +1749,21 @@ export class GameEngine {
 
     // Calculate landing spot with accuracy offset
     const accuracy = qb.accuracy || 70;
-    const maxOffset = this.getAccuracyRadius(accuracy);
+    let maxOffset = this.getAccuracyRadius(accuracy);
+
+    // Scramble accuracy penalty - throwing on the run is harder
+    const isScrambling = !this.isQBInPocket(qb);
+    if (isScrambling) {
+      // Penalty based on QB speed (faster = harder to throw accurately)
+      const velocity = Math.sqrt(qb.velocity.x ** 2 + qb.velocity.y ** 2);
+      const movementPenalty = velocity * 3; // Up to ~10 yards extra inaccuracy at full sprint
+
+      // Awareness helps mitigate scramble penalty
+      const awarenessRating = qb.awareness ?? 70;
+      const penaltyReduction = (awarenessRating - 50) / 100; // 0-0.5 reduction based on awareness
+      maxOffset += movementPenalty * (1 - penaltyReduction);
+    }
+
     const angle = Math.random() * Math.PI * 2;
     const offsetDist = Math.random() * maxOffset;
 
@@ -1467,6 +1788,10 @@ export class GameEngine {
       intendedTarget: intendedTarget?.id,
     };
 
+    // Track for penalty detection
+    this.passWasThrown = true;
+    this.qbWasScrambling = isScrambling;
+
     this.state.ballCarrier = undefined;
     this.state.phase = 'ACTIVE';
     this.emitState();
@@ -1474,6 +1799,12 @@ export class GameEngine {
 
   private getAccuracyRadius(accuracy: number): number {
     return 45 - (accuracy * 0.42);
+  }
+
+  private isQBInPocket(qb: FieldPlayer): boolean {
+    // Check if QB is within pocket area (near original snap position)
+    const distFromPocket = this.distance(qb.location, this.pocketCenter);
+    return distFromPocket < 20; // Within ~7 yards of pocket center
   }
 
   private calculateAirTime(distance: number, armStrength: number): number {
@@ -1507,12 +1838,26 @@ export class GameEngine {
     const pass = this.state.passFlight;
     pass.elapsedTime += 1 / TICK_RATE;
 
-    // Interpolate ball position
+    // Interpolate ball position with parabolic arc
     const t = Math.min(pass.elapsedTime / pass.airTime, 1);
+
+    // Base linear interpolation for X/Y (field position)
+    const baseX = pass.startLocation.x + (pass.landingSpot.x - pass.startLocation.x) * t;
+    const baseY = pass.startLocation.y + (pass.landingSpot.y - pass.startLocation.y) * t;
+
+    // Calculate ball arc height (parabola: peaks at t=0.5)
+    // Height based on distance - longer throws have higher arcs
+    const distance = this.distance(pass.startLocation, pass.landingSpot);
+    const maxHeight = Math.min(distance * 0.15, 30); // Max ~10 yards height
+    const arcHeight = 4 * maxHeight * t * (1 - t); // Parabola formula
+
     this.state.ballLocation = {
-      x: pass.startLocation.x + (pass.landingSpot.x - pass.startLocation.x) * t,
-      y: pass.startLocation.y + (pass.landingSpot.y - pass.startLocation.y) * t,
+      x: baseX,
+      y: baseY - arcHeight, // Subtract because negative Y is upfield/up
     };
+
+    // Store arc height for visualization (if needed)
+    (pass as PassFlight & { arcHeight?: number }).arcHeight = arcHeight;
 
     // Move receivers and defenders toward landing spot
     this.adjustPlayersToPass(pass.landingSpot);
@@ -1543,7 +1888,8 @@ export class GameEngine {
           y: landingSpot.y - player.location.y,
         });
         const catchAbility = player.catch || 70;
-        const adjustSpeed = (player.speed / 100) * (catchAbility / 100);
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        const adjustSpeed = (effectiveSpeed / 100) * (catchAbility / 100);
         // Target moves faster toward ball, nearby receivers slower
         const speedMult = isTarget ? 1.5 : 0.6;
         player.location.x += dir.x * adjustSpeed * speedMult;
@@ -1555,8 +1901,9 @@ export class GameEngine {
           this.currentTime,
           this.state.defensivePlayers
         );
-        player.location.x += movement.x * (player.speed / 100) * 0.5;
-        player.location.y += movement.y * (player.speed / 100) * 0.5;
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        player.location.x += movement.x * (effectiveSpeed / 100) * 0.5;
+        player.location.y += movement.y * (effectiveSpeed / 100) * 0.5;
       }
     });
 
@@ -1567,8 +1914,9 @@ export class GameEngine {
         this.state.offensivePlayers,
         this.currentTime
       );
-      defender.location.x += movement.x * (defender.speed / 100) * 0.8;
-      defender.location.y += movement.y * (defender.speed / 100) * 0.8;
+      const effectiveSpeed = this.getEffectiveSpeed(defender);
+      defender.location.x += movement.x * (effectiveSpeed / 100) * 0.8;
+      defender.location.y += movement.y * (effectiveSpeed / 100) * 0.8;
     });
   }
 
@@ -1640,10 +1988,27 @@ export class GameEngine {
     this.state.ballLocation = { ...receiver.location };
     this.state.passFlight = undefined;
 
-    // Convert normalized route velocity to physics velocity to preserve momentum
-    const speedPerTick = (receiver.speed / 100) * 3.5;
-    receiver.velocity.x *= speedPerTick;
-    receiver.velocity.y *= speedPerTick;
+    // YAC (Yards After Catch) - preserve momentum based on receiver's route direction
+    // Better receivers (speed, agility) maintain more momentum through the catch
+    const speedRating = receiver.speed ?? 70;
+    const agilityRating = receiver.agility ?? 70;
+    const yacAbility = (speedRating * 0.6 + agilityRating * 0.4) / 100;
+
+    // Base speed from route direction, scaled by YAC ability
+    const baseSpeed = 0.3 + yacAbility * 0.25; // 0.44-0.55 base momentum
+
+    // Preserve route direction as initial velocity, modified by fatigue
+    const routeVelocity = this.normalize(receiver.velocity);
+    const effectiveSpeed = this.getEffectiveSpeed(receiver);
+    receiver.velocity = {
+      x: routeVelocity.x * baseSpeed * (effectiveSpeed / 70),
+      y: routeVelocity.y * baseSpeed * (effectiveSpeed / 70),
+    };
+
+    // If receiver was moving upfield, boost that direction (natural catch and run)
+    if (receiver.velocity.y > 0) {
+      receiver.velocity.y *= 1.2; // Boost upfield momentum
+    }
   }
 
   private resolveContestedCatch(
@@ -1652,18 +2017,43 @@ export class GameEngine {
     receiverDist: number,
     defenderDist: number
   ): void {
-    const receiverCatch = receiver.catch || 70;
-    const defenderCatch = defender?.catch || 50;
+    // Receiver catching ability
+    const receiverCatch = receiver.catch ?? 70;
+    const receiverStrength = receiver.strength ?? 70;
 
-    const separationBonus = Math.max(0, (defenderDist - receiverDist) / 30);
-    const catchChance = 0.20 + separationBonus + (receiverCatch - 70) / 200;
-    const intBaseChance = 0.10 - separationBonus / 2;
+    // Defender abilities - coverage is key for contested catches
+    const defenderCatch = defender?.catch ?? 50;
+    const defenderCoverage = defender?.coverage ?? 60;
+    const defenderStrength = defender?.strength ?? 70;
+
+    // Separation bonus (physical distance advantage)
+    const separationBonus = Math.max(0, (defenderDist - receiverDist) / 25);
+
+    // Strength battle for 50/50 balls - stronger player has advantage
+    const strengthDiff = (receiverStrength - defenderStrength) / 200; // -0.15 to +0.15
+
+    // Receiver catch rating bonus
+    const catchBonus = (receiverCatch - 70) / 150; // -0.13 to +0.19
+
+    // Base catch chance with all factors
+    let catchChance = 0.25 + separationBonus + catchBonus + strengthDiff;
+
+    // INT chance - coverage rating is the primary factor for defenders
+    // Elite coverage (90+) can create more INTs, poor coverage (50) struggles
+    const coverageSkill = defenderCoverage / 100;
+    const intBaseChance = 0.08 + coverageSkill * 0.08; // 0.12-0.16 range for good coverage
+
+    // Reduce INT chance based on separation
+    const intChance = Math.max(0.02, intBaseChance - separationBonus * 0.5);
+
+    // Defender catch ability affects whether they can actually haul it in
+    const intSuccessRate = (defenderCatch + defenderCoverage) / 200; // 0.5-0.95
 
     const roll = Math.random();
 
     if (roll < catchChance) {
       this.completeCatch(receiver);
-    } else if (roll > (1 - intBaseChance * (defenderCatch / 100))) {
+    } else if (roll > (1 - intChance * intSuccessRate)) {
       this.state.lastResult = {
         yardsGained: 0,
         turnover: true,
@@ -1694,8 +2084,14 @@ export class GameEngine {
   }
 
   private resolveDefenderOnly(defender: FieldPlayer): void {
-    const defenderCatch = defender.catch || 50;
-    const intChance = 0.15 * (defenderCatch / 100);
+    // Defender is the only one near the ball - can they pick it?
+    const defenderCatch = defender.catch ?? 50;
+    const defenderCoverage = defender.coverage ?? 60;
+
+    // Coverage rating helps read the ball in the air, catch helps secure it
+    // Elite coverage DBs (90+) with good hands (70+) are ball hawks
+    const ballHawkSkill = (defenderCoverage * 0.6 + defenderCatch * 0.4) / 100;
+    const intChance = 0.10 + ballHawkSkill * 0.12; // 0.16-0.22 for elite DBs
 
     if (Math.random() < intChance) {
       this.state.lastResult = {
@@ -1738,7 +2134,8 @@ export class GameEngine {
     outOfBounds: boolean,
     tackledBy?: string,
     turnover?: boolean,
-    safety?: boolean
+    safety?: boolean,
+    turnoverType?: 'FUMBLE' | 'INTERCEPTION'
   ): void {
     this.stopTick();
     this.state.phase = 'WHISTLE';
@@ -1748,9 +2145,65 @@ export class GameEngine {
     const endYardLine = carrier ? this.yToYardLine(carrier.location.y) : startYardLine;
     const yardsGained = endYardLine - startYardLine;
 
+    // Check for penalties during the play (not on touchdowns or turnovers usually)
+    let penaltyResult = undefined;
+    if (!touchdown && !turnover && !safety) {
+      const playContext: PlayContext = {
+        playType: this.currentPlay?.type || 'PASS',
+        down: this.state.field.down,
+        yardsToGo: this.state.field.yardsToGo,
+        yardLine: this.state.field.yardLine,
+        passInAir: this.passWasThrown,
+        qbSacked: this.qbWasSacked,
+        qbScrambling: this.qbWasScrambling,
+      };
+
+      const penalty = this.penaltyEngine.checkPlayPenalty(playContext);
+      if (penalty) {
+        const penaltyCalc = this.penaltyEngine.calculatePenaltyResult(
+          penalty,
+          startYardLine,
+          this.state.field.down,
+          this.state.field.yardsToGo,
+          yardsGained
+        );
+
+        penaltyResult = {
+          type: penalty.type,
+          team: penalty.team,
+          yards: penalty.yards,
+          description: penalty.description,
+          accepted: true,  // Auto-accept for now
+          automaticFirstDown: penalty.automatic_first_down,
+        };
+
+        // Apply penalty instead of normal advancement
+        this.state.field.yardLine = penaltyCalc.newYardLine;
+        this.state.field.down = penaltyCalc.newDown;
+        this.state.field.yardsToGo = penaltyCalc.newYardsToGo;
+
+        this.state.lastResult = {
+          yardsGained,
+          turnover: false,
+          touchdown: false,
+          outOfBounds,
+          incomplete: false,
+          sack: false,
+          tackledBy,
+          penalty: penaltyResult,
+        };
+
+        // Reset penalty tracking
+        this.resetPenaltyTracking();
+        this.emitState();
+        return;
+      }
+    }
+
     this.state.lastResult = {
       yardsGained: safety ? -startYardLine : yardsGained,
       turnover: turnover || false,
+      turnoverType,
       touchdown,
       outOfBounds,
       incomplete: false,
@@ -1762,7 +2215,20 @@ export class GameEngine {
     if (!safety) {
       this.advanceFieldPosition(yardsGained, touchdown, turnover || false);
     }
+
+    // Add fatigue to all players after the play
+    this.addPlayFatigue(this.state.ballCarrier, tackledBy);
+
+    // Reset penalty tracking
+    this.resetPenaltyTracking();
     this.emitState();
+  }
+
+  private resetPenaltyTracking(): void {
+    this.pendingPenalty = null;
+    this.qbWasSacked = false;
+    this.qbWasScrambling = false;
+    this.passWasThrown = false;
   }
 
   private advanceFieldPosition(yards: number, touchdown: boolean, turnover: boolean): void {
@@ -1816,6 +2282,15 @@ export class GameEngine {
     this.cpuControlEnabled = false; // Reset CPU control
     this.routeRunner.reset();
     this.defenseAI.reset();
+
+    // Apply fatigue recovery between plays (average ~25 seconds between plays)
+    const recoveryTime = 25;
+    for (const player of this.state.offensivePlayers) {
+      this.fatigueEngine.recoverFatigue(player.id, recoveryTime, true);
+    }
+    for (const player of this.state.defensivePlayers) {
+      this.fatigueEngine.recoverFatigue(player.id, recoveryTime, true);
+    }
 
     // Create huddle formations for next play
     this.state.offensivePlayers = this.createOffensiveHuddle(this.state.field.yardLine);
@@ -2038,9 +2513,86 @@ export class GameEngine {
     return { ...this.state };
   }
 
+  /**
+   * Check if QB is in play action fake (can't throw yet)
+   */
+  isPlayActionActive(): boolean {
+    return this.playActionActive;
+  }
+
   destroy(): void {
     this.stopTick();
     this.routeRunner.reset();
     this.defenseAI.reset();
+  }
+
+  // FATIGUE SYSTEM
+
+  /**
+   * Get effective speed with fatigue applied
+   */
+  private getEffectiveSpeed(player: FieldPlayer): number {
+    const modifiers = this.fatigueEngine.getModifiers(player.id);
+    return (player.speed ?? 70) * modifiers.speedMultiplier;
+  }
+
+  /**
+   * Get fatigue-based fumble increase for a player
+   */
+  private getFatigueFumbleBonus(playerId: string): number {
+    const modifiers = this.fatigueEngine.getModifiers(playerId);
+    return modifiers.fumbleChanceIncrease;
+  }
+
+  /**
+   * Add fatigue to all players on the field after a play
+   * Ball carrier and players who made tackles get more fatigue
+   */
+  private addPlayFatigue(ballCarrierId?: string, tackleBy?: string): void {
+    // Add fatigue to offensive players
+    for (const player of this.state.offensivePlayers) {
+      const wasInvolved = player.id === ballCarrierId;
+      this.fatigueEngine.addPlayFatigue(player.id, player.position || 'WR', wasInvolved);
+    }
+
+    // Add fatigue to defensive players
+    for (const player of this.state.defensivePlayers) {
+      const wasInvolved = player.id === tackleBy;
+      this.fatigueEngine.addPlayFatigue(player.id, player.position || 'LB', wasInvolved);
+    }
+  }
+
+  /**
+   * Initialize fatigue tracking for all players at start of game/half
+   */
+  initializeFatigue(): void {
+    this.fatigueEngine.reset();
+    for (const player of this.state.offensivePlayers) {
+      this.fatigueEngine.initPlayer(player.id, player.position || 'WR', true);
+    }
+    for (const player of this.state.defensivePlayers) {
+      this.fatigueEngine.initPlayer(player.id, player.position || 'LB', true);
+    }
+  }
+
+  /**
+   * Apply halftime recovery to all players
+   */
+  halftimeFatigueRecovery(): void {
+    this.fatigueEngine.halftimeRecovery();
+  }
+
+  /**
+   * Get fatigue status for display in UI
+   */
+  getPlayerFatigueStatus(playerId: string): 'FRESH' | 'GOOD' | 'TIRED' | 'VERY_TIRED' | 'EXHAUSTED' {
+    return this.fatigueEngine.getFatigueStatus(playerId);
+  }
+
+  /**
+   * Get players who need substitution
+   */
+  getPlayersNeedingRest(): string[] {
+    return this.fatigueEngine.getPlayerNeedingRest();
   }
 }

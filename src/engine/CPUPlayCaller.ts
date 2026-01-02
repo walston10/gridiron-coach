@@ -224,4 +224,156 @@ export class CPUPlayCaller {
   setPersonality(personality: CPUPersonality): void {
     this.personality = personality;
   }
+
+  /**
+   * Decide what to do on 4th down
+   * Returns: 'GO_FOR_IT' | 'PUNT' | 'FIELD_GOAL'
+   */
+  decideFourthDown(
+    field: FieldPosition,
+    scoreDiff: number,
+    timeLeft: number,
+    isInFGRange: boolean
+  ): 'GO_FOR_IT' | 'PUNT' | 'FIELD_GOAL' {
+    const situation = this.analyzeSituation(field, scoreDiff, timeLeft);
+
+    // Base go-for-it probability based on yards to go and field position
+    let goForItProb = this.calculateGoForItProbability(field, situation);
+
+    // Apply personality modifier (aggressive coaches go for it more)
+    goForItProb *= 0.5 + this.personality.aggressiveness;
+
+    // Situational overrides
+
+    // Always go for it on 4th & inches from anywhere
+    if (field.yardsToGo <= 1) {
+      goForItProb += 0.4;
+    }
+
+    // Deep in opponent territory, no FG range - go for it or turn over anyway
+    if (field.yardLine >= 60 && !isInFGRange) {
+      goForItProb += 0.3;
+    }
+
+    // Trailing late in game - must be aggressive
+    if (situation.trailing && timeLeft <= 300) {  // Last 5 minutes
+      goForItProb += 0.3;
+    }
+    if (situation.trailing && timeLeft <= 120) {  // Last 2 minutes
+      goForItProb += 0.4;
+    }
+
+    // Goal line (inside 5) - high value, go for it
+    if (situation.goalLine) {
+      goForItProb += 0.25;
+    }
+
+    // Blowout situations - winning big, don't risk it
+    if (situation.blowout && situation.winning) {
+      goForItProb -= 0.4;
+    }
+
+    // Blowout situations - losing big, be aggressive
+    if (situation.blowout && situation.trailing) {
+      goForItProb += 0.3;
+    }
+
+    // Early in game with long yardage in own territory - play it safe
+    if (field.yardLine <= 40 && field.yardsToGo >= 5 && timeLeft > 600) {
+      goForItProb -= 0.3;
+    }
+
+    // Field goal decisions
+    if (isInFGRange) {
+      // Close game, FG matters
+      if (Math.abs(scoreDiff) <= 3) {
+        // Trailing by 3 or less, FG ties/takes lead
+        if (scoreDiff >= -3 && scoreDiff <= 0) {
+          return 'FIELD_GOAL';
+        }
+        // Leading by 1-3, FG extends lead safely
+        if (scoreDiff >= 1 && scoreDiff <= 3 && field.yardsToGo > 3) {
+          return 'FIELD_GOAL';
+        }
+      }
+
+      // Long field goal attempts are riskier
+      const fgDistance = 100 - field.yardLine + 17;
+      if (fgDistance <= 35) {
+        // Short FG, take it unless super aggressive
+        if (goForItProb < 0.7) {
+          return 'FIELD_GOAL';
+        }
+      } else if (fgDistance <= 45) {
+        // Medium FG
+        if (goForItProb < 0.5) {
+          return 'FIELD_GOAL';
+        }
+      } else {
+        // Long FG - consider going for it
+        if (goForItProb >= 0.4 && field.yardsToGo <= 4) {
+          // Close enough to go for it instead of a risky long FG
+          goForItProb += 0.2;
+        }
+      }
+    }
+
+    // Make the decision
+    const roll = Math.random();
+    if (roll < goForItProb) {
+      return 'GO_FOR_IT';
+    }
+
+    // If we're deep in opponent territory, FG is better than punt
+    if (isInFGRange && field.yardLine >= 50) {
+      return 'FIELD_GOAL';
+    }
+
+    return 'PUNT';
+  }
+
+  private calculateGoForItProbability(field: FieldPosition, situation: SituationAnalysis): number {
+    // Base probability curve based on yards to go
+    // 1 yard = ~65%, 2 yards = ~45%, 3 yards = ~35%, etc.
+    const yardsToGoFactor = Math.max(0, 0.75 - (field.yardsToGo - 1) * 0.12);
+
+    // Field position factor - more likely to go for it in opponent territory
+    let fieldPosFactor = 0;
+    if (field.yardLine >= 50) {
+      fieldPosFactor = (field.yardLine - 50) / 100;  // 0 at 50, 0.5 at 100
+    } else if (field.yardLine <= 30) {
+      fieldPosFactor = -0.2;  // Penalty for being in own territory
+    }
+
+    return Math.max(0.05, Math.min(0.9, yardsToGoFactor + fieldPosFactor));
+  }
+
+  /**
+   * Get a descriptive analysis of the 4th down decision (for UI/debug)
+   */
+  explain4thDownDecision(
+    field: FieldPosition,
+    scoreDiff: number,
+    timeLeft: number,
+    isInFGRange: boolean
+  ): string {
+    const decision = this.decideFourthDown(field, scoreDiff, timeLeft, isInFGRange);
+    const situation = this.analyzeSituation(field, scoreDiff, timeLeft);
+
+    let reason = '';
+    if (decision === 'GO_FOR_IT') {
+      if (field.yardsToGo <= 1) reason = 'Short yardage situation';
+      else if (situation.goalLine) reason = 'Goal line - high value';
+      else if (situation.trailing && timeLeft <= 120) reason = 'Must score - trailing late';
+      else if (field.yardLine >= 60 && !isInFGRange) reason = 'No mans land - go for it';
+      else reason = `Aggressive call (${Math.round(this.personality.aggressiveness * 100)}% aggression)`;
+    } else if (decision === 'FIELD_GOAL') {
+      const dist = 100 - field.yardLine + 17;
+      reason = `${dist} yard FG attempt`;
+    } else {
+      reason = 'Playing it safe';
+    }
+
+    return `${decision}: ${reason}`;
+  }
 }
