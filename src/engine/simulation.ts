@@ -186,14 +186,25 @@ const simulateRunPlay = (
   const avgRunBlock = Object.values(offenseStats)
     .filter((_, i) => i < 5)
     .reduce((sum, s) => sum + s.runBlock, 0) / 5;
-  
+
   const avgTackle = Object.values(defenseStats)
     .reduce((sum, s) => sum + s.tackle, 0) / Object.values(defenseStats).length;
 
   const blockingResult = rollMatchup(avgRunBlock, avgTackle);
-  
-  const baseYards = blockingResult.winner === 'OFFENSE' 
-    ? 3 + Math.floor(blockingResult.margin / 5)
+
+  // Find ball carrier assignment and get their stats
+  const ballCarrierAssignment = play.assignments.find(a => a.isBallCarrier);
+  const ballCarrierStats = ballCarrierAssignment
+    ? offenseStats[ballCarrierAssignment.playerId]
+    : Object.values(offenseStats)[5]; // Fallback to first non-lineman
+
+  // Elusiveness helps break tackles and gain extra yards
+  const elusivenessBonus = ballCarrierStats?.elusiveness
+    ? (ballCarrierStats.elusiveness - 70) / 50 // -0.6 to +0.58 based on rating
+    : 0;
+
+  const baseYards = blockingResult.winner === 'OFFENSE'
+    ? 3 + Math.floor(blockingResult.margin / 5) + Math.round(elusivenessBonus * 2)
     : -1 + Math.floor(Math.random() * 3);
 
   events.push({
@@ -212,10 +223,17 @@ const simulateRunPlay = (
     description: `Tackled after ${baseYards} yards`,
   });
 
+  // Fumble chance based on carrying rating
+  // Base 2% fumble, but modified by carrying rating
+  // High carrying (90+) = ~0.8% fumble, Low carrying (50) = ~3.5% fumble
+  const carryingRating = ballCarrierStats?.carrying ?? 70;
+  const fumbleThreshold = 0.96 + (carryingRating - 70) * 0.001; // 0.94-0.98 range
+  const isFumble = Math.random() > fumbleThreshold;
+
   return {
     success: baseYards > 0,
     yardsGained: baseYards,
-    turnover: Math.random() > 0.98,  // 2% fumble
+    turnover: isFumble,
     turnoverType: 'FUMBLE',
     touchdown: baseYards > 15 && Math.random() > 0.8,
     events,

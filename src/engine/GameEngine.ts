@@ -761,6 +761,11 @@ export class GameEngine {
           const runScheme = this.originalPlay?.runBlockingScheme || 'INSIDE_ZONE';
           const playSide = ballCarrier.velocity.x > 0.1 ? 'RIGHT' : ballCarrier.velocity.x < -0.1 ? 'LEFT' : 'CENTER';
 
+          // Get blocker's run blocking effectiveness (0.6-1.1 range for ratings 40-99)
+          const runBlockRating = player.runBlock ?? 70;
+          const strengthRating = player.strength ?? 70;
+          const blockEffectiveness = 0.6 + ((runBlockRating * 0.7 + strengthRating * 0.3) / 100) * 0.5;
+
           // Find nearest defender to block
           const nearbyDefenders = this.state.defensivePlayers.filter(d => {
             const distToCarrier = this.distance(d.location, ballCarrier.location);
@@ -772,6 +777,14 @@ export class GameEngine {
           if (targetDefender) {
             const dist = this.distance(player.location, targetDefender.location);
 
+            // Defender's resistance - strong/high-tackle defenders are harder to block
+            const defStrength = targetDefender.strength ?? 70;
+            const defTackle = targetDefender.tackle ?? 70;
+            const defResistance = (defStrength * 0.6 + defTackle * 0.4) / 100;
+
+            // Push effectiveness = blocker skill vs defender resistance
+            const pushPower = Math.max(0.05, (blockEffectiveness - defResistance * 0.5) * 0.4);
+
             if (runScheme === 'OUTSIDE_ZONE') {
               // OUTSIDE ZONE: Reach blocks - move laterally first, then engage
               const reachDir = playSide === 'RIGHT' ? 1 : playSide === 'LEFT' ? -1 : 0;
@@ -782,16 +795,17 @@ export class GameEngine {
                   x: (targetDefender.location.x - player.location.x) + reachDir * 5,
                   y: targetDefender.location.y - player.location.y,
                 });
-                player.location.x += dir.x * 0.45;
-                player.location.y += dir.y * 0.45;
+                const moveSpeed = 0.35 + blockEffectiveness * 0.15; // 0.44-0.52 based on rating
+                player.location.x += dir.x * moveSpeed;
+                player.location.y += dir.y * moveSpeed;
               } else {
                 // Engaged - seal defender to backside
                 const sealDir = { x: reachDir * 0.7, y: 0.7 };
                 player.location.x = targetDefender.location.x - sealDir.x * 5;
                 player.location.y = targetDefender.location.y - sealDir.y * 3;
-                // Push defender to backside
-                targetDefender.location.x -= reachDir * 0.2;
-                targetDefender.location.y += 0.15;
+                // Push defender to backside - scaled by blocking skill
+                targetDefender.location.x -= reachDir * pushPower;
+                targetDefender.location.y += pushPower * 0.75;
               }
             } else if (runScheme === 'POWER') {
               // POWER: Pulling guards, down blocks
@@ -799,7 +813,8 @@ export class GameEngine {
                 || (player.position === 'LG' && playSide === 'RIGHT');
 
               if (isPullingGuard) {
-                // Pull around to lead block
+                // Pull around to lead block - speed based on agility/awareness
+                const pullSpeed = 0.5 + blockEffectiveness * 0.15;
                 const pullTarget = {
                   x: ballCarrier.location.x + (playSide === 'RIGHT' ? 10 : -10),
                   y: ballCarrier.location.y + 5,
@@ -808,8 +823,8 @@ export class GameEngine {
                   x: pullTarget.x - player.location.x,
                   y: pullTarget.y - player.location.y,
                 });
-                player.location.x += pullDir.x * 0.6;
-                player.location.y += pullDir.y * 0.6;
+                player.location.x += pullDir.x * pullSpeed;
+                player.location.y += pullDir.y * pullSpeed;
               } else {
                 // Down block - drive defender down
                 if (dist > 8) {
@@ -817,14 +832,15 @@ export class GameEngine {
                     x: targetDefender.location.x - player.location.x,
                     y: targetDefender.location.y - player.location.y,
                   });
-                  player.location.x += dir.x * 0.5;
-                  player.location.y += dir.y * 0.5;
+                  const moveSpeed = 0.4 + blockEffectiveness * 0.15;
+                  player.location.x += dir.x * moveSpeed;
+                  player.location.y += dir.y * moveSpeed;
                 } else {
                   // Drive block down
                   const downDir = playSide === 'RIGHT' ? -1 : 1;
                   player.location.x = targetDefender.location.x + downDir * 3;
                   player.location.y = targetDefender.location.y;
-                  targetDefender.location.x += downDir * 0.2;
+                  targetDefender.location.x += downDir * pushPower;
                 }
               }
             } else {
@@ -834,8 +850,9 @@ export class GameEngine {
                   x: targetDefender.location.x - player.location.x,
                   y: targetDefender.location.y - player.location.y,
                 });
-                player.location.x += dir.x * 0.5;
-                player.location.y += dir.y * 0.5;
+                const moveSpeed = 0.4 + blockEffectiveness * 0.15;
+                player.location.x += dir.x * moveSpeed;
+                player.location.y += dir.y * moveSpeed;
               } else {
                 // Drive block - push straight ahead
                 const toBallCarrier = this.normalize({
@@ -845,8 +862,8 @@ export class GameEngine {
                 const pushDir = { x: -toBallCarrier.x, y: Math.max(0.3, -toBallCarrier.y) };
                 player.location.x = targetDefender.location.x + pushDir.x * 5;
                 player.location.y = targetDefender.location.y + pushDir.y * 5;
-                targetDefender.location.x += pushDir.x * 0.15;
-                targetDefender.location.y += pushDir.y * 0.15;
+                targetDefender.location.x += pushDir.x * pushPower;
+                targetDefender.location.y += pushDir.y * pushPower;
               }
             }
           }
@@ -855,24 +872,50 @@ export class GameEngine {
           const nearestRusher = this.findNearestPlayer(player.location, passRushers);
           if (nearestRusher) {
             const dist = this.distance(player.location, nearestRusher.location);
+
+            // Get blocker's pass blocking effectiveness
+            const passBlockRating = player.passBlock ?? 70;
+            const strengthRating = player.strength ?? 70;
+            const awarenessRating = player.awareness ?? 70;
+            // Awareness helps recognize blitzes, strength helps anchor, passBlock is technique
+            const blockEffectiveness = (passBlockRating * 0.5 + strengthRating * 0.3 + awarenessRating * 0.2) / 100;
+
+            // Rusher's pass rush ability
+            const rusherPassRush = nearestRusher.passRush ?? 70;
+            const rusherStrength = nearestRusher.strength ?? 70;
+            const rusherSpeed = nearestRusher.speed ?? 70;
+            const rushEffectiveness = (rusherPassRush * 0.5 + rusherStrength * 0.25 + rusherSpeed * 0.25) / 100;
+
             if (dist > 6) {
               // Move toward rusher quickly to engage before they get past
               const dir = this.normalize({
                 x: nearestRusher.location.x - player.location.x,
                 y: nearestRusher.location.y - player.location.y,
               });
-              // O-line moves fast to intercept (0.4 units/tick)
-              player.location.x += dir.x * 0.4;
-              player.location.y += dir.y * 0.4;
+              // O-line moves to intercept - speed based on awareness (recognition)
+              const interceptSpeed = 0.3 + (awarenessRating / 100) * 0.2; // 0.44-0.5 based on awareness
+              player.location.x += dir.x * interceptSpeed;
+              player.location.y += dir.y * interceptSpeed;
             } else {
               // Once engaged, mirror the rusher's position to stay in front
               const toQB = qb ? this.normalize({
                 x: qb.location.x - nearestRusher.location.x,
                 y: qb.location.y - nearestRusher.location.y,
               }) : { x: 0, y: -1 };
-              // Position between rusher and QB
-              player.location.x = nearestRusher.location.x + toQB.x * 4;
-              player.location.y = nearestRusher.location.y + toQB.y * 4;
+
+              // Position between rusher and QB - better blockers maintain position better
+              // If rusher is winning, they push the blocker back
+              const blockWinMargin = blockEffectiveness - rushEffectiveness;
+              const anchorDistance = 4 + blockWinMargin * 3; // 3-5 units based on matchup
+              player.location.x = nearestRusher.location.x + toQB.x * Math.max(2, anchorDistance);
+              player.location.y = nearestRusher.location.y + toQB.y * Math.max(2, anchorDistance);
+
+              // If pass rusher is winning, they can push the blocker back toward QB
+              if (blockWinMargin < 0 && qb) {
+                const pushback = Math.abs(blockWinMargin) * 0.08;
+                nearestRusher.location.x += toQB.x * pushback;
+                nearestRusher.location.y += toQB.y * pushback;
+              }
             }
           }
         }
@@ -1168,25 +1211,51 @@ export class GameEngine {
       y: target.y - defender.location.y,
     });
 
-    // Base speed: ~10 yards/sec max = 30 units/sec = 0.5 units/tick at 60fps
-    let speedMult = (defender.speed / 100) * 0.5;
+    // Defender's pass rush ability
+    const passRushRating = defender.passRush ?? 70;
+    const defStrength = defender.strength ?? 70;
+    const defSpeed = defender.speed ?? 70;
+    // Pass rush combines technique, power, and speed
+    const rushSkill = (passRushRating * 0.5 + defStrength * 0.25 + defSpeed * 0.25) / 100;
+
+    // Base speed scaled by defender's speed rating
+    let speedMult = (defSpeed / 100) * 0.5;
 
     // If blocker is engaged (within 8 units = ~2.7 yards), they're blocking
     if (nearestBlocker && minDist < 8) {
-      // Engaged in block - very slow movement, essentially stuck
-      speedMult *= 0.1; // 90% reduction when blocked
+      // Get blocker's pass blocking skill
+      const blockerPassBlock = nearestBlocker.passBlock ?? 70;
+      const blockerStrength = nearestBlocker.strength ?? 70;
+      const blockSkill = (blockerPassBlock * 0.6 + blockerStrength * 0.4) / 100;
 
-      // Both players push against each other slightly
+      // Win rate determines how stuck the defender is
+      const winMargin = rushSkill - blockSkill;
+
+      // Base is 90% reduction when blocked, but elite rushers can shed blocks faster
+      const blockReduction = Math.max(0.05, 0.1 + winMargin * 0.3); // 5-25% speed when blocked
+      speedMult *= blockReduction;
+
+      // Push battle - winner moves the other player
       const pushDir = this.normalize({
         x: defender.location.x - nearestBlocker.location.x,
         y: defender.location.y - nearestBlocker.location.y,
       });
-      nearestBlocker.location.x -= pushDir.x * 0.05;
-      nearestBlocker.location.y -= pushDir.y * 0.05;
+
+      if (winMargin > 0) {
+        // Rusher winning - push blocker back
+        nearestBlocker.location.x -= pushDir.x * winMargin * 0.1;
+        nearestBlocker.location.y -= pushDir.y * winMargin * 0.1;
+      } else {
+        // Blocker winning - rusher gets pushed
+        defender.location.x += pushDir.x * Math.abs(winMargin) * 0.05;
+        defender.location.y += pushDir.y * Math.abs(winMargin) * 0.05;
+      }
     } else if (nearestBlocker && minDist < 15) {
       // Approaching blocker - slow down as they engage
+      // Better rushers maintain more speed approaching
       const engageFactor = (minDist - 8) / 7; // 0 at dist 8, 1 at dist 15
-      speedMult *= 0.1 + engageFactor * 0.4; // 10-50% speed when near blocker
+      const baseSlowdown = 0.1 + rushSkill * 0.15; // 0.17-0.25 at engagement based on rush skill
+      speedMult *= baseSlowdown + engageFactor * (0.5 - baseSlowdown);
     }
 
     defender.location.x += dir.x * speedMult;
@@ -1253,38 +1322,49 @@ export class GameEngine {
     const proximityFactor = 1 - (distance / 5);
     const baseChance = 0.4 + proximityFactor * 0.4; // 40-80% base range when in contact
 
-    // Defender tackling ability (use speed as proxy for now, ideally would have tackle rating)
-    const defenderSkill = defender.speed / 100; // 0.7-0.9 typically
+    // Defender tackling ability - use tackle rating with strength as secondary factor
+    // tackle: primary skill, strength: helps finish tackles
+    const tackleRating = defender.tackle ?? 70;
+    const strengthRating = defender.strength ?? 70;
+    const defenderSkill = (tackleRating * 0.7 + strengthRating * 0.3) / 100;
 
-    // Carrier evasion ability (speed + acceleration as proxy for elusiveness)
-    const carrierEvasion = (carrier.speed + carrier.acceleration) / 200;
+    // Carrier evasion ability - use elusiveness rating with speed/agility as factors
+    const elusivenessRating = carrier.elusiveness ?? 70;
+    const agilityRating = carrier.agility ?? 70;
+    const carrierEvasion = (elusivenessRating * 0.6 + agilityRating * 0.25 + carrier.speed * 0.15) / 100;
 
     // Speed penalty - harder to tackle a fast-moving carrier
     const speedPenalty = Math.min(carrierSpeed / 8, 0.3); // Up to 30% penalty for max speed
 
-    // Evasion move bonus - much harder to tackle during juke/spin/dive
+    // Strength differential - strong defenders can muscle through, strong carriers break tackles
+    const carrierStrength = carrier.strength ?? 70;
+    const strengthDiff = (strengthRating - carrierStrength) / 200; // -0.15 to +0.15 range
+
+    // Evasion move bonus - effectiveness scaled by carrier's elusiveness
     let evasionBonus = 0;
     if (this.evasionState.active) {
+      const elusivenessMultiplier = 0.7 + (elusivenessRating / 100) * 0.6; // 0.7-1.3x based on elusiveness
       switch (this.evasionState.type) {
         case 'JUKE':
-          evasionBonus = 0.4; // 40% reduction in tackle chance
+          evasionBonus = 0.35 * elusivenessMultiplier; // 24-46% reduction based on elusiveness
           break;
         case 'SPIN':
-          evasionBonus = 0.5; // 50% reduction - spins are very effective
+          evasionBonus = 0.45 * elusivenessMultiplier; // 31-59% reduction - spins are very effective
           break;
         case 'DIVE':
-          evasionBonus = 0.2; // 20% reduction - dives are more about distance
+          evasionBonus = 0.18 * elusivenessMultiplier; // 13-23% reduction - dives are more about distance
           break;
       }
     }
 
     // Calculate final tackle probability
-    let tackleChance = baseChance * (1 + (defenderSkill - carrierEvasion) * 0.5);
+    let tackleChance = baseChance * (1 + (defenderSkill - carrierEvasion) * 0.6);
+    tackleChance += strengthDiff; // Strength advantage/disadvantage
     tackleChance -= speedPenalty;
     tackleChance -= evasionBonus;
 
-    // Clamp between 10% and 95%
-    return Math.max(0.1, Math.min(0.95, tackleChance));
+    // Clamp between 5% and 95%
+    return Math.max(0.05, Math.min(0.95, tackleChance));
   }
 
   private resolveSack(defenderId: string): void {

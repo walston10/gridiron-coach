@@ -541,6 +541,22 @@ export class DefenseAI {
     }
     if (!target) return { x: 0, y: 0 };
 
+    // Get defender's coverage ability
+    const coverageRating = defender.coverage ?? 70;
+    const speedRating = defender.speed ?? 70;
+    const agilityRating = defender.agility ?? 70;
+    // Coverage combines technique, speed to stay with receiver, and agility for breaks
+    const coverageSkill = (coverageRating * 0.5 + speedRating * 0.3 + agilityRating * 0.2) / 100;
+
+    // Get receiver's route running ability (harder to cover good route runners)
+    const receiverRouteRunning = target.routeRunning ?? 70;
+    const receiverSpeed = target.speed ?? 70;
+    const receiverAgility = target.agility ?? 70;
+    const receiverSkill = (receiverRouteRunning * 0.5 + receiverSpeed * 0.3 + receiverAgility * 0.2) / 100;
+
+    // Coverage matchup - positive means defender has advantage
+    const matchupAdvantage = coverageSkill - receiverSkill;
+
     // Man coverage - STICK to the receiver like glue
     const toTarget = {
       x: target.location.x - defender.location.x,
@@ -550,24 +566,32 @@ export class DefenseAI {
     const dir = this.normalize(toTarget);
 
     // Position: stay slightly behind and inside the receiver
-    const idealOffset = 5; // 5 units behind/beside
+    // Better coverage = tighter positioning allowed
+    const idealOffset = 5 - matchupAdvantage * 3; // 3.5-6.5 units based on matchup
+
+    // Speed multiplier based on coverage skill
+    const baseSpeedMult = 0.85 + coverageSkill * 0.3; // 0.92-1.15 based on coverage
 
     if (distToTarget > 20) {
-      // Way too far - sprint to catch up (1.4x speed)
-      return { x: dir.x * 1.4, y: dir.y * 1.4 };
+      // Way too far - sprint to catch up
+      const catchUpSpeed = 1.2 + coverageSkill * 0.3; // 1.27-1.5 based on skill
+      return { x: dir.x * catchUpSpeed, y: dir.y * catchUpSpeed };
     } else if (distToTarget > 10) {
       // Too far - run hard to close gap
-      return { x: dir.x * 1.2, y: dir.y * 1.2 };
+      return { x: dir.x * baseSpeedMult * 1.2, y: dir.y * baseSpeedMult * 1.2 };
     } else if (distToTarget > idealOffset) {
       // Closing distance - maintain pursuit
-      return { x: dir.x * 1.0, y: dir.y * 1.0 };
+      return { x: dir.x * baseSpeedMult, y: dir.y * baseSpeedMult };
     } else {
       // In good position - mirror receiver's movement, stay tight
+      // Better coverage = tighter mirroring
+      const mirrorTightness = 0.8 + coverageSkill * 0.2; // 0.86-1.0 based on skill
+
       // Add slight inside leverage (toward center of field)
       const insideBias = defender.location.x < 80 ? 0.1 : -0.1;
       return {
-        x: dir.x * 0.9 + insideBias,
-        y: dir.y * 0.9,
+        x: dir.x * mirrorTightness + insideBias,
+        y: dir.y * mirrorTightness,
       };
     }
   }
@@ -579,12 +603,21 @@ export class DefenseAI {
       y: this.qbLocation.y - defender.location.y,
     });
 
-    // Add rush lane variation
+    // Get pass rush ability - affects rush speed and lane discipline
+    const passRushRating = defender.passRush ?? 70;
+    const speedRating = defender.speed ?? 70;
+    const strengthRating = defender.strength ?? 70;
+    const rushSkill = (passRushRating * 0.5 + speedRating * 0.3 + strengthRating * 0.2) / 100;
+
+    // Rush speed multiplier based on skill
+    const rushSpeedMult = 0.85 + rushSkill * 0.3; // 0.92-1.15 based on skill
+
+    // Add rush lane variation - better rushers take better angles
     const laneOffset = state.assignment.rushType === 'OUTSIDE' ? 0.3 : -0.1;
 
     return {
-      x: toQB.x + (defender.location.x < 80 ? -laneOffset : laneOffset),
-      y: toQB.y,
+      x: (toQB.x + (defender.location.x < 80 ? -laneOffset : laneOffset)) * rushSpeedMult,
+      y: toQB.y * rushSpeedMult,
     };
   }
 
@@ -593,10 +626,16 @@ export class DefenseAI {
     const idealX = this.qbLocation.x;
     const idealY = (this.qbLocation.y + this.lineOfScrimmage) / 2;
 
-    return this.normalize({
+    // Awareness affects how well they track QB movement
+    const awarenessRating = defender.awareness ?? 70;
+    const speedMult = 0.9 + (awarenessRating / 100) * 0.2; // 0.97-1.1 based on awareness
+
+    const dir = this.normalize({
       x: idealX - defender.location.x,
       y: idealY - defender.location.y,
     });
+
+    return { x: dir.x * speedMult, y: dir.y * speedMult };
   }
 
   private blitzMovement(defender: FieldPlayer): Vector2 {
@@ -605,7 +644,16 @@ export class DefenseAI {
       x: this.qbLocation.x - defender.location.x,
       y: this.qbLocation.y - defender.location.y,
     });
-    return { x: toQB.x * 1.3, y: toQB.y * 1.3 };
+
+    // Blitz effectiveness based on speed and pass rush
+    const passRushRating = defender.passRush ?? 70;
+    const speedRating = defender.speed ?? 70;
+    const blitzSkill = (passRushRating * 0.4 + speedRating * 0.6) / 100; // Speed more important for blitz
+
+    // Blitz speed multiplier - blitzers move fast!
+    const blitzSpeedMult = 1.1 + blitzSkill * 0.4; // 1.17-1.5 based on skill
+
+    return { x: toQB.x * blitzSpeedMult, y: toQB.y * blitzSpeedMult };
   }
 
   private reactToBall(defender: FieldPlayer, state: DefenderState): Vector2 {
