@@ -225,32 +225,39 @@ export class DefenseAI {
     this.lineOfScrimmage = los;
     const scheme = COVERAGE_SCHEMES[play.coverage];
 
-    // Assign man coverage targets first
-    const receivers = offensivePlayers.filter(p =>
-      ['WR', 'TE', 'RB'].includes(p.position)
-    );
-    let receiverIndex = 0;
+    // Categorize receivers for smart matching
+    const wideReceivers = offensivePlayers.filter(p => p.position === 'WR');
+    const tightEnds = offensivePlayers.filter(p => p.position === 'TE');
+    const runningBacks = offensivePlayers.filter(p => p.position === 'RB' || p.position === 'FB');
+
+    // Sort WRs by horizontal position (leftmost first)
+    wideReceivers.sort((a, b) => a.location.x - b.location.x);
+
+    // Track which receivers have been assigned
+    const assignedReceivers = new Set<string>();
 
     defenders.forEach(defender => {
       const positionKey = this.getPositionKey(defender);
       const assignment = scheme[positionKey as keyof CoverageScheme];
 
+      // D-line always rushes
+      if (['DE', 'DT', 'NT'].includes(defender.position)) {
+        this.defenderStates.set(defender.id, {
+          phase: 'PRE_SNAP',
+          assignment: { type: 'RUSH', rushType: defender.location.x < 80 ? 'OUTSIDE' : 'INSIDE' },
+          lastKnownBallLocation: { x: 80, y: los },
+        });
+        return;
+      }
+
       if (!assignment) {
-        // Default: D-line rushes, others zone
-        if (['DE', 'DT', 'NT'].includes(defender.position)) {
-          this.defenderStates.set(defender.id, {
-            phase: 'PRE_SNAP',
-            assignment: { type: 'RUSH', rushType: 'BULL' },
-            lastKnownBallLocation: { x: 80, y: los },
-          });
-        } else {
-          this.defenderStates.set(defender.id, {
-            phase: 'PRE_SNAP',
-            assignment: { type: 'ZONE', zone: 'HOOK_LEFT' },
-            zoneBounds: ZONE_DEFINITIONS['HOOK_LEFT'](los),
-            lastKnownBallLocation: { x: 80, y: los },
-          });
-        }
+        // Default zone for unknown positions
+        this.defenderStates.set(defender.id, {
+          phase: 'PRE_SNAP',
+          assignment: { type: 'ZONE', zone: 'HOOK_LEFT' },
+          zoneBounds: ZONE_DEFINITIONS['HOOK_LEFT'](los),
+          lastKnownBallLocation: { x: 80, y: los },
+        });
         return;
       }
 
@@ -265,18 +272,47 @@ export class DefenseAI {
         state.zoneBounds = ZONE_DEFINITIONS[assignment.zone](los);
       }
 
-      // Assign man targets (match up by position)
-      if (assignment.type === 'MAN' && receiverIndex < receivers.length) {
-        state.manTarget = receivers[receiverIndex].id;
-        receiverIndex++;
-      }
+      // Smart man coverage assignment based on defender position
+      if (assignment.type === 'MAN') {
+        let target: FieldPlayer | undefined;
 
-      // Set rush lanes for D-line
-      if (defender.position === 'DE' || defender.position === 'DT' || defender.position === 'NT') {
-        state.assignment = {
-          type: 'RUSH',
-          rushType: defender.location.x < 80 ? 'OUTSIDE' : 'INSIDE',
-        };
+        if (defender.position === 'CB') {
+          // CBs cover WRs - match by side of field
+          const isLeftCB = defender.location.x < 80;
+          target = wideReceivers.find(wr => {
+            if (assignedReceivers.has(wr.id)) return false;
+            const isLeftWR = wr.location.x < 80;
+            return isLeftCB === isLeftWR;
+          });
+          // Fallback to any unassigned WR
+          if (!target) {
+            target = wideReceivers.find(wr => !assignedReceivers.has(wr.id));
+          }
+        } else if (defender.position === 'SS') {
+          // Strong safety covers TE
+          target = tightEnds.find(te => !assignedReceivers.has(te.id));
+          if (!target) {
+            target = wideReceivers.find(wr => !assignedReceivers.has(wr.id));
+          }
+        } else if (['MLB', 'ILB', 'OLB'].includes(defender.position)) {
+          // Linebackers cover RB/FB first, then TE
+          target = runningBacks.find(rb => !assignedReceivers.has(rb.id));
+          if (!target) {
+            target = tightEnds.find(te => !assignedReceivers.has(te.id));
+          }
+        } else {
+          // FS or other - cover nearest unassigned
+          const allReceivers = [...wideReceivers, ...tightEnds, ...runningBacks]
+            .filter(r => !assignedReceivers.has(r.id));
+          if (allReceivers.length > 0) {
+            target = this.findNearest(defender.location, allReceivers) || undefined;
+          }
+        }
+
+        if (target) {
+          state.manTarget = target.id;
+          assignedReceivers.add(target.id);
+        }
       }
 
       this.defenderStates.set(defender.id, state);
@@ -327,7 +363,15 @@ export class DefenseAI {
     } else if (ballInAir) {
       this.globalPhase = 'REACT_BALL';
     } else if (ballCarrierId && ballCarrierId.toLowerCase() !== 'qb') {
-      this.globalPhase = 'PURSUIT';
+      // Ball carrier is not QB (run play or completed pass)
+      // Only go full pursuit if carrier is past/near LOS, otherwise maintain coverage
+      const carrierPastLOS = this.ballLocation.y >= this.lineOfScrimmage - 5;
+      if (carrierPastLOS) {
+        this.globalPhase = 'PURSUIT';
+      } else {
+        // Carrier still in backfield - D-line pursues, secondary maintains coverage
+        this.globalPhase = 'EXECUTE';
+      }
     } else if (!this.qbInPocket) {
       this.globalPhase = 'SCRAMBLE_CONTAIN';
     } else {
@@ -346,7 +390,28 @@ export class DefenseAI {
       return this.pursuitMovement(defender);
     }
 
-    // Update individual defender phase
+    // D-line and linebackers pursue the ball carrier more aggressively
+    const isDLineman = ['DE', 'DT', 'NT'].includes(defender.position);
+    const isLinebacker = ['MLB', 'ILB', 'OLB'].includes(defender.position);
+    const isSecondary = ['CB', 'FS', 'SS'].includes(defender.position);
+
+    // If ball carrier is not QB and D-line, always pursue
+    if (this.ballCarrierId && this.ballCarrierId.toLowerCase() !== 'qb') {
+      if (isDLineman) {
+        state.phase = 'PURSUIT';
+        return this.pursuitMovement(defender);
+      }
+      // Linebackers pursue if carrier is within 30 units
+      if (isLinebacker) {
+        const distToBall = this.distance(defender.location, this.ballLocation);
+        if (distToBall < 40) {
+          state.phase = 'PURSUIT';
+          return this.pursuitMovement(defender);
+        }
+      }
+    }
+
+    // Update individual defender phase based on global phase
     state.phase = this.globalPhase;
 
     switch (this.globalPhase) {
@@ -469,31 +534,42 @@ export class DefenseAI {
       }, offensivePlayers);
     }
 
-    const target = offensivePlayers.find(p => p.id === state.manTarget);
+    // Find target - try exact match first, then case-insensitive
+    let target = offensivePlayers.find(p => p.id === state.manTarget);
+    if (!target) {
+      target = offensivePlayers.find(p => p.id.toLowerCase() === state.manTarget?.toLowerCase());
+    }
     if (!target) return { x: 0, y: 0 };
 
-    // Stay with the receiver, maintain cushion
-    const distToTarget = this.distance(defender.location, target.location);
-    const dir = this.normalize({
+    // Man coverage - STICK to the receiver like glue
+    const toTarget = {
       x: target.location.x - defender.location.x,
       y: target.location.y - defender.location.y,
-    });
-
-    // Try to stay 5-10 units behind/beside receiver
-    const idealCushion = 8;
-    if (distToTarget > idealCushion + 5) {
-      // Too far, close the gap quickly
-      return { x: dir.x * 1.2, y: dir.y * 1.2 };
-    } else if (distToTarget < idealCushion - 3) {
-      // Too close, back off slightly
-      return { x: -dir.x * 0.3, y: dir.y * 0.3 };
-    }
-
-    // Good position, mirror receiver movement
-    return {
-      x: dir.x * 0.8,
-      y: dir.y * 0.8 + 0.1, // Slight depth
     };
+    const distToTarget = Math.sqrt(toTarget.x ** 2 + toTarget.y ** 2);
+    const dir = this.normalize(toTarget);
+
+    // Position: stay slightly behind and inside the receiver
+    const idealOffset = 5; // 5 units behind/beside
+
+    if (distToTarget > 20) {
+      // Way too far - sprint to catch up (1.4x speed)
+      return { x: dir.x * 1.4, y: dir.y * 1.4 };
+    } else if (distToTarget > 10) {
+      // Too far - run hard to close gap
+      return { x: dir.x * 1.2, y: dir.y * 1.2 };
+    } else if (distToTarget > idealOffset) {
+      // Closing distance - maintain pursuit
+      return { x: dir.x * 1.0, y: dir.y * 1.0 };
+    } else {
+      // In good position - mirror receiver's movement, stay tight
+      // Add slight inside leverage (toward center of field)
+      const insideBias = defender.location.x < 80 ? 0.1 : -0.1;
+      return {
+        x: dir.x * 0.9 + insideBias,
+        y: dir.y * 0.9,
+      };
+    }
   }
 
   private rushMovement(defender: FieldPlayer, state: DefenderState): Vector2 {
