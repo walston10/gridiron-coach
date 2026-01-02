@@ -134,6 +134,12 @@ export class GameEngine {
 
   // PLAY SETUP - Supports both OffensivePlay and UI Play types
   setOffensivePlay(play: OffensivePlay | Play): void {
+    // Store current huddle positions (array to handle multiple players of same position)
+    const huddlePositions: Array<{ position: Position; location: { x: number; y: number }; used: boolean }> = [];
+    this.state.offensivePlayers.forEach(p => {
+      huddlePositions.push({ position: p.position, location: { ...p.location }, used: false });
+    });
+
     if ('assignments' in play) {
       // UI Play format - convert to engine format
       const converted = this.convertPlayToOffensive(play);
@@ -141,19 +147,41 @@ export class GameEngine {
       this.currentPlay = converted;
       this.originalPlay = play; // Store original for ball carrier info
 
-      // Get formation target positions
-      const formationPlayers = this.createOffensiveFormationFromPlay(play);
-      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
+      // Create formation players and set their targets
+      this.state.offensivePlayers = this.createOffensiveFormationFromPlay(play);
     } else {
       // Engine OffensivePlay format
       this.state.selectedPlay = play;
       this.currentPlay = play;
       this.originalPlay = null;
 
-      // Get formation target positions
-      const formationPlayers = this.createOffensiveFormation(play);
-      this.setFormationTargets(this.state.offensivePlayers, formationPlayers);
+      // Create formation players and set their targets
+      this.state.offensivePlayers = this.createOffensiveFormation(play);
     }
+
+    // Move formation players back to huddle positions, set formation as target
+    const los = this.yardLineToY(this.state.field.yardLine);
+    this.state.offensivePlayers.forEach(player => {
+      // Save the formation position as target
+      player.formationTarget = { ...player.location };
+
+      // Find an unused huddle position for this position type
+      const huddleEntry = huddlePositions.find(h => h.position === player.position && !h.used);
+      if (huddleEntry) {
+        huddleEntry.used = true;
+        player.location = { ...huddleEntry.location };
+      } else {
+        // Try to find any unused huddle position
+        const anyEntry = huddlePositions.find(h => !h.used);
+        if (anyEntry) {
+          anyEntry.used = true;
+          player.location = { ...anyEntry.location };
+        } else {
+          // Default huddle position for extra players
+          player.location = { x: FIELD_WIDTH / 2 + (Math.random() - 0.5) * 20, y: los - 30 };
+        }
+      }
+    });
 
     // Set defensive formation targets too
     this.setAutoCPUDefense();
@@ -166,14 +194,31 @@ export class GameEngine {
 
   // Set formation targets for huddle break animation
   private setFormationTargets(currentPlayers: FieldPlayer[], formationPlayers: FieldPlayer[]): void {
-    // Match players by ID and set their formation targets
+    // Track which formation players have been assigned
+    const assignedFormation = new Set<string>();
+
+    // Match players by position type
     currentPlayers.forEach(player => {
-      const formationPlayer = formationPlayers.find(fp =>
+      // First try exact ID match (case-insensitive)
+      let formationPlayer = formationPlayers.find(fp =>
+        !assignedFormation.has(fp.id) &&
         fp.id.toLowerCase() === player.id.toLowerCase()
       );
+
+      // Then try matching by position
+      if (!formationPlayer) {
+        formationPlayer = formationPlayers.find(fp =>
+          !assignedFormation.has(fp.id) &&
+          fp.position === player.position
+        );
+      }
+
       if (formationPlayer) {
+        assignedFormation.add(formationPlayer.id);
         player.formationTarget = { ...formationPlayer.location };
         player.route = formationPlayer.route;
+        // Update player ID to match formation for consistency
+        player.id = formationPlayer.id;
       }
     });
   }
@@ -335,9 +380,39 @@ export class GameEngine {
 
   setDefensivePlay(play: DefensivePlay): void {
     this.currentDefense = play;
-    // Get formation target positions
-    const formationPlayers = this.createDefensiveFormation(play);
-    this.setFormationTargets(this.state.defensivePlayers, formationPlayers);
+
+    // Store current huddle positions (array to handle multiple players of same position)
+    const huddlePositions: Array<{ position: Position; location: { x: number; y: number }; used: boolean }> = [];
+    this.state.defensivePlayers.forEach(p => {
+      huddlePositions.push({ position: p.position, location: { ...p.location }, used: false });
+    });
+
+    // Create formation players
+    this.state.defensivePlayers = this.createDefensiveFormation(play);
+
+    // Move formation players back to huddle positions, set formation as target
+    const los = this.yardLineToY(this.state.field.yardLine);
+    this.state.defensivePlayers.forEach(player => {
+      // Save the formation position as target
+      player.formationTarget = { ...player.location };
+
+      // Find an unused huddle position for this position type
+      const huddleEntry = huddlePositions.find(h => h.position === player.position && !h.used);
+      if (huddleEntry) {
+        huddleEntry.used = true;
+        player.location = { ...huddleEntry.location };
+      } else {
+        // Try to find any unused huddle position
+        const anyEntry = huddlePositions.find(h => !h.used);
+        if (anyEntry) {
+          anyEntry.used = true;
+          player.location = { ...anyEntry.location };
+        } else {
+          // Default huddle position for extra players
+          player.location = { x: FIELD_WIDTH / 2 + (Math.random() - 0.5) * 30, y: los + 45 };
+        }
+      }
+    });
   }
 
   private createOffensiveFormation(play: OffensivePlay): FieldPlayer[] {
