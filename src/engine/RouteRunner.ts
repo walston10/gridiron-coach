@@ -306,8 +306,11 @@ export class RouteRunner {
         break;
 
       case 'BREAK':
-        // Break phase is time-based
-        if (timeSincePhaseStart >= def.breakDuration) {
+        // Break phase is time-based, but skilled route runners break faster
+        const routeSkill = this.getRouteSkillFactor(player);
+        // Elite route runners (0.9+) break 30% faster, poor ones (0.5) 25% slower
+        const adjustedBreakDuration = def.breakDuration * (1.25 - routeSkill * 0.55);
+        if (timeSincePhaseStart >= adjustedBreakDuration) {
           state.phase = 'FINAL';
           state.phaseStartTime = currentTime;
         }
@@ -328,6 +331,17 @@ export class RouteRunner {
     }
   }
 
+  /**
+   * Get route running skill factor - affects break sharpness and speed
+   * Higher skill = sharper cuts, faster through breaks
+   */
+  private getRouteSkillFactor(player: FieldPlayer): number {
+    const routeRunning = player.routeRunning ?? 70;
+    const agility = player.agility ?? 70;
+    // Route running is primary, agility helps with cuts
+    return (routeRunning * 0.7 + agility * 0.3) / 100;
+  }
+
   private getPhaseMovement(
     player: FieldPlayer,
     state: RouteState,
@@ -337,6 +351,9 @@ export class RouteRunner {
     // Side multiplier - flip routes for players on right side of field
     const sideMultiplier = state.startLocation.x < 80 ? 1 : -1;
 
+    // Route running skill affects break sharpness (speed during break phase)
+    const routeSkill = this.getRouteSkillFactor(player);
+
     switch (state.phase) {
       case 'STEM':
         return {
@@ -345,9 +362,12 @@ export class RouteRunner {
         };
 
       case 'BREAK':
+        // Better route runners maintain more speed through breaks (sharper cuts)
+        // Elite (0.9+): 1.15x speed, Poor (0.5): 0.85x speed
+        const breakSharpness = 0.7 + routeSkill * 0.5;
         return {
-          x: def.breakDirection.x * sideMultiplier,
-          y: def.breakDirection.y,
+          x: def.breakDirection.x * sideMultiplier * breakSharpness,
+          y: def.breakDirection.y * breakSharpness,
         };
 
       case 'FINAL':

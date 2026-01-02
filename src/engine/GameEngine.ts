@@ -520,26 +520,75 @@ export class GameEngine {
   }
 
   private createPlayer(id: string, position: Position, location: Vector2, route?: RouteType): FieldPlayer {
+    // Generate base stats with some variance
+    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
     const base: FieldPlayer = {
       id,
       position,
       location,
       velocity: { x: 0, y: 0 },
-      speed: 70 + Math.random() * 20,
-      acceleration: 70 + Math.random() * 20,
+      speed: randomStat(70),
+      acceleration: randomStat(70),
       route,
+      // Universal physical attributes
+      strength: randomStat(70),
+      agility: randomStat(70),
+      awareness: randomStat(65, 25),
     };
 
     // Position-specific stats
     if (position === 'QB') {
-      base.accuracy = 65 + Math.random() * 25;
-      base.armStrength = 65 + Math.random() * 25;
+      base.accuracy = randomStat(65, 25);
+      base.armStrength = randomStat(65, 25);
+      base.carrying = randomStat(50, 30); // QBs have lower carrying by default
+      base.elusiveness = randomStat(55, 30);
     }
-    if (['WR', 'TE', 'RB'].includes(position)) {
-      base.catch = 60 + Math.random() * 30;
+
+    // Skill positions - receivers
+    if (['WR', 'TE'].includes(position)) {
+      base.catch = randomStat(60, 30);
+      base.routeRunning = randomStat(65, 25);
+      base.elusiveness = randomStat(60, 30);
+      base.carrying = randomStat(55, 25);
     }
+
+    // Running backs
+    if (['RB', 'FB'].includes(position)) {
+      base.catch = randomStat(55, 30);
+      base.carrying = randomStat(70, 25);
+      base.elusiveness = randomStat(65, 30);
+      base.routeRunning = randomStat(50, 30);
+      base.runBlock = position === 'FB' ? randomStat(65, 25) : randomStat(45, 30);
+    }
+
+    // Offensive line
+    if (['LT', 'LG', 'C', 'RG', 'RT'].includes(position)) {
+      base.passBlock = randomStat(70, 25);
+      base.runBlock = randomStat(70, 25);
+      base.strength = randomStat(80, 15); // OL are stronger
+    }
+
+    // Defensive line
+    if (['DE', 'DT', 'NT'].includes(position)) {
+      base.passRush = randomStat(70, 25);
+      base.tackle = randomStat(70, 25);
+      base.strength = randomStat(80, 15); // DL are stronger
+    }
+
+    // Linebackers
+    if (['OLB', 'MLB', 'ILB'].includes(position)) {
+      base.passRush = randomStat(60, 30);
+      base.tackle = randomStat(75, 20);
+      base.coverage = randomStat(55, 30);
+    }
+
+    // Secondary (DBs)
     if (['CB', 'FS', 'SS'].includes(position)) {
-      base.catch = 40 + Math.random() * 35;
+      base.catch = randomStat(40, 35);
+      base.coverage = randomStat(70, 25);
+      base.tackle = randomStat(55, 30);
+      base.speed = randomStat(75, 20); // DBs are faster
     }
 
     return base;
@@ -1287,7 +1336,16 @@ export class GameEngine {
             // Sack! QB tackled at or behind LOS
             this.resolveSack(defender.id);
           } else {
-            this.endPlay(false, false, defender.id);
+            // Check for fumble on big hit
+            const fumbleChance = this.calculateBigHitFumbleChance(carrier, defender, carrierSpeed);
+            const isFumble = Math.random() < fumbleChance;
+
+            if (isFumble) {
+              // Fumble! Turnover
+              this.endPlay(false, false, defender.id, true, false, 'FUMBLE');
+            } else {
+              this.endPlay(false, false, defender.id);
+            }
           }
           return; // Only one tackle per frame
         }
@@ -1365,6 +1423,57 @@ export class GameEngine {
 
     // Clamp between 5% and 95%
     return Math.max(0.05, Math.min(0.95, tackleChance));
+  }
+
+  /**
+   * Calculate fumble chance on a big hit
+   * Big hits occur when defender has high tackle+strength vs carrier's ball security
+   * Fumbles are rare - base ~1.5%, modified by ratings
+   */
+  private calculateBigHitFumbleChance(
+    carrier: FieldPlayer,
+    defender: FieldPlayer,
+    carrierSpeed: number
+  ): number {
+    // Hit power: tackle (70%) + strength (30%) - how hard the defender hits
+    const tackleRating = defender.tackle ?? 70;
+    const defenderStrength = defender.strength ?? 70;
+    const hitPower = tackleRating * 0.7 + defenderStrength * 0.3;
+
+    // Ball security: carrying rating is primary, strength helps hold on
+    const carryingRating = carrier.carrying ?? 70;
+    const carrierStrength = carrier.strength ?? 70;
+    const ballSecurity = carryingRating * 0.8 + carrierStrength * 0.2;
+
+    // Speed factor: higher carrier speed = more vulnerable (momentum transfers)
+    // Speed is in game units, normalize to 0-1 range (max speed ~6-8)
+    const speedVulnerability = Math.min(carrierSpeed / 7, 1) * 0.015; // Up to 1.5% extra
+
+    // Base fumble chance: 1.5%
+    // Modified by hit power vs ball security differential
+    // Each point of difference = 0.03% change
+    const ratingDiff = (hitPower - ballSecurity) / 100;
+    const baseFumble = 0.015;
+
+    // Calculate final fumble chance
+    // Elite ball carrier (95 carrying) vs average hitter (70): ~0.7% fumble
+    // Average carrier (70 carrying) vs elite hitter (95): ~2.3% fumble
+    let fumbleChance = baseFumble + ratingDiff * 0.025 + speedVulnerability;
+
+    // Big hit threshold: only trigger fumble check if defender has significant hit power
+    // If hit power is below 60, almost no fumble chance
+    if (hitPower < 60) {
+      fumbleChance *= 0.3; // 70% reduction for weak hitters
+    }
+
+    // Elite ball security (90+) provides extra protection
+    if (carryingRating >= 90) {
+      fumbleChance *= 0.6; // 40% reduction for elite ball carriers
+    }
+
+    // Clamp between 0.2% and 4%
+    // Even the worst case should be rare, even the best should have some chance
+    return Math.max(0.002, Math.min(0.04, fumbleChance));
   }
 
   private resolveSack(defenderId: string): void {
@@ -1522,7 +1631,21 @@ export class GameEngine {
 
     // Calculate landing spot with accuracy offset
     const accuracy = qb.accuracy || 70;
-    const maxOffset = this.getAccuracyRadius(accuracy);
+    let maxOffset = this.getAccuracyRadius(accuracy);
+
+    // Scramble accuracy penalty - throwing on the run is harder
+    const isScrambling = !this.isQBInPocket(qb);
+    if (isScrambling) {
+      // Penalty based on QB speed (faster = harder to throw accurately)
+      const velocity = Math.sqrt(qb.velocity.x ** 2 + qb.velocity.y ** 2);
+      const movementPenalty = velocity * 3; // Up to ~10 yards extra inaccuracy at full sprint
+
+      // Awareness helps mitigate scramble penalty
+      const awarenessRating = qb.awareness ?? 70;
+      const penaltyReduction = (awarenessRating - 50) / 100; // 0-0.5 reduction based on awareness
+      maxOffset += movementPenalty * (1 - penaltyReduction);
+    }
+
     const angle = Math.random() * Math.PI * 2;
     const offsetDist = Math.random() * maxOffset;
 
@@ -1556,6 +1679,12 @@ export class GameEngine {
     return 45 - (accuracy * 0.42);
   }
 
+  private isQBInPocket(qb: FieldPlayer): boolean {
+    // Check if QB is within pocket area (near original snap position)
+    const distFromPocket = this.distance(qb.location, this.pocketCenter);
+    return distFromPocket < 20; // Within ~7 yards of pocket center
+  }
+
   private calculateAirTime(distance: number, armStrength: number): number {
     const baseTime = 0.3 + (distance / 100);
     const armFactor = 1.3 - (armStrength / 150);
@@ -1587,12 +1716,26 @@ export class GameEngine {
     const pass = this.state.passFlight;
     pass.elapsedTime += 1 / TICK_RATE;
 
-    // Interpolate ball position
+    // Interpolate ball position with parabolic arc
     const t = Math.min(pass.elapsedTime / pass.airTime, 1);
+
+    // Base linear interpolation for X/Y (field position)
+    const baseX = pass.startLocation.x + (pass.landingSpot.x - pass.startLocation.x) * t;
+    const baseY = pass.startLocation.y + (pass.landingSpot.y - pass.startLocation.y) * t;
+
+    // Calculate ball arc height (parabola: peaks at t=0.5)
+    // Height based on distance - longer throws have higher arcs
+    const distance = this.distance(pass.startLocation, pass.landingSpot);
+    const maxHeight = Math.min(distance * 0.15, 30); // Max ~10 yards height
+    const arcHeight = 4 * maxHeight * t * (1 - t); // Parabola formula
+
     this.state.ballLocation = {
-      x: pass.startLocation.x + (pass.landingSpot.x - pass.startLocation.x) * t,
-      y: pass.startLocation.y + (pass.landingSpot.y - pass.startLocation.y) * t,
+      x: baseX,
+      y: baseY - arcHeight, // Subtract because negative Y is upfield/up
     };
+
+    // Store arc height for visualization (if needed)
+    (pass as PassFlight & { arcHeight?: number }).arcHeight = arcHeight;
 
     // Move receivers and defenders toward landing spot
     this.adjustPlayersToPass(pass.landingSpot);
@@ -1720,10 +1863,26 @@ export class GameEngine {
     this.state.ballLocation = { ...receiver.location };
     this.state.passFlight = undefined;
 
-    // Convert normalized route velocity to physics velocity to preserve momentum
-    const speedPerTick = (receiver.speed / 100) * 3.5;
-    receiver.velocity.x *= speedPerTick;
-    receiver.velocity.y *= speedPerTick;
+    // YAC (Yards After Catch) - preserve momentum based on receiver's route direction
+    // Better receivers (speed, agility) maintain more momentum through the catch
+    const speedRating = receiver.speed ?? 70;
+    const agilityRating = receiver.agility ?? 70;
+    const yacAbility = (speedRating * 0.6 + agilityRating * 0.4) / 100;
+
+    // Base speed from route direction, scaled by YAC ability
+    const baseSpeed = 0.3 + yacAbility * 0.25; // 0.44-0.55 base momentum
+
+    // Preserve route direction as initial velocity
+    const routeVelocity = this.normalize(receiver.velocity);
+    receiver.velocity = {
+      x: routeVelocity.x * baseSpeed * (receiver.speed / 70),
+      y: routeVelocity.y * baseSpeed * (receiver.speed / 70),
+    };
+
+    // If receiver was moving upfield, boost that direction (natural catch and run)
+    if (receiver.velocity.y > 0) {
+      receiver.velocity.y *= 1.2; // Boost upfield momentum
+    }
   }
 
   private resolveContestedCatch(
@@ -1732,18 +1891,43 @@ export class GameEngine {
     receiverDist: number,
     defenderDist: number
   ): void {
-    const receiverCatch = receiver.catch || 70;
-    const defenderCatch = defender?.catch || 50;
+    // Receiver catching ability
+    const receiverCatch = receiver.catch ?? 70;
+    const receiverStrength = receiver.strength ?? 70;
 
-    const separationBonus = Math.max(0, (defenderDist - receiverDist) / 30);
-    const catchChance = 0.20 + separationBonus + (receiverCatch - 70) / 200;
-    const intBaseChance = 0.10 - separationBonus / 2;
+    // Defender abilities - coverage is key for contested catches
+    const defenderCatch = defender?.catch ?? 50;
+    const defenderCoverage = defender?.coverage ?? 60;
+    const defenderStrength = defender?.strength ?? 70;
+
+    // Separation bonus (physical distance advantage)
+    const separationBonus = Math.max(0, (defenderDist - receiverDist) / 25);
+
+    // Strength battle for 50/50 balls - stronger player has advantage
+    const strengthDiff = (receiverStrength - defenderStrength) / 200; // -0.15 to +0.15
+
+    // Receiver catch rating bonus
+    const catchBonus = (receiverCatch - 70) / 150; // -0.13 to +0.19
+
+    // Base catch chance with all factors
+    let catchChance = 0.25 + separationBonus + catchBonus + strengthDiff;
+
+    // INT chance - coverage rating is the primary factor for defenders
+    // Elite coverage (90+) can create more INTs, poor coverage (50) struggles
+    const coverageSkill = defenderCoverage / 100;
+    const intBaseChance = 0.08 + coverageSkill * 0.08; // 0.12-0.16 range for good coverage
+
+    // Reduce INT chance based on separation
+    const intChance = Math.max(0.02, intBaseChance - separationBonus * 0.5);
+
+    // Defender catch ability affects whether they can actually haul it in
+    const intSuccessRate = (defenderCatch + defenderCoverage) / 200; // 0.5-0.95
 
     const roll = Math.random();
 
     if (roll < catchChance) {
       this.completeCatch(receiver);
-    } else if (roll > (1 - intBaseChance * (defenderCatch / 100))) {
+    } else if (roll > (1 - intChance * intSuccessRate)) {
       this.state.lastResult = {
         yardsGained: 0,
         turnover: true,
@@ -1774,8 +1958,14 @@ export class GameEngine {
   }
 
   private resolveDefenderOnly(defender: FieldPlayer): void {
-    const defenderCatch = defender.catch || 50;
-    const intChance = 0.15 * (defenderCatch / 100);
+    // Defender is the only one near the ball - can they pick it?
+    const defenderCatch = defender.catch ?? 50;
+    const defenderCoverage = defender.coverage ?? 60;
+
+    // Coverage rating helps read the ball in the air, catch helps secure it
+    // Elite coverage DBs (90+) with good hands (70+) are ball hawks
+    const ballHawkSkill = (defenderCoverage * 0.6 + defenderCatch * 0.4) / 100;
+    const intChance = 0.10 + ballHawkSkill * 0.12; // 0.16-0.22 for elite DBs
 
     if (Math.random() < intChance) {
       this.state.lastResult = {
@@ -1818,7 +2008,8 @@ export class GameEngine {
     outOfBounds: boolean,
     tackledBy?: string,
     turnover?: boolean,
-    safety?: boolean
+    safety?: boolean,
+    turnoverType?: 'FUMBLE' | 'INTERCEPTION'
   ): void {
     this.stopTick();
     this.state.phase = 'WHISTLE';
@@ -1831,6 +2022,7 @@ export class GameEngine {
     this.state.lastResult = {
       yardsGained: safety ? -startYardLine : yardsGained,
       turnover: turnover || false,
+      turnoverType,
       touchdown,
       outOfBounds,
       incomplete: false,

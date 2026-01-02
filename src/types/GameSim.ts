@@ -39,6 +39,19 @@ export interface FieldPlayer {
   accuracy?: number;    // QB only: 1-99
   armStrength?: number; // QB only: 1-99
   catch?: number;       // WR/TE/RB/DB: 1-99
+  // Physical attributes
+  strength?: number;    // 1-99: affects blocking, tackling, carrying
+  agility?: number;     // 1-99: affects route running, evasion
+  // Skill ratings
+  tackle?: number;      // 1-99: defensive tackling ability
+  elusiveness?: number; // 1-99: ball carrier evasion
+  coverage?: number;    // 1-99: pass coverage skill
+  routeRunning?: number; // 1-99: receiver route precision
+  passRush?: number;    // 1-99: defensive pass rushing
+  awareness?: number;   // 1-99: football IQ
+  passBlock?: number;   // 1-99: pass protection
+  runBlock?: number;    // 1-99: run blocking
+  carrying?: number;    // 1-99: ball security
 }
 
 // Pass in flight tracking
