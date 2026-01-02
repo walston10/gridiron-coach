@@ -125,6 +125,8 @@ export interface GameState {
   passFlight?: PassFlight;     // Ball in air tracking
   selectedPlay?: OffensivePlay | DefensivePlay;
   lastResult?: PlayResult;
+  handoffEffect?: { x: number; y: number; startTime: number };  // Visual effect when handoff occurs
+  currentTime?: number;        // Current game time for animation calculations
 }
 
 // Stats tracking

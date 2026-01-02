@@ -68,6 +68,28 @@ function adaptGameStateToLiveGame(
     };
   }
 
+  // Calculate handoff effect (flash animation for 0.4 seconds)
+  let handoffEffect: { x: number; y: number; progress: number } | undefined;
+  if (engineState.handoffEffect && engineState.currentTime !== undefined) {
+    const elapsed = engineState.currentTime - engineState.handoffEffect.startTime;
+    const HANDOFF_DURATION = 0.4; // 0.4 seconds flash
+    if (elapsed < HANDOFF_DURATION) {
+      handoffEffect = {
+        x: engineState.handoffEffect.x,
+        y: engineState.handoffEffect.y,
+        progress: elapsed / HANDOFF_DURATION,
+      };
+    }
+  }
+
+  // Convert play result for UI
+  const playResult = engineState.lastResult ? {
+    yardsGained: engineState.lastResult.yardsGained,
+    touchdown: engineState.lastResult.touchdown,
+    sack: engineState.lastResult.sack,
+    turnover: engineState.lastResult.turnover,
+  } : undefined;
+
   return {
     id: 'engine-game',
     state: stateMap[engineState.phase] || 'PRE_SNAP',
@@ -97,6 +119,8 @@ function adaptGameStateToLiveGame(
     playerPositions,
     ballCarrier,
     ballInFlight,
+    handoffEffect,
+    playResult,
   };
 }
 

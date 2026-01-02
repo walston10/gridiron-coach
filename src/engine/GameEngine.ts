@@ -429,6 +429,12 @@ export class GameEngine {
     if (target) {
       this.state.ballCarrier = target.id;
       this.state.ballLocation = { ...target.location };
+      // Trigger handoff visual effect at the RB's position
+      this.state.handoffEffect = {
+        x: target.location.x,
+        y: target.location.y,
+        startTime: this.currentTime,
+      };
     }
   }
 
@@ -464,34 +470,81 @@ export class GameEngine {
       ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.position)
     );
 
+    // Determine if this is a run play (ball carrier is not QB)
+    const isRunPlay = this.state.ballCarrier && !this.isQB(this.state.ballCarrier);
+    const ballCarrier = isRunPlay ? this.getPlayer(this.state.ballCarrier!) : null;
+
     // Update offensive players using RouteRunner
     this.state.offensivePlayers.forEach(player => {
       // Skip QB and ball carrier
       if (this.isQB(player.id) || player.id === this.state.ballCarrier) return;
 
-      // O-Line actively blocks nearest pass rusher
+      // O-Line blocking behavior
       if (['LT', 'LG', 'C', 'RG', 'RT'].includes(player.position)) {
-        const nearestRusher = this.findNearestPlayer(player.location, passRushers);
-        if (nearestRusher) {
-          const dist = this.distance(player.location, nearestRusher.location);
-          if (dist > 6) {
-            // Move toward rusher quickly to engage before they get past
-            const dir = this.normalize({
-              x: nearestRusher.location.x - player.location.x,
-              y: nearestRusher.location.y - player.location.y,
-            });
-            // O-line moves fast to intercept (0.4 units/tick)
-            player.location.x += dir.x * 0.4;
-            player.location.y += dir.y * 0.4;
-          } else {
-            // Once engaged, mirror the rusher's position to stay in front
-            const toQB = qb ? this.normalize({
-              x: qb.location.x - nearestRusher.location.x,
-              y: qb.location.y - nearestRusher.location.y,
-            }) : { x: 0, y: -1 };
-            // Position between rusher and QB
-            player.location.x = nearestRusher.location.x + toQB.x * 4;
-            player.location.y = nearestRusher.location.y + toQB.y * 4;
+        if (isRunPlay && ballCarrier) {
+          // RUN BLOCKING: Push forward and create lanes
+          // Find nearest defender to block (prioritize those near the ball carrier's path)
+          const nearbyDefenders = this.state.defensivePlayers.filter(d => {
+            const distToCarrier = this.distance(d.location, ballCarrier.location);
+            return distToCarrier < 50; // Within ~17 yards of carrier
+          });
+
+          const targetDefender = this.findNearestPlayer(player.location, nearbyDefenders.length > 0 ? nearbyDefenders : passRushers);
+
+          if (targetDefender) {
+            const dist = this.distance(player.location, targetDefender.location);
+
+            if (dist > 8) {
+              // Move toward defender to engage (run blocking is aggressive)
+              const dir = this.normalize({
+                x: targetDefender.location.x - player.location.x,
+                y: targetDefender.location.y - player.location.y,
+              });
+              // Run blockers drive forward fast
+              player.location.x += dir.x * 0.5;
+              player.location.y += dir.y * 0.5;
+            } else {
+              // Engaged - push defender away from ball carrier
+              const toBallCarrier = this.normalize({
+                x: ballCarrier.location.x - targetDefender.location.x,
+                y: ballCarrier.location.y - targetDefender.location.y,
+              });
+              // Drive block: push defender sideways/back
+              const pushDir = {
+                x: -toBallCarrier.x,
+                y: Math.max(0.3, -toBallCarrier.y), // Always push at least slightly downfield
+              };
+              player.location.x = targetDefender.location.x + pushDir.x * 5;
+              player.location.y = targetDefender.location.y + pushDir.y * 5;
+              // Also move the defender slightly (sustained block)
+              targetDefender.location.x += pushDir.x * 0.15;
+              targetDefender.location.y += pushDir.y * 0.15;
+            }
+          }
+        } else {
+          // PASS PROTECTION: Protect the pocket
+          const nearestRusher = this.findNearestPlayer(player.location, passRushers);
+          if (nearestRusher) {
+            const dist = this.distance(player.location, nearestRusher.location);
+            if (dist > 6) {
+              // Move toward rusher quickly to engage before they get past
+              const dir = this.normalize({
+                x: nearestRusher.location.x - player.location.x,
+                y: nearestRusher.location.y - player.location.y,
+              });
+              // O-line moves fast to intercept (0.4 units/tick)
+              player.location.x += dir.x * 0.4;
+              player.location.y += dir.y * 0.4;
+            } else {
+              // Once engaged, mirror the rusher's position to stay in front
+              const toQB = qb ? this.normalize({
+                x: qb.location.x - nearestRusher.location.x,
+                y: qb.location.y - nearestRusher.location.y,
+              }) : { x: 0, y: -1 };
+              // Position between rusher and QB
+              player.location.x = nearestRusher.location.x + toQB.x * 4;
+              player.location.y = nearestRusher.location.y + toQB.y * 4;
+            }
           }
         }
         return;
@@ -1537,7 +1590,7 @@ export class GameEngine {
   }
 
   private emitState(): void {
-    this.onStateChange({ ...this.state });
+    this.onStateChange({ ...this.state, currentTime: this.currentTime });
   }
 
   getState(): GameState {

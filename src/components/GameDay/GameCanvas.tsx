@@ -30,13 +30,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // X-axis (sideline) stays horizontal
 
     const VISIBLE_YARDS = 50; // How much field depth to show
-    const DEPTH_SCALE = 0.55; // How much to compress the Y axis (depth)
     const HORIZON_Y = 80; // Where the "horizon" is on screen (top area)
 
     // Calculate viewport based on LOS
     const losEngineY = (game.fieldPosition.yardLine / 100) * ENGINE_HEIGHT;
     const viewportStartY = losEngineY - 15 * 3.6; // 15 yards behind LOS
-    const viewportEndY = viewportStartY + VISIBLE_YARDS * 3.6;
 
     // Clamp to field bounds
     const clampedStartY = Math.max(-30, Math.min(viewportStartY, ENGINE_HEIGHT - VISIBLE_YARDS * 3.6 + 30));
@@ -348,6 +346,35 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.stroke();
     }
 
+    // Draw handoff effect (expanding ring flash)
+    if (game.handoffEffect) {
+      const pos = toScreen(game.handoffEffect.x, game.handoffEffect.y);
+      const progress = game.handoffEffect.progress;
+
+      // Expanding ring that fades out
+      const maxRadius = 60 * pos.scale;
+      const ringRadius = maxRadius * progress;
+      const opacity = 1 - progress;
+
+      ctx.strokeStyle = `rgba(255, 215, 0, ${opacity})`; // Gold color
+      ctx.lineWidth = Math.max(3, 6 * pos.scale * (1 - progress));
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 20 * (1 - progress);
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner flash
+      if (progress < 0.3) {
+        const innerOpacity = 1 - (progress / 0.3);
+        ctx.fillStyle = `rgba(255, 255, 200, ${innerOpacity * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 20 * pos.scale * (1 - progress / 0.3), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    }
+
     // Vignette effect
     const gradient = ctx.createRadialGradient(
       width / 2, height / 2, Math.min(width, height) * 0.4,
@@ -357,6 +384,61 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
+
+    // Draw play result text when play is dead
+    if (game.state === 'PLAY_DEAD' && game.playResult) {
+      const result = game.playResult;
+      let text = '';
+      let color = '#ffffff';
+      let glowColor = '#3b82f6';
+
+      if (result.touchdown) {
+        text = 'TOUCHDOWN!';
+        color = '#fbbf24';
+        glowColor = '#fbbf24';
+      } else if (result.sack) {
+        text = `SACK! ${Math.abs(result.yardsGained)} YARD LOSS`;
+        color = '#ef4444';
+        glowColor = '#ef4444';
+      } else if (result.turnover) {
+        text = 'TURNOVER!';
+        color = '#ef4444';
+        glowColor = '#ef4444';
+      } else if (result.yardsGained > 0) {
+        text = `GAIN OF ${result.yardsGained} YARD${result.yardsGained !== 1 ? 'S' : ''}`;
+        color = '#22c55e';
+        glowColor = '#22c55e';
+      } else if (result.yardsGained < 0) {
+        text = `LOSS OF ${Math.abs(result.yardsGained)} YARD${Math.abs(result.yardsGained) !== 1 ? 'S' : ''}`;
+        color = '#ef4444';
+        glowColor = '#ef4444';
+      } else {
+        text = 'NO GAIN';
+        color = '#94a3b8';
+        glowColor = '#94a3b8';
+      }
+
+      // Draw text with glow effect
+      ctx.font = 'bold 42px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Glow/shadow
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = color;
+      ctx.fillText(text, width / 2, height / 2 - 20);
+
+      // Outline for readability
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.strokeText(text, width / 2, height / 2 - 20);
+
+      // Fill again on top
+      ctx.fillStyle = color;
+      ctx.fillText(text, width / 2, height / 2 - 20);
+    }
 
   }, [game, width, height]);
 
