@@ -18,8 +18,10 @@ const NAV_ITEMS: { key: Page; label: string; icon: string }[] = [
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate }) => {
+  const isInGame = currentPage === 'gameday';
+
   return (
-    <div className="w-64 min-h-screen p-4" style={{ backgroundColor: '#1c1917' }}>
+    <div className="relative w-64 min-h-screen p-4" style={{ backgroundColor: '#1c1917' }}>
       {/* Logo */}
       <div className="mb-8 px-2">
         <div className="text-2xl font-black tracking-tight" style={{ color: '#d4a056', fontFamily: 'system-ui' }}>
@@ -54,18 +56,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate }) => 
         ))}
       </nav>
 
-      {/* Bottom section - risk indicator */}
-      <div className="absolute bottom-6 left-4 right-4">
-        <div className="rounded-lg p-3" style={{ backgroundColor: '#292524' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold" style={{ color: '#d4a056' }}>HEAT LEVEL</span>
-            <span className="text-xs" style={{ color: '#dc2626' }}>MODERATE</span>
-          </div>
-          <div className="w-full h-1.5 rounded-full" style={{ backgroundColor: '#44403c' }}>
-            <div className="h-full rounded-full" style={{ width: '45%', backgroundColor: '#dc2626' }} />
+      {/* Bottom section - risk indicator (hidden during games) */}
+      {!isInGame && (
+        <div className="absolute bottom-6 left-4 right-4">
+          <div className="rounded-lg p-3" style={{ backgroundColor: '#292524' }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold" style={{ color: '#d4a056' }}>HEAT LEVEL</span>
+              <span className="text-xs" style={{ color: '#dc2626' }}>MODERATE</span>
+            </div>
+            <div className="w-full h-1.5 rounded-full" style={{ backgroundColor: '#44403c' }}>
+              <div className="h-full rounded-full" style={{ width: '45%', backgroundColor: '#dc2626' }} />
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
