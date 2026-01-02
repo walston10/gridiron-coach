@@ -14,6 +14,7 @@ import { KickingEngine } from './KickingEngine';
 import type { KickResult, KickingRatings } from './KickingEngine';
 import { PenaltyEngine } from './PenaltyEngine';
 import type { Penalty, PlayContext } from './PenaltyEngine';
+import { FatigueEngine } from './FatigueEngine';
 import type { Play } from '../types';
 
 const FIELD_WIDTH = 160;   // 53.3 yards * 3
@@ -30,6 +31,7 @@ export class GameEngine {
   private defenseAI: DefenseAI;
   private kickingEngine: KickingEngine;
   private penaltyEngine: PenaltyEngine;
+  private fatigueEngine: FatigueEngine;
 
   // Penalty tracking
   private pendingPenalty: Penalty | null = null;
@@ -83,6 +85,7 @@ export class GameEngine {
     this.defenseAI = new DefenseAI();
     this.kickingEngine = new KickingEngine(true); // Auto-resolve returns
     this.penaltyEngine = new PenaltyEngine(1.0);  // Normal penalty frequency
+    this.fatigueEngine = new FatigueEngine(true); // Enable fatigue system
   }
 
   private createInitialState(): GameState {
@@ -989,8 +992,9 @@ export class GameEngine {
           this.state.defensivePlayers
         );
         player.velocity = movement;
-        player.location.x += movement.x * (player.speed / 100);
-        player.location.y += movement.y * (player.speed / 100);
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        player.location.x += movement.x * (effectiveSpeed / 100);
+        player.location.y += movement.y * (effectiveSpeed / 100);
 
         // Keep in bounds
         player.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, player.location.x));
@@ -1014,8 +1018,9 @@ export class GameEngine {
           this.currentTime
         );
         defender.velocity = movement;
-        // Realistic speed: ~10 yards/sec max
-        const speedMult = (defender.speed / 100) * 0.5;
+        // Realistic speed: ~10 yards/sec max, modified by fatigue
+        const effectiveSpeed = this.getEffectiveSpeed(defender);
+        const speedMult = (effectiveSpeed / 100) * 0.5;
         defender.location.x += movement.x * speedMult;
         defender.location.y += movement.y * speedMult;
       } else if (this.state.ballCarrier && !this.isQB(this.state.ballCarrier)) {
@@ -1026,8 +1031,9 @@ export class GameEngine {
             x: carrier.location.x - defender.location.x,
             y: carrier.location.y - defender.location.y,
           });
-          // Pursuit speed - slightly faster than coverage (players sprint harder)
-          const speedMult = (defender.speed / 100) * 0.6;
+          // Pursuit speed - slightly faster than coverage (players sprint harder), modified by fatigue
+          const effectiveSpeed = this.getEffectiveSpeed(defender);
+          const speedMult = (effectiveSpeed / 100) * 0.6;
           defender.location.x += dir.x * speedMult;
           defender.location.y += dir.y * speedMult;
         }
@@ -1481,9 +1487,14 @@ export class GameEngine {
       fumbleChance *= 0.6; // 40% reduction for elite ball carriers
     }
 
-    // Clamp between 0.2% and 4%
+    // Add fatigue-based fumble increase
+    // Exhausted players (85+ fatigue) can add up to 3% extra fumble chance
+    const fatigueFumbleBonus = this.getFatigueFumbleBonus(carrier.id);
+    fumbleChance += fatigueFumbleBonus;
+
+    // Clamp between 0.2% and 6% (higher cap with fatigue)
     // Even the worst case should be rare, even the best should have some chance
-    return Math.max(0.002, Math.min(0.04, fumbleChance));
+    return Math.max(0.002, Math.min(0.06, fumbleChance));
   }
 
   private resolveSack(defenderId: string): void {
@@ -1833,7 +1844,8 @@ export class GameEngine {
           y: landingSpot.y - player.location.y,
         });
         const catchAbility = player.catch || 70;
-        const adjustSpeed = (player.speed / 100) * (catchAbility / 100);
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        const adjustSpeed = (effectiveSpeed / 100) * (catchAbility / 100);
         // Target moves faster toward ball, nearby receivers slower
         const speedMult = isTarget ? 1.5 : 0.6;
         player.location.x += dir.x * adjustSpeed * speedMult;
@@ -1845,8 +1857,9 @@ export class GameEngine {
           this.currentTime,
           this.state.defensivePlayers
         );
-        player.location.x += movement.x * (player.speed / 100) * 0.5;
-        player.location.y += movement.y * (player.speed / 100) * 0.5;
+        const effectiveSpeed = this.getEffectiveSpeed(player);
+        player.location.x += movement.x * (effectiveSpeed / 100) * 0.5;
+        player.location.y += movement.y * (effectiveSpeed / 100) * 0.5;
       }
     });
 
@@ -1857,8 +1870,9 @@ export class GameEngine {
         this.state.offensivePlayers,
         this.currentTime
       );
-      defender.location.x += movement.x * (defender.speed / 100) * 0.8;
-      defender.location.y += movement.y * (defender.speed / 100) * 0.8;
+      const effectiveSpeed = this.getEffectiveSpeed(defender);
+      defender.location.x += movement.x * (effectiveSpeed / 100) * 0.8;
+      defender.location.y += movement.y * (effectiveSpeed / 100) * 0.8;
     });
   }
 
@@ -1939,11 +1953,12 @@ export class GameEngine {
     // Base speed from route direction, scaled by YAC ability
     const baseSpeed = 0.3 + yacAbility * 0.25; // 0.44-0.55 base momentum
 
-    // Preserve route direction as initial velocity
+    // Preserve route direction as initial velocity, modified by fatigue
     const routeVelocity = this.normalize(receiver.velocity);
+    const effectiveSpeed = this.getEffectiveSpeed(receiver);
     receiver.velocity = {
-      x: routeVelocity.x * baseSpeed * (receiver.speed / 70),
-      y: routeVelocity.y * baseSpeed * (receiver.speed / 70),
+      x: routeVelocity.x * baseSpeed * (effectiveSpeed / 70),
+      y: routeVelocity.y * baseSpeed * (effectiveSpeed / 70),
     };
 
     // If receiver was moving upfield, boost that direction (natural catch and run)
@@ -2157,6 +2172,9 @@ export class GameEngine {
       this.advanceFieldPosition(yardsGained, touchdown, turnover || false);
     }
 
+    // Add fatigue to all players after the play
+    this.addPlayFatigue(this.state.ballCarrier, tackledBy);
+
     // Reset penalty tracking
     this.resetPenaltyTracking();
     this.emitState();
@@ -2220,6 +2238,15 @@ export class GameEngine {
     this.cpuControlEnabled = false; // Reset CPU control
     this.routeRunner.reset();
     this.defenseAI.reset();
+
+    // Apply fatigue recovery between plays (average ~25 seconds between plays)
+    const recoveryTime = 25;
+    for (const player of this.state.offensivePlayers) {
+      this.fatigueEngine.recoverFatigue(player.id, recoveryTime, true);
+    }
+    for (const player of this.state.defensivePlayers) {
+      this.fatigueEngine.recoverFatigue(player.id, recoveryTime, true);
+    }
 
     // Create huddle formations for next play
     this.state.offensivePlayers = this.createOffensiveHuddle(this.state.field.yardLine);
@@ -2446,5 +2473,75 @@ export class GameEngine {
     this.stopTick();
     this.routeRunner.reset();
     this.defenseAI.reset();
+  }
+
+  // FATIGUE SYSTEM
+
+  /**
+   * Get effective speed with fatigue applied
+   */
+  private getEffectiveSpeed(player: FieldPlayer): number {
+    const modifiers = this.fatigueEngine.getModifiers(player.id);
+    return (player.speed ?? 70) * modifiers.speedMultiplier;
+  }
+
+  /**
+   * Get fatigue-based fumble increase for a player
+   */
+  private getFatigueFumbleBonus(playerId: string): number {
+    const modifiers = this.fatigueEngine.getModifiers(playerId);
+    return modifiers.fumbleChanceIncrease;
+  }
+
+  /**
+   * Add fatigue to all players on the field after a play
+   * Ball carrier and players who made tackles get more fatigue
+   */
+  private addPlayFatigue(ballCarrierId?: string, tackleBy?: string): void {
+    // Add fatigue to offensive players
+    for (const player of this.state.offensivePlayers) {
+      const wasInvolved = player.id === ballCarrierId;
+      this.fatigueEngine.addPlayFatigue(player.id, player.position || 'WR', wasInvolved);
+    }
+
+    // Add fatigue to defensive players
+    for (const player of this.state.defensivePlayers) {
+      const wasInvolved = player.id === tackleBy;
+      this.fatigueEngine.addPlayFatigue(player.id, player.position || 'LB', wasInvolved);
+    }
+  }
+
+  /**
+   * Initialize fatigue tracking for all players at start of game/half
+   */
+  initializeFatigue(): void {
+    this.fatigueEngine.reset();
+    for (const player of this.state.offensivePlayers) {
+      this.fatigueEngine.initPlayer(player.id, player.position || 'WR', true);
+    }
+    for (const player of this.state.defensivePlayers) {
+      this.fatigueEngine.initPlayer(player.id, player.position || 'LB', true);
+    }
+  }
+
+  /**
+   * Apply halftime recovery to all players
+   */
+  halftimeFatigueRecovery(): void {
+    this.fatigueEngine.halftimeRecovery();
+  }
+
+  /**
+   * Get fatigue status for display in UI
+   */
+  getPlayerFatigueStatus(playerId: string): 'FRESH' | 'GOOD' | 'TIRED' | 'VERY_TIRED' | 'EXHAUSTED' {
+    return this.fatigueEngine.getFatigueStatus(playerId);
+  }
+
+  /**
+   * Get players who need substitution
+   */
+  getPlayersNeedingRest(): string[] {
+    return this.fatigueEngine.getPlayerNeedingRest();
   }
 }

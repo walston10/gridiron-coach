@@ -270,11 +270,9 @@ export class GameManager {
       this.state.possession = this.state.receivingTeam;
     } else if (this.state.quarter === 4) {
       if (this.state.homeScore === this.state.awayScore) {
-        // Overtime (simplified)
-        this.state.isOvertime = true;
-        this.state.quarter = 4; // Keep at 4 for OT
-        this.resetClock();
-        this.state.gamePhase = 'COIN_TOSS';
+        // OVERTIME - One play from the 5!
+        // Exciting sudden death format: score TD or lose
+        this.startOvertime();
       } else {
         this.state.gamePhase = 'GAME_OVER';
       }
@@ -284,6 +282,108 @@ export class GameManager {
       this.resetClock();
     }
     this.emitState();
+  }
+
+  // OVERTIME - Exciting one-play format!
+  // Each team gets one play from the 5 yard line
+  // TD wins, anything else loses
+  private overtimeRound: number = 0;
+  private overtimeHomeScore: number = 0;
+  private overtimeAwayScore: number = 0;
+
+  private startOvertime(): void {
+    this.state.isOvertime = true;
+    this.state.quarter = 4;
+    this.overtimeRound = 1;
+    this.overtimeHomeScore = 0;
+    this.overtimeAwayScore = 0;
+
+    // Coin toss winner goes first (or away team by default)
+    this.state.gamePhase = 'COIN_TOSS';
+    this.emitState();
+  }
+
+  // Call this after overtime coin toss
+  startOvertimePossession(): void {
+    if (!this.state.isOvertime) return;
+
+    // Set up at the 5 yard line - ONE play to score!
+    this.state.field = {
+      yardLine: 95,  // 5 yards from opponent endzone
+      down: 1,
+      yardsToGo: 5,
+      possession: this.state.possession,
+    };
+    this.state.gamePhase = 'PLAY';
+    this.state.clock = {
+      quarter: 4,
+      minutes: 0,
+      seconds: 0,
+      playClock: 40,
+      isRunning: false,
+    };
+    this.emitState();
+  }
+
+  // Handle overtime play result
+  onOvertimePlayEnd(touchdown: boolean): void {
+    if (!this.state.isOvertime) return;
+
+    if (touchdown) {
+      // SCORE! This team wins their round
+      if (this.state.possession === 'home') {
+        this.overtimeHomeScore = 1;
+      } else {
+        this.overtimeAwayScore = 1;
+      }
+    }
+
+    // Check if we need to switch possession or end game
+    if (this.overtimeRound === 1) {
+      // First team went - now other team's turn
+      this.overtimeRound = 2;
+      this.state.possession = this.state.possession === 'home' ? 'away' : 'home';
+
+      if (this.overtimeHomeScore === 1 || this.overtimeAwayScore === 1) {
+        // First team scored - second team MUST score to survive
+        this.startOvertimePossession();
+      } else {
+        // First team failed - second team can win with TD
+        this.startOvertimePossession();
+      }
+    } else {
+      // Both teams have gone - determine winner
+      if (this.overtimeHomeScore > this.overtimeAwayScore) {
+        this.state.homeScore += 6;  // Award the TD
+        this.state.gamePhase = 'GAME_OVER';
+      } else if (this.overtimeAwayScore > this.overtimeHomeScore) {
+        this.state.awayScore += 6;  // Award the TD
+        this.state.gamePhase = 'GAME_OVER';
+      } else {
+        // Both scored or both failed - go again!
+        this.overtimeRound = 1;
+        this.overtimeHomeScore = 0;
+        this.overtimeAwayScore = 0;
+        // Swap who goes first
+        this.state.possession = this.state.possession === 'home' ? 'away' : 'home';
+        this.startOvertimePossession();
+      }
+      this.emitState();
+    }
+  }
+
+  // Check if this is an overtime play (for special handling)
+  isOvertimePlay(): boolean {
+    return this.state.isOvertime && this.state.gamePhase === 'PLAY';
+  }
+
+  getOvertimeStatus(): { round: number; homeScored: boolean; awayScored: boolean } | null {
+    if (!this.state.isOvertime) return null;
+    return {
+      round: this.overtimeRound,
+      homeScored: this.overtimeHomeScore > 0,
+      awayScored: this.overtimeAwayScore > 0,
+    };
   }
 
   endHalftime(): void {
