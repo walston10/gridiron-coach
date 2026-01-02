@@ -8,11 +8,19 @@ interface PixiGameCanvasProps {
   height?: number;
 }
 
-// Team colors
-const OFFENSE_PRIMARY = 0x1e3a8a;
-const OFFENSE_SECONDARY = 0x3b82f6;
-const DEFENSE_PRIMARY = 0x991b1b;
-const DEFENSE_SECONDARY = 0xef4444;
+// Team color schemes (helmet, jersey, pants)
+const TEAM_COLORS = {
+  home: {
+    helmet: 0x1e3a8a,    // Navy blue
+    jersey: 0x3b82f6,    // Royal blue
+    pants: 0xf0f0f0,     // White
+  },
+  away: {
+    helmet: 0x991b1b,    // Dark red
+    jersey: 0xef4444,    // Red
+    pants: 0x444444,     // Dark gray
+  },
+};
 const BALL_CARRIER_GLOW = 0xfbbf24;
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
@@ -445,6 +453,10 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       return (r << 16) | (g << 8) | b;
     };
 
+    // Determine which team is offense/defense based on possession
+    const offenseTeam = game.possession; // 'home' or 'away'
+    const defenseTeam = game.possession === 'home' ? 'away' : 'home';
+
     // Draw players
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
@@ -453,36 +465,39 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const isOffense = player.role === 'offense';
       const playerGraphics = new Graphics();
 
-      // Offense: Blue helmet, blue jersey, white pants
-      // Defense: Red helmet, red jersey, dark gray pants
+      // Get team colors based on which side of the ball they're on
+      const teamColors = isOffense ? TEAM_COLORS[offenseTeam] : TEAM_COLORS[defenseTeam];
+
       drawPixelPlayer(
         playerGraphics,
         pos.x,
         pos.y,
         pos.scale,
-        isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY,   // helmet
-        isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY, // jersey
-        isOffense ? 0xf0f0f0 : 0x444444, // pants
+        teamColors.helmet,
+        teamColors.jersey,
+        teamColors.pants,
         false
       );
 
       dynamicContainer.addChild(playerGraphics);
     });
 
-    // Draw ball carrier with glow
+    // Draw ball carrier with glow (keeps their team colors but adds glow)
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
       const carrierGraphics = new Graphics();
 
-      // Golden player for ball carrier
+      // Ball carrier uses their team colors with glow effect
+      const carrierTeamColors = TEAM_COLORS[offenseTeam];
+
       drawPixelPlayer(
         carrierGraphics,
         pos.x,
         pos.y,
         pos.scale,
-        0xffd700, // Gold helmet
-        0xffd700, // Gold jersey
-        0xf0f0f0, // White pants
+        carrierTeamColors.helmet,
+        carrierTeamColors.jersey,
+        carrierTeamColors.pants,
         true // Has ball - adds glow
       );
 
