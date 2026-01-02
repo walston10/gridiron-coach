@@ -308,57 +308,102 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     // Sort players by depth (far first)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
+    // Helper function to draw a helmet
+    const drawHelmet = (
+      graphics: Graphics,
+      x: number,
+      y: number,
+      scale: number,
+      primaryColor: number,
+      secondaryColor: number,
+      hasBall: boolean = false
+    ) => {
+      const size = 12 * scale;
+
+      // Shadow
+      graphics.ellipse(x + 2 * scale, y + size * 0.4, size * 0.9, size * 0.35);
+      graphics.fill({ color: 0x000000, alpha: 0.5 });
+
+      // Ball carrier glow
+      if (hasBall) {
+        graphics.circle(x, y, size + 8 * scale);
+        graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.5 });
+        graphics.circle(x, y, size + 4 * scale);
+        graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.3 });
+      }
+
+      // Helmet base (oval shape)
+      graphics.ellipse(x, y, size, size * 0.85);
+      graphics.fill(primaryColor);
+
+      // Helmet shine/highlight
+      graphics.ellipse(x - size * 0.25, y - size * 0.2, size * 0.5, size * 0.4);
+      graphics.fill({ color: secondaryColor, alpha: 0.6 });
+
+      // Facemask area (darker front)
+      graphics.ellipse(x + size * 0.3, y + size * 0.1, size * 0.45, size * 0.55);
+      graphics.fill({ color: 0x333333, alpha: 0.7 });
+
+      // Facemask bars
+      const barWidth = Math.max(1, 1.5 * scale);
+      graphics.moveTo(x + size * 0.1, y - size * 0.3);
+      graphics.lineTo(x + size * 0.6, y - size * 0.15);
+      graphics.stroke({ width: barWidth, color: 0x888888 });
+
+      graphics.moveTo(x + size * 0.1, y);
+      graphics.lineTo(x + size * 0.6, y + size * 0.05);
+      graphics.stroke({ width: barWidth, color: 0x888888 });
+
+      graphics.moveTo(x + size * 0.1, y + size * 0.3);
+      graphics.lineTo(x + size * 0.6, y + size * 0.25);
+      graphics.stroke({ width: barWidth, color: 0x888888 });
+
+      // Helmet outline
+      graphics.ellipse(x, y, size, size * 0.85);
+      graphics.stroke({ width: Math.max(1.5, 2 * scale), color: 0xffffff, alpha: 0.8 });
+
+      // Center stripe on helmet
+      graphics.moveTo(x - size * 0.7, y);
+      graphics.lineTo(x - size * 0.1, y);
+      graphics.stroke({ width: Math.max(2, 3 * scale), color: secondaryColor, alpha: 0.9 });
+    };
+
     // Draw players
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
 
       const isOffense = player.role === 'offense';
-      const baseRadius = 14;
-      const radius = baseRadius * pos.scale;
-
       const playerGraphics = new Graphics();
 
-      // Shadow
-      playerGraphics.ellipse(pos.x + 2, pos.y + radius * 0.3, radius * 0.8, radius * 0.3);
-      playerGraphics.fill({ color: 0x000000, alpha: 0.4 });
-
-      // Body
-      playerGraphics.circle(pos.x, pos.y, radius);
-      playerGraphics.fill(isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY);
-
-      // Highlight
-      playerGraphics.circle(pos.x - radius * 0.2, pos.y - radius * 0.2, radius * 0.6);
-      playerGraphics.fill(isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY);
-
-      // Border
-      playerGraphics.circle(pos.x, pos.y, radius);
-      playerGraphics.stroke({ width: Math.max(1, 2 * pos.scale), color: 0xffffff, alpha: 0.9 });
+      drawHelmet(
+        playerGraphics,
+        pos.x,
+        pos.y,
+        pos.scale,
+        isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY,
+        isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY,
+        false
+      );
 
       dynamicContainer.addChild(playerGraphics);
     });
 
-    // Draw ball carrier
+    // Draw ball carrier with glow
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
-      const baseRadius = 14;
-      const radius = baseRadius * pos.scale;
-
       const carrierGraphics = new Graphics();
 
-      // Glow
-      carrierGraphics.circle(pos.x, pos.y, radius + 6 * pos.scale);
-      carrierGraphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.6 });
-
-      carrierGraphics.circle(pos.x, pos.y, radius + 3 * pos.scale);
-      carrierGraphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.4 });
-
-      // Player
-      carrierGraphics.circle(pos.x, pos.y, radius);
-      carrierGraphics.fill(0xfef08a);
-
-      carrierGraphics.circle(pos.x, pos.y, radius);
-      carrierGraphics.stroke({ width: Math.max(2, 3 * pos.scale), color: 0xffffff });
+      // Use golden helmet for ball carrier
+      drawHelmet(
+        carrierGraphics,
+        pos.x,
+        pos.y,
+        pos.scale,
+        0xb8860b, // Dark golden
+        0xffd700, // Gold
+        true // Has ball - adds glow
+      );
 
       dynamicContainer.addChild(carrierGraphics);
     }
