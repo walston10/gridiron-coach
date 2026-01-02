@@ -87,13 +87,24 @@ export const Scoreboard: React.FC<ScoreboardProps> = ({
           {/* Center - Clock & Game Info */}
           <div className="bg-slate-900 px-6 py-3 flex flex-col items-center justify-center min-w-[180px] border-x border-white/10">
             {/* Clock */}
-            <div className="text-4xl font-black text-white tabular-nums tracking-tight font-mono">
-              {formatTime(clock.minutes, clock.seconds)}
+            <div className="flex items-center gap-2">
+              <div className="text-4xl font-black text-white tabular-nums tracking-tight font-mono">
+                {formatTime(clock.minutes, clock.seconds)}
+              </div>
+              {/* Clock stopped indicator */}
+              {!clock.isRunning && (
+                <div className="w-2 h-2 rounded-full bg-yellow-400" title="Clock Stopped" />
+              )}
             </div>
-            {/* Quarter */}
-            <div className="flex items-center gap-2 mt-1">
+            {/* Quarter & Play Clock */}
+            <div className="flex items-center gap-3 mt-1">
               <span className="text-yellow-400 font-bold text-sm">
                 {clock.quarter === 1 ? '1ST' : clock.quarter === 2 ? '2ND' : clock.quarter === 3 ? '3RD' : '4TH'} QTR
+              </span>
+              <span className={`font-mono font-bold text-sm ${
+                clock.playClock <= 10 ? 'text-red-400' : 'text-white/60'
+              }`}>
+                :{clock.playClock.toString().padStart(2, '0')}
               </span>
             </div>
             {/* Down & Distance (if provided) */}

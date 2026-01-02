@@ -103,6 +103,7 @@ function adaptGameStateToLiveGame(
       quarter: engineState.clock.quarter,
       minutes: engineState.clock.minutes,
       seconds: engineState.clock.seconds,
+      playClock: engineState.clock.playClock,
       isRunning: engineState.clock.isRunning,
     },
     fieldPosition: {

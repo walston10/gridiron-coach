@@ -83,6 +83,14 @@ export class GameEngine {
   // Clock accumulator for smooth timing
   private clockAccumulator: number = 0;
 
+  // Play duration tracking
+  private playStartTime: number = 0;
+  private static readonly MAX_PLAY_DURATION = 7.0; // Max seconds before play is blown dead
+
+  // Pre-snap play clock countdown
+  private preSnapInterval: number | null = null;
+  private preSnapClockAccumulator: number = 0;
+
   constructor(onStateChange: (state: GameState) => void) {
     this.onStateChange = onStateChange;
     this.state = this.createInitialState();
@@ -312,8 +320,81 @@ export class GameEngine {
         this.huddleBreakInterval = null;
       }
       this.state.phase = 'PRE_SNAP';
+      this.startPreSnapClock();
       this.emitState();
     }
+  }
+
+  // Pre-snap play clock management
+  private startPreSnapClock(): void {
+    if (this.preSnapInterval) {
+      clearInterval(this.preSnapInterval);
+    }
+    this.preSnapClockAccumulator = 0;
+
+    // Countdown play clock during pre-snap (1 game second = 0.33 real seconds to match game speed)
+    this.preSnapInterval = window.setInterval(() => {
+      if (this.state.phase !== 'PRE_SNAP') {
+        this.stopPreSnapClock();
+        return;
+      }
+
+      // Accumulate time for smooth countdown (3 game seconds per real second)
+      this.preSnapClockAccumulator += 3 / TICK_RATE;
+
+      if (this.preSnapClockAccumulator >= 1) {
+        const secondsToSubtract = Math.floor(this.preSnapClockAccumulator);
+        this.preSnapClockAccumulator -= secondsToSubtract;
+        this.state.clock.playClock -= secondsToSubtract;
+
+        // Check for delay of game
+        if (this.state.clock.playClock <= 0) {
+          this.state.clock.playClock = 0;
+          this.callDelayOfGame();
+        }
+        this.emitState();
+      }
+    }, 1000 / TICK_RATE);
+  }
+
+  private stopPreSnapClock(): void {
+    if (this.preSnapInterval) {
+      clearInterval(this.preSnapInterval);
+      this.preSnapInterval = null;
+    }
+  }
+
+  private callDelayOfGame(): void {
+    this.stopPreSnapClock();
+    this.state.phase = 'WHISTLE';
+
+    // 5 yard penalty, repeat down
+    const newYardLine = Math.max(1, this.state.field.yardLine - 5);
+
+    this.state.lastResult = {
+      yardsGained: -5,
+      turnover: false,
+      touchdown: false,
+      outOfBounds: false,
+      incomplete: false,
+      sack: false,
+      clockStops: true,
+      delayOfGame: true,
+      penalty: {
+        type: 'DELAY_OF_GAME',
+        team: 'offense',
+        yards: 5,
+        description: 'Delay of Game - Play clock expired',
+        accepted: true,
+        automaticFirstDown: false,
+      },
+    };
+
+    this.state.field.yardLine = newYardLine;
+    // Repeat down, adjust yards to go
+    this.state.field.yardsToGo = Math.min(this.state.field.yardsToGo + 5, 100 - newYardLine);
+
+    this.emitState();
   }
 
   // Convert Play Designer route types to engine RouteType
@@ -619,11 +700,15 @@ export class GameEngine {
   snap(): void {
     if (this.state.phase !== 'PRE_SNAP') return;
 
+    // Stop pre-snap play clock countdown
+    this.stopPreSnapClock();
+
     this.state.phase = 'SNAP';
     this.state.clock.isRunning = true;
     this.currentTime = 0;
     this.clockAccumulator = 0;
     this.pendingHandoff = null;
+    this.playStartTime = 0; // Track when play started for duration limit
 
     // Find QB for ball position and pocket center (don't assume player[0])
     // Support both lowercase 'qb' (default formation) and uppercase 'QB' (Play Designer)
@@ -713,6 +798,16 @@ export class GameEngine {
 
     this.currentTime += 1 / TICK_RATE;
     this.updateClock();
+
+    // Check for maximum play duration (prevents plays from running indefinitely)
+    if (this.currentTime - this.playStartTime >= GameEngine.MAX_PLAY_DURATION) {
+      // Play has gone on too long - blow the whistle (ball carrier tackled)
+      const carrier = this.getPlayer(this.state.ballCarrier || '');
+      if (carrier) {
+        this.endPlay(false, false, 'timeout');
+      }
+      return;
+    }
 
     // Process pending handoff for run plays
     if (this.pendingHandoff && this.currentTime >= this.pendingHandoff.handoffTime) {
@@ -1578,6 +1673,7 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: false,
         sack: true,
+        clockStops: true, // Penalties stop the clock
         tackledBy: defenderId,
         penalty: {
           type: penalty.type,
@@ -1594,6 +1690,7 @@ export class GameEngine {
       this.state.field.down = penaltyCalc.newDown;
       this.state.field.yardsToGo = penaltyCalc.newYardsToGo;
 
+      this.state.clock.isRunning = false;
       this.resetPenaltyTracking();
       this.emitState();
       return;
@@ -1606,6 +1703,7 @@ export class GameEngine {
       outOfBounds: false,
       incomplete: false,
       sack: true,
+      clockStops: false, // Sacks are in-bounds tackles, clock keeps running
       tackledBy: defenderId,
     };
 
@@ -1626,6 +1724,7 @@ export class GameEngine {
       incomplete: false,
       sack: this.isQB(this.state.ballCarrier),
       safety: true,
+      clockStops: true, // Safeties stop the clock
     };
 
     // Award 2 points to defense
@@ -1740,8 +1839,10 @@ export class GameEngine {
         outOfBounds: true,
         incomplete: true,
         sack: false,
+        clockStops: true, // Incomplete passes stop the clock
       };
       this.state.phase = 'WHISTLE';
+      this.state.clock.isRunning = false;
       this.stopTick();
       this.emitState();
       return;
@@ -1942,9 +2043,11 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: true,
         sack: false,
+        clockStops: true, // Incomplete passes stop the clock
       };
       this.state.phase = 'WHISTLE';
       this.state.passFlight = undefined;
+      this.state.clock.isRunning = false;
       this.stopTick();
       this.emitState();
       return;
@@ -1963,9 +2066,11 @@ export class GameEngine {
           outOfBounds: false,
           incomplete: true,
           sack: false,
+          clockStops: true, // Incomplete passes stop the clock
         };
         this.state.phase = 'WHISTLE';
         this.state.passFlight = undefined;
+        this.state.clock.isRunning = false;
         this.stopTick();
         this.emitState();
         return;
@@ -2062,9 +2167,11 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: false,
         sack: false,
+        clockStops: true, // Turnovers stop the clock
       };
       this.state.phase = 'WHISTLE';
       this.state.passFlight = undefined;
+      this.state.clock.isRunning = false;
       this.stopTick();
       this.emitState();
     } else {
@@ -2075,9 +2182,11 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: true,
         sack: false,
+        clockStops: true, // Incomplete passes stop the clock
       };
       this.state.phase = 'WHISTLE';
       this.state.passFlight = undefined;
+      this.state.clock.isRunning = false;
       this.stopTick();
       this.emitState();
     }
@@ -2102,6 +2211,7 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: false,
         sack: false,
+        clockStops: true, // Turnovers stop the clock
       };
     } else {
       this.state.lastResult = {
@@ -2111,11 +2221,13 @@ export class GameEngine {
         outOfBounds: false,
         incomplete: true,
         sack: false,
+        clockStops: true, // Incomplete passes stop the clock
       };
     }
 
     this.state.phase = 'WHISTLE';
     this.state.passFlight = undefined;
+    this.state.clock.isRunning = false;
     this.stopTick();
     this.emitState();
   }
@@ -2189,16 +2301,23 @@ export class GameEngine {
           outOfBounds,
           incomplete: false,
           sack: false,
+          clockStops: true, // Penalties stop the clock
           tackledBy,
           penalty: penaltyResult,
         };
 
         // Reset penalty tracking
         this.resetPenaltyTracking();
+        // Stop clock after penalty
+        this.state.clock.isRunning = false;
         this.emitState();
         return;
       }
     }
+
+    // Determine if clock should stop after this play
+    // Clock stops on: out of bounds, touchdowns, turnovers, safeties
+    const clockStops = outOfBounds || touchdown || turnover || safety || false;
 
     this.state.lastResult = {
       yardsGained: safety ? -startYardLine : yardsGained,
@@ -2208,8 +2327,14 @@ export class GameEngine {
       outOfBounds,
       incomplete: false,
       sack: false,
+      clockStops,
       tackledBy,
     };
+
+    // Stop clock if required
+    if (clockStops) {
+      this.state.clock.isRunning = false;
+    }
 
     // Update field position for next play
     if (!safety) {
