@@ -37,41 +37,67 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
   // Initialize Pixi
   useEffect(() => {
-    if (!containerRef.current || appRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    let app: Application | null = null;
+    let cancelled = false;
 
     const initPixi = async () => {
-      const app = new Application();
+      try {
+        app = new Application();
 
-      await app.init({
-        width,
-        height,
-        backgroundColor: 0x1a1a2e,
-        antialias: true,
-        resolution: window.devicePixelRatio || 1,
-        autoDensity: true,
-      });
+        await app.init({
+          width,
+          height,
+          background: '#1a1a2e',
+          antialias: true,
+          resolution: window.devicePixelRatio || 1,
+          autoDensity: true,
+          preference: 'webgl', // Explicitly prefer WebGL
+        });
 
-      containerRef.current!.appendChild(app.canvas);
-      appRef.current = app;
+        if (cancelled || !app.canvas) {
+          app?.destroy(true);
+          return;
+        }
 
-      // Containers for layering
-      const fieldContainer = new Container();
-      const dynamicContainer = new Container();
+        // Clear container and add canvas
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        container.appendChild(app.canvas);
 
-      app.stage.addChild(fieldContainer);
-      app.stage.addChild(dynamicContainer);
+        appRef.current = app;
 
-      fieldContainerRef.current = fieldContainer;
-      dynamicContainerRef.current = dynamicContainer;
-      setIsReady(true);
+        // Containers for layering
+        const fieldContainer = new Container();
+        const dynamicContainer = new Container();
+
+        app.stage.addChild(fieldContainer);
+        app.stage.addChild(dynamicContainer);
+
+        fieldContainerRef.current = fieldContainer;
+        dynamicContainerRef.current = dynamicContainer;
+
+        // Force initial render
+        app.render();
+
+        setIsReady(true);
+      } catch (err) {
+        console.error('Failed to initialize Pixi:', err);
+      }
     };
 
     initPixi();
 
     return () => {
+      cancelled = true;
       if (appRef.current) {
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
+        fieldContainerRef.current = null;
+        dynamicContainerRef.current = null;
       }
       setIsReady(false);
     };
@@ -445,6 +471,11 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       resultText.anchor.set(0.5);
       resultText.position.set(width / 2, height / 2);
       dynamicContainer.addChild(resultText);
+    }
+
+    // Force render after drawing
+    if (appRef.current) {
+      appRef.current.render();
     }
 
   }, [game, width, height, isReady]);
