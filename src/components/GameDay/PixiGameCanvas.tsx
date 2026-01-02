@@ -308,64 +308,141 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     // Sort players by depth (far first)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
-    // Helper function to draw a helmet
-    const drawHelmet = (
+    // Helper function to draw a pixel
+    const drawPixel = (graphics: Graphics, px: number, py: number, size: number, color: number) => {
+      graphics.rect(px, py, size, size);
+      graphics.fill(color);
+    };
+
+    // Helper function to draw pixel art football player
+    const drawPixelPlayer = (
       graphics: Graphics,
       x: number,
       y: number,
       scale: number,
-      primaryColor: number,
-      secondaryColor: number,
+      helmetColor: number,
+      jerseyColor: number,
+      pantsColor: number,
       hasBall: boolean = false
     ) => {
-      const size = 12 * scale;
+      // Pixel size scales with perspective
+      const p = Math.max(2, Math.floor(3 * scale)); // pixel size
+      const startX = x - p * 4; // center the 8-wide sprite
+      const startY = y - p * 6; // center the 12-tall sprite
 
-      // Shadow
-      graphics.ellipse(x + 2 * scale, y + size * 0.4, size * 0.9, size * 0.35);
-      graphics.fill({ color: 0x000000, alpha: 0.5 });
+      // Darker variants for shading
+      const helmetDark = darkenColor(helmetColor, 0.7);
+      const jerseyDark = darkenColor(jerseyColor, 0.7);
+      const pantsDark = darkenColor(pantsColor, 0.7);
+      const skin = 0xd4a574; // skin tone
+      const skinDark = 0xb8956a;
+      const facemask = 0x555555;
+      const black = 0x111111;
 
-      // Ball carrier glow
+      // Ball carrier glow effect
       if (hasBall) {
-        graphics.circle(x, y, size + 8 * scale);
-        graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.5 });
-        graphics.circle(x, y, size + 4 * scale);
+        graphics.rect(startX - p * 2, startY - p * 2, p * 12, p * 16);
+        graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.4 });
+        graphics.rect(startX - p, startY - p, p * 10, p * 14);
         graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.3 });
       }
 
-      // Helmet base (oval shape)
-      graphics.ellipse(x, y, size, size * 0.85);
-      graphics.fill(primaryColor);
+      // Shadow under player
+      graphics.ellipse(x, y + p * 6, p * 4, p * 1.5);
+      graphics.fill({ color: 0x000000, alpha: 0.5 });
 
-      // Helmet shine/highlight
-      graphics.ellipse(x - size * 0.25, y - size * 0.2, size * 0.5, size * 0.4);
-      graphics.fill({ color: secondaryColor, alpha: 0.6 });
+      // Row 0-1: Helmet top
+      drawPixel(graphics, startX + p * 2, startY, p, helmetDark);
+      drawPixel(graphics, startX + p * 3, startY, p, helmetColor);
+      drawPixel(graphics, startX + p * 4, startY, p, helmetColor);
+      drawPixel(graphics, startX + p * 5, startY, p, helmetDark);
 
-      // Facemask area (darker front)
-      graphics.ellipse(x + size * 0.3, y + size * 0.1, size * 0.45, size * 0.55);
-      graphics.fill({ color: 0x333333, alpha: 0.7 });
+      // Row 1: Helmet with stripe
+      drawPixel(graphics, startX + p * 1, startY + p, p, helmetDark);
+      drawPixel(graphics, startX + p * 2, startY + p, p, helmetColor);
+      drawPixel(graphics, startX + p * 3, startY + p, p, 0xffffff); // stripe
+      drawPixel(graphics, startX + p * 4, startY + p, p, 0xffffff); // stripe
+      drawPixel(graphics, startX + p * 5, startY + p, p, helmetColor);
+      drawPixel(graphics, startX + p * 6, startY + p, p, helmetDark);
 
-      // Facemask bars
-      const barWidth = Math.max(1, 1.5 * scale);
-      graphics.moveTo(x + size * 0.1, y - size * 0.3);
-      graphics.lineTo(x + size * 0.6, y - size * 0.15);
-      graphics.stroke({ width: barWidth, color: 0x888888 });
+      // Row 2: Helmet with facemask
+      drawPixel(graphics, startX + p * 1, startY + p * 2, p, helmetColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 2, p, helmetColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 2, p, helmetColor);
+      drawPixel(graphics, startX + p * 4, startY + p * 2, p, facemask);
+      drawPixel(graphics, startX + p * 5, startY + p * 2, p, skin);
+      drawPixel(graphics, startX + p * 6, startY + p * 2, p, facemask);
 
-      graphics.moveTo(x + size * 0.1, y);
-      graphics.lineTo(x + size * 0.6, y + size * 0.05);
-      graphics.stroke({ width: barWidth, color: 0x888888 });
+      // Row 3: Face/chin
+      drawPixel(graphics, startX + p * 2, startY + p * 3, p, helmetDark);
+      drawPixel(graphics, startX + p * 3, startY + p * 3, p, facemask);
+      drawPixel(graphics, startX + p * 4, startY + p * 3, p, skin);
+      drawPixel(graphics, startX + p * 5, startY + p * 3, p, skinDark);
 
-      graphics.moveTo(x + size * 0.1, y + size * 0.3);
-      graphics.lineTo(x + size * 0.6, y + size * 0.25);
-      graphics.stroke({ width: barWidth, color: 0x888888 });
+      // Row 4: Neck/shoulders
+      drawPixel(graphics, startX + p * 1, startY + p * 4, p, jerseyColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 4, p, jerseyColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 4, p, skin);
+      drawPixel(graphics, startX + p * 4, startY + p * 4, p, jerseyColor);
+      drawPixel(graphics, startX + p * 5, startY + p * 4, p, jerseyColor);
+      drawPixel(graphics, startX + p * 6, startY + p * 4, p, jerseyDark);
 
-      // Helmet outline
-      graphics.ellipse(x, y, size, size * 0.85);
-      graphics.stroke({ width: Math.max(1.5, 2 * scale), color: 0xffffff, alpha: 0.8 });
+      // Row 5-6: Jersey/torso with shoulder pads
+      drawPixel(graphics, startX + p * 0, startY + p * 5, p, jerseyColor);
+      drawPixel(graphics, startX + p * 1, startY + p * 5, p, jerseyColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 5, p, jerseyColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 5, p, jerseyColor);
+      drawPixel(graphics, startX + p * 4, startY + p * 5, p, jerseyColor);
+      drawPixel(graphics, startX + p * 5, startY + p * 5, p, jerseyDark);
+      drawPixel(graphics, startX + p * 6, startY + p * 5, p, jerseyDark);
+      drawPixel(graphics, startX + p * 7, startY + p * 5, p, skin); // arm
 
-      // Center stripe on helmet
-      graphics.moveTo(x - size * 0.7, y);
-      graphics.lineTo(x - size * 0.1, y);
-      graphics.stroke({ width: Math.max(2, 3 * scale), color: secondaryColor, alpha: 0.9 });
+      drawPixel(graphics, startX + p * 0, startY + p * 6, p, skin); // arm
+      drawPixel(graphics, startX + p * 1, startY + p * 6, p, jerseyColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 6, p, jerseyColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 6, p, jerseyColor);
+      drawPixel(graphics, startX + p * 4, startY + p * 6, p, jerseyDark);
+      drawPixel(graphics, startX + p * 5, startY + p * 6, p, jerseyDark);
+      drawPixel(graphics, startX + p * 7, startY + p * 6, p, skin);
+
+      // Row 7: Lower torso
+      drawPixel(graphics, startX + p * 1, startY + p * 7, p, jerseyDark);
+      drawPixel(graphics, startX + p * 2, startY + p * 7, p, jerseyColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 7, p, jerseyColor);
+      drawPixel(graphics, startX + p * 4, startY + p * 7, p, jerseyDark);
+      drawPixel(graphics, startX + p * 5, startY + p * 7, p, jerseyDark);
+
+      // Row 8: Belt/waist
+      drawPixel(graphics, startX + p * 2, startY + p * 8, p, black);
+      drawPixel(graphics, startX + p * 3, startY + p * 8, p, black);
+      drawPixel(graphics, startX + p * 4, startY + p * 8, p, black);
+      drawPixel(graphics, startX + p * 5, startY + p * 8, p, black);
+
+      // Row 9-10: Pants/legs
+      drawPixel(graphics, startX + p * 1, startY + p * 9, p, pantsColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 9, p, pantsColor);
+      drawPixel(graphics, startX + p * 3, startY + p * 9, p, pantsDark);
+      drawPixel(graphics, startX + p * 4, startY + p * 9, p, pantsColor);
+      drawPixel(graphics, startX + p * 5, startY + p * 9, p, pantsColor);
+
+      drawPixel(graphics, startX + p * 1, startY + p * 10, p, pantsColor);
+      drawPixel(graphics, startX + p * 2, startY + p * 10, p, pantsDark);
+      drawPixel(graphics, startX + p * 4, startY + p * 10, p, pantsDark);
+      drawPixel(graphics, startX + p * 5, startY + p * 10, p, pantsColor);
+
+      // Row 11: Cleats
+      drawPixel(graphics, startX + p * 1, startY + p * 11, p, black);
+      drawPixel(graphics, startX + p * 2, startY + p * 11, p, black);
+      drawPixel(graphics, startX + p * 4, startY + p * 11, p, black);
+      drawPixel(graphics, startX + p * 5, startY + p * 11, p, black);
+    };
+
+    // Darken a color by a factor
+    const darkenColor = (color: number, factor: number): number => {
+      const r = Math.floor(((color >> 16) & 0xff) * factor);
+      const g = Math.floor(((color >> 8) & 0xff) * factor);
+      const b = Math.floor((color & 0xff) * factor);
+      return (r << 16) | (g << 8) | b;
     };
 
     // Draw players
@@ -376,13 +453,16 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const isOffense = player.role === 'offense';
       const playerGraphics = new Graphics();
 
-      drawHelmet(
+      // Offense: Blue helmet, blue jersey, white pants
+      // Defense: Red helmet, red jersey, dark gray pants
+      drawPixelPlayer(
         playerGraphics,
         pos.x,
         pos.y,
         pos.scale,
-        isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY,
-        isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY,
+        isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY,   // helmet
+        isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY, // jersey
+        isOffense ? 0xf0f0f0 : 0x444444, // pants
         false
       );
 
@@ -394,14 +474,15 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
       const carrierGraphics = new Graphics();
 
-      // Use golden helmet for ball carrier
-      drawHelmet(
+      // Golden player for ball carrier
+      drawPixelPlayer(
         carrierGraphics,
         pos.x,
         pos.y,
         pos.scale,
-        0xb8860b, // Dark golden
-        0xffd700, // Gold
+        0xffd700, // Gold helmet
+        0xffd700, // Gold jersey
+        0xf0f0f0, // White pants
         true // Has ball - adds glow
       );
 
