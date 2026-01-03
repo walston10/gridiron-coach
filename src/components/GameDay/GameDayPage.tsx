@@ -4,14 +4,17 @@ import { useEventStore } from '../../stores/eventStore';
 import { useGameEngine, type GameEndResult } from '../../hooks/useGameEngine';
 import { useControls } from '../../hooks/useControls';
 import { useSubstitutions } from '../../hooks/useSubstitutions';
+import { useMobileControls } from '../../hooks/useMobileControls';
 import { PixiGameCanvas } from './PixiGameCanvas';
 import { Scoreboard } from './Scoreboard';
 import { ControlDeck } from './ControlDeck';
 import { PlayCallModal } from './PlayCallModal';
 import { SubstitutionPanel } from './SubstitutionPanel';
+import { OrientationPrompt, TheCallButton } from '../gameplay';
 import type { Play } from '../../types';
 import type { LiveGame, GameState as LiveGameState } from '../../types/Game';
 import type { GameState, Vector2 } from '../../types/GameSim';
+import type { Point } from '../../types/input.types';
 
 interface GameDayPageProps {
   onNavigate?: (page: string) => void;
@@ -215,6 +218,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     lastKickResult,
     getCoverageOverlay,
     isGameOver,
+    getEngine,
   } = useGameEngine({
     onGameEnd: handleGameEnd,
     onQuarterEnd: handleQuarterEnd,
@@ -225,6 +229,10 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
   const [showSubPanel, setShowSubPanel] = useState(true);
   const [showCoverageOverlay, setShowCoverageOverlay] = useState(false);
+  const [slushFundBalance] = useState(50000); // TODO: Wire to actual slush fund store
+
+  // Canvas ref for mobile touch controls
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
@@ -491,6 +499,57 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   // User is on offense when their team (home) has possession
   const isUserOffense = game.possession === 'home';
 
+  // Screen to field coordinate conversion for touch controls
+  const screenToField = useCallback((screenPos: Point): Point => {
+    const container = canvasContainerRef.current;
+    if (!container || !engineState) {
+      return { x: 0, y: 0 };
+    }
+
+    const rect = container.getBoundingClientRect();
+    const ENGINE_WIDTH = 160;
+    const VISIBLE_YARDS = 50;
+    const YARDS_TO_UNITS = 3;
+    const HORIZON_Y = 80;
+    const fieldMarginX = 50;
+    const fieldTop = HORIZON_Y;
+    const fieldBottom = rect.height - 40;
+    const fieldHeight = fieldBottom - fieldTop;
+
+    const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
+    const losEngineY = yardLineToEngineY(engineState.field.yardLine);
+    const viewportStartY = losEngineY - 12 * YARDS_TO_UNITS;
+    const minViewport = yardLineToEngineY(-10);
+    const maxViewport = yardLineToEngineY(110) - VISIBLE_YARDS * YARDS_TO_UNITS;
+    const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
+
+    const depth = (fieldBottom - screenPos.y) / fieldHeight;
+    const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
+
+    const perspectiveScale = 1 - depth * 0.6;
+    const centerX = rect.width / 2;
+    const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
+    const normalizedX = (screenPos.x - centerX) / fieldWidthAtDepth + 0.5;
+    const engineX = normalizedX * ENGINE_WIDTH;
+
+    return {
+      x: Math.max(0, Math.min(ENGINE_WIDTH, engineX)),
+      y: Math.max(clampedStartY, Math.min(clampedEndY, engineY)),
+    };
+  }, [engineState]);
+
+  // Determine play situation for The Call button
+  const getPlaySituation = (): 'sack' | 'fumble' | 'touchdown' | 'big-gain' | 'normal' => {
+    if (!engineState?.lastResult) return 'normal';
+    const result = engineState.lastResult;
+    if (result.sack) return 'sack';
+    if (result.turnover) return 'fumble';
+    if (result.touchdown) return 'touchdown';
+    if (result.yardsGained >= 15) return 'big-gain';
+    return 'normal';
+  };
+
   // Kicking scenarios
   const pendingKickoff = isPendingKickoff();
   const pendingPAT = isPendingPAT();
@@ -498,8 +557,12 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const inFGRange = isInFieldGoalRange();
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
-      {/* Top Bar - Scoreboard */}
+    <>
+      {/* Landscape orientation required for mobile */}
+      <OrientationPrompt />
+
+      <div className="min-h-screen bg-slate-950 flex flex-col">
+        {/* Top Bar - Scoreboard */}
       <div className="p-4 pb-0 flex items-center justify-between">
         <Scoreboard
           clock={game.clock}
@@ -569,10 +632,20 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
         {/* Field area */}
         <div className="flex-1 flex items-center justify-center p-6">
           <div
+            ref={canvasContainerRef}
             className="relative cursor-crosshair"
             onClick={handleCanvasClick}
           >
             <PixiGameCanvas game={game} width={showSubPanel ? 700 : 860} height={showSubPanel ? 400 : 490} />
+
+            {/* The Call button - bribe mechanic */}
+            {isPlayRunning && (
+              <TheCallButton
+                slushFundBalance={slushFundBalance}
+                playSituation={getPlaySituation()}
+                visible={true}
+              />
+            )}
 
             {/* Spacebar snap instruction overlay - only on offense */}
             {isPreSnap && selectedPlay && isUserOffense && (
@@ -688,6 +761,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
           onClose={() => setShowPlayCall(false)}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 };

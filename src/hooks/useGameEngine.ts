@@ -260,6 +260,9 @@ export function useGameEngine(options: UseGameEngineOptions = {}) {
     return engineRef.current?.getCoverageOverlay() ?? { zones: [], manCoverage: [], rushers: [] };
   }, []);
 
+  // Get engine instance for advanced use cases (mobile controls, etc.)
+  const getEngine = useCallback(() => engineRef.current, []);
+
   return {
     gameState,
     playbook: OFFENSIVE_PLAYBOOK,
@@ -290,5 +293,7 @@ export function useGameEngine(options: UseGameEngineOptions = {}) {
     // Game end state
     isGameOver,
     quarterScores,
+    // Engine access for mobile controls
+    getEngine,
   };
 }

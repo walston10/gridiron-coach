@@ -10,3 +10,8 @@ export type { RoutePhase, RouteState, RouteDefinition } from './RouteRunner';
 export { DefenseAI, COVERAGE_SCHEMES, ZONE_DEFINITIONS } from './DefenseAI';
 export type { DefensePhase, DefenderAssignment, CoverageScheme, ZoneType } from './DefenseAI';
 export { BlockingEngine, blockingEngine } from './BlockingEngine';
+export { InputHandler, createInputHandler, getInputHandler, destroyInputHandler } from './inputHandler';
+export { OffenseControls } from './offenseControls';
+export { DefenseControls } from './defenseControls';
+export { TheCallSystem, theCallSystem } from './theCallSystem';
+export type { CallType, CallResult } from './theCallSystem';
