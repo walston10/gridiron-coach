@@ -165,6 +165,7 @@ export interface Consequences {
   ownerPatience?: number;
   playerStatus?: PlayerStatusUpdate;
   slushFund?: number;  // Direct slush fund change (not cost)
+  effect?: EffectApplication;  // Apply an effect to a player
 }
 
 export interface FailureConsequences extends Consequences {
@@ -290,4 +291,97 @@ export interface ChoiceResult {
   meterChanges?: Partial<Meters>;
   heatChange?: number;
   patienceChange?: number;
+}
+
+// =============================================================================
+// PLAYER EFFECTS (Active modifiers from events)
+// =============================================================================
+
+/**
+ * Duration types for player effects
+ * - halves: In-game duration (1 = rest of this half, 2 = full game)
+ * - games: Number of games (including current if mid-game)
+ * - weeks: Number of weeks (injuries, suspensions)
+ * - season: Lasts entire season
+ * - permanent: Never expires (rare - trades, career-ending)
+ */
+export type EffectDuration =
+  | { type: 'halves'; remaining: number }
+  | { type: 'games'; remaining: number }
+  | { type: 'weeks'; remaining: number }
+  | { type: 'season' }
+  | { type: 'permanent' };
+
+/**
+ * Effect types determine how the effect impacts gameplay
+ * - INJURY: Player unavailable, may play through with penalties
+ * - SUSPENSION: Player unavailable (league/team imposed)
+ * - BOOST: Positive stat modifiers (PEDs, hot streak, motivated)
+ * - DEBUFF: Negative stat modifiers (fatigue, distraction, playing hurt)
+ * - UNAVAILABLE: Benched/held out (coach decision, not injury)
+ */
+export type EffectType = 'INJURY' | 'SUSPENSION' | 'BOOST' | 'DEBUFF' | 'UNAVAILABLE';
+
+/**
+ * Stat modifiers - can be positive or negative
+ * Only includes stats that make sense to modify temporarily
+ */
+export interface StatModifiers {
+  speed?: number;
+  acceleration?: number;
+  strength?: number;
+  agility?: number;
+  stamina?: number;
+  toughness?: number;
+  awareness?: number;
+  discipline?: number;
+  composure?: number;
+  catching?: number;
+  carrying?: number;
+  throwPower?: number;
+  throwAccuracy?: number;
+  routeRunning?: number;
+  passBlock?: number;
+  runBlock?: number;
+  tackle?: number;
+  coverage?: number;
+  passRush?: number;
+  elusiveness?: number;
+}
+
+/**
+ * Active effect on a player
+ */
+export interface PlayerEffect {
+  id: string;
+  playerId: string;
+  type: EffectType;
+  source: string;           // Event ID that caused this
+  sourceChoice: string;     // Choice ID that was selected
+  duration: EffectDuration;
+  statModifiers?: StatModifiers;
+  description: string;      // "Hamstring strain", "PED boost", "Benched for attitude"
+  canPlayThrough?: boolean; // For injuries - can player choose to play hurt?
+  playingThrough?: boolean; // Is player currently playing through this?
+  severity?: 'MINOR' | 'MODERATE' | 'SEVERE'; // For injuries
+  createdAt: {
+    week: number;
+    day: DayOfWeek;
+  };
+}
+
+/**
+ * Effect to apply from an event choice
+ * Used in Consequences to define what effect to create
+ */
+export interface EffectApplication {
+  type: EffectType;
+  duration: EffectDuration;
+  statModifiers?: StatModifiers;
+  description: string;
+  canPlayThrough?: boolean;
+  severity?: 'MINOR' | 'MODERATE' | 'SEVERE';
+  // Target - who gets the effect
+  target: 'CONTEXT' | 'RANDOM_STARTER' | 'RANDOM_POSITION' | string; // playerId or special
+  targetPosition?: RosterPosition; // If RANDOM_POSITION
 }

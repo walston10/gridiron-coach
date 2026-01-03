@@ -18,6 +18,8 @@ import type {
   PlayerStatus,
   PlayerStatusUpdate,
   Consequences,
+  EffectApplication,
+  PlayerEffect,
 } from '../types/Events';
 import {
   DAYS_IN_ORDER,
@@ -192,13 +194,26 @@ export interface ResolveChoiceParams {
   state: EventSystemState;
   targetPlayerId?: string;
   onPlayerStatusChange?: (update: PlayerStatusUpdate) => void;
+  onEffectApplied?: (effect: EffectApplication, playerId: string) => PlayerEffect | null;
+  getRandomStarterId?: () => string | null;
+  getRandomPositionId?: (position: string) => string | null;
 }
 
 /**
  * Resolve a player's choice for an event
  */
-export function resolveChoice(params: ResolveChoiceParams): ChoiceResult {
-  const { event, choice, owner, state, onPlayerStatusChange } = params;
+export function resolveChoice(params: ResolveChoiceParams): ChoiceResult & { appliedEffect?: PlayerEffect } {
+  const {
+    event,
+    choice,
+    owner,
+    state,
+    targetPlayerId,
+    onPlayerStatusChange,
+    onEffectApplied,
+    getRandomStarterId,
+    getRandomPositionId,
+  } = params;
 
   // 1. Calculate actual cost with escalation
   let actualCost = choice.cost || 0;
@@ -248,6 +263,7 @@ export function resolveChoice(params: ResolveChoiceParams): ChoiceResult {
   // 6. Apply consequences
   const consequences = success ? choice.consequences : choice.failureConsequences;
   let changes = { meterChanges: {}, heatChange: 0, patienceChange: 0 };
+  let appliedEffect: PlayerEffect | undefined;
 
   if (consequences) {
     changes = applyConsequences(state, consequences, owner);
@@ -255,6 +271,36 @@ export function resolveChoice(params: ResolveChoiceParams): ChoiceResult {
     // Handle player status change
     if (consequences.playerStatus && onPlayerStatusChange) {
       onPlayerStatusChange(consequences.playerStatus);
+    }
+
+    // Handle effect application
+    if (consequences.effect && onEffectApplied) {
+      // Resolve target player ID
+      let effectPlayerId: string | null = null;
+
+      switch (consequences.effect.target) {
+        case 'CONTEXT':
+          effectPlayerId = targetPlayerId || null;
+          break;
+        case 'RANDOM_STARTER':
+          effectPlayerId = getRandomStarterId?.() || null;
+          break;
+        case 'RANDOM_POSITION':
+          effectPlayerId = consequences.effect.targetPosition
+            ? getRandomPositionId?.(consequences.effect.targetPosition) || null
+            : null;
+          break;
+        default:
+          // Assume it's a direct player ID
+          effectPlayerId = consequences.effect.target;
+      }
+
+      if (effectPlayerId) {
+        const effect = onEffectApplied(consequences.effect, effectPlayerId);
+        if (effect) {
+          appliedEffect = effect;
+        }
+      }
     }
   }
 
@@ -287,6 +333,7 @@ export function resolveChoice(params: ResolveChoiceParams): ChoiceResult {
     meterChanges: changes.meterChanges,
     heatChange: changes.heatChange,
     patienceChange: changes.patienceChange,
+    appliedEffect,
   };
 }
 
