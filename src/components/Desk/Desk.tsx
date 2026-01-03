@@ -201,13 +201,13 @@ export const Desk: React.FC<DeskProps> = ({
           </div>
         </div>
 
-        {/* Main desk area */}
-        <div className="flex-1 flex gap-6">
-          {/* Left side - Newspaper & objects */}
-          <div className="flex-1 flex flex-col gap-4">
-            {/* Newspaper */}
+        {/* Main desk area - 2x2 grid on left, meters/calendar on right */}
+        <div className="flex-1 flex gap-4">
+          {/* Left side - 2x2 tile grid */}
+          <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-4">
+            {/* Newspaper tile */}
             <div
-              className="flex-1 relative rounded-sm overflow-hidden"
+              className="relative rounded-sm overflow-hidden"
               style={{
                 background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
                 boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3)',
@@ -215,86 +215,99 @@ export const Desk: React.FC<DeskProps> = ({
             >
               <div className="absolute inset-0 border border-stone-700/30" />
               <div className="p-4 h-full flex flex-col">
-                {/* Newspaper header */}
-                <div className="flex items-center justify-between border-b border-amber-900/30 pb-2 mb-3">
-                  <div className="text-amber-600/80 font-serif text-sm font-bold tracking-[0.2em]">
-                    THE SPORTING TRIBUNE
+                <div className="flex items-center justify-between border-b border-amber-900/30 pb-2 mb-2">
+                  <div className="text-amber-600/80 font-serif text-xs font-bold tracking-widest">
+                    TRIBUNE
                   </div>
-                  <div className="text-stone-600 text-xs">EST. 1923</div>
+                  <div className="text-stone-600 text-[10px]">EST. 1923</div>
                 </div>
-
-                {/* Headline */}
                 <div className="flex-1 flex items-center justify-center">
-                  <h1 className="text-stone-300 font-black text-2xl md:text-3xl text-center leading-tight font-serif">
+                  <h2 className="text-stone-300 font-black text-lg text-center leading-tight font-serif">
                     {headline}
-                  </h1>
+                  </h2>
                 </div>
-
-                {/* Fake article lines */}
-                <div className="space-y-2 opacity-30">
-                  <div className="h-1 bg-stone-600 w-full" />
-                  <div className="h-1 bg-stone-600 w-11/12" />
-                  <div className="h-1 bg-stone-600 w-full" />
-                  <div className="flex gap-4">
-                    <div className="h-1 bg-stone-600 w-1/2" />
-                    <div className="h-1 bg-stone-600 w-1/3" />
-                  </div>
+                <div className="space-y-1 opacity-30">
+                  <div className="h-0.5 bg-stone-600 w-full" />
+                  <div className="h-0.5 bg-stone-600 w-10/12" />
+                  <div className="h-0.5 bg-stone-600 w-full" />
                 </div>
               </div>
             </div>
 
-            {/* Bottom row - Computer and Files buttons */}
-            <div className="flex gap-4">
-              {/* Computer */}
-              <button
-                onClick={() => setShowComputerModal(true)}
-                className="flex-1 p-4 rounded-sm transition-all hover:scale-[1.02]"
-                style={{
-                  background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-8 bg-cyan-500 rounded-sm flex items-center justify-center">
-                    <div className="w-6 h-4 bg-cyan-900 rounded-sm" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-white font-bold text-sm">COMPUTER</div>
-                    <div className="text-stone-500 text-xs">Roster • Schedule • Standings</div>
-                  </div>
+            {/* Phone tile */}
+            <button
+              onClick={triggerObject === 'phone' ? handleEventTrigger : undefined}
+              disabled={triggerObject !== 'phone'}
+              className={`relative rounded-sm overflow-hidden transition-all ${
+                triggerObject === 'phone' ? 'hover:scale-[1.02] cursor-pointer' : 'cursor-default opacity-60'
+              }`}
+              style={{
+                background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
+                boxShadow: triggerObject === 'phone'
+                  ? '0 0 20px rgba(251, 191, 36, 0.3), inset 0 2px 4px rgba(0,0,0,0.5)'
+                  : 'inset 0 2px 4px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3)',
+              }}
+            >
+              <div className="absolute inset-0 border border-stone-700/30" />
+              <div className="p-4 h-full flex flex-col items-center justify-center">
+                <div className={`text-4xl mb-2 ${triggerObject === 'phone' ? 'animate-bounce' : ''}`}>
+                  📞
                 </div>
-              </button>
+                <div className="text-stone-400 text-sm font-bold uppercase tracking-wider">
+                  Phone
+                </div>
+                {triggerObject === 'phone' && (
+                  <div className="text-amber-400 text-xs mt-2 animate-pulse font-bold">
+                    RINGING...
+                  </div>
+                )}
+              </div>
+            </button>
 
-              {/* Files */}
-              <button
-                onClick={() => setShowFilesModal(true)}
-                className="flex-1 p-4 rounded-sm transition-all hover:scale-[1.02]"
-                style={{
-                  background: 'linear-gradient(135deg, #422006 0%, #27170a 100%)',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-10 bg-amber-600 rounded-sm relative">
-                    <div className="absolute top-1 left-1 right-1 h-2 bg-red-600 rounded-sm text-[6px] text-white font-bold flex items-center justify-center">
-                      COACH
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-white font-bold text-sm">FILES</div>
-                    <div className="text-stone-500 text-xs">Playbook • Scouting • Contracts</div>
+            {/* Computer tile */}
+            <button
+              onClick={() => setShowComputerModal(true)}
+              className="relative rounded-sm overflow-hidden transition-all hover:scale-[1.02]"
+              style={{
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div className="absolute inset-0 border border-slate-700/30" />
+              <div className="p-4 h-full flex flex-col items-center justify-center">
+                <div className="w-16 h-12 bg-cyan-500 rounded-sm flex items-center justify-center mb-2">
+                  <div className="w-12 h-8 bg-cyan-900 rounded-sm" />
+                </div>
+                <div className="text-white font-bold text-sm">COMPUTER</div>
+                <div className="text-stone-500 text-xs mt-1">Roster • Schedule</div>
+              </div>
+            </button>
+
+            {/* Files tile */}
+            <button
+              onClick={() => setShowFilesModal(true)}
+              className="relative rounded-sm overflow-hidden transition-all hover:scale-[1.02]"
+              style={{
+                background: 'linear-gradient(135deg, #422006 0%, #27170a 100%)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div className="absolute inset-0 border border-amber-900/30" />
+              <div className="p-4 h-full flex flex-col items-center justify-center">
+                <div className="w-12 h-16 bg-amber-600 rounded-sm relative mb-2">
+                  <div className="absolute top-2 left-1 right-1 h-3 bg-red-600 rounded-sm text-[8px] text-white font-bold flex items-center justify-center">
+                    COACH
                   </div>
                 </div>
-              </button>
-            </div>
+                <div className="text-white font-bold text-sm">FILES</div>
+                <div className="text-stone-500 text-xs mt-1">Playbook • Scouting</div>
+              </div>
+            </button>
           </div>
 
           {/* Right side - Meters and Calendar */}
-          <div className="w-72 flex flex-col gap-4">
-            {/* Meters panel */}
+          <div className="w-64 flex flex-col gap-4">
             <DeskMeters meters={eventState.meters} />
-
-            {/* Calendar / Day advance */}
             <DeskCalendar
               currentWeek={eventState.currentWeek}
               currentDay={eventState.currentDay}

@@ -23,7 +23,16 @@ const DEFAULT_FOLDERS: PlayFolder[] = [
   { id: 'openers', name: 'Openers', color: '#8b5cf6', icon: '🎬' },
 ];
 
+// Intro flow types
+export type GamePhase = 'start' | 'intro' | 'nameInput' | 'desk';
+export type OwnerType = 'tex' | 'kessler' | 'hale';
+
 interface GameStore {
+  // Intro flow state
+  gamePhase: GamePhase;
+  ownerType: OwnerType;
+  gmName: string;
+
   // Core state
   userTeamId: string | null;
   teams: Team[];
@@ -32,6 +41,12 @@ interface GameStore {
   draft: Draft | null;
   freeAgency: FreeAgencyPeriod | null;
   customFormations: CustomFormation[];
+
+  // Intro flow actions
+  setPhase: (phase: GamePhase) => void;
+  setOwner: (owner: OwnerType) => void;
+  setGMName: (name: string) => void;
+  startFranchise: () => void;
 
   // Actions
   initializeGame: (userTeamIndex: number) => void;
@@ -61,6 +76,12 @@ interface GameStore {
 export const useGameStore = create<GameStore>()(
   persist(
     (set, get) => ({
+      // Intro flow state
+      gamePhase: 'start' as GamePhase,
+      ownerType: 'tex' as OwnerType,
+      gmName: '',
+
+      // Core state
       userTeamId: null,
       teams: [],
       season: null,
@@ -73,6 +94,16 @@ export const useGameStore = create<GameStore>()(
       draft: null,
       freeAgency: null,
       customFormations: [],
+
+      // Intro flow actions
+      setPhase: (phase: GamePhase) => set({ gamePhase: phase }),
+      setOwner: (owner: OwnerType) => set({ ownerType: owner }),
+      setGMName: (name: string) => set({ gmName: name }),
+      startFranchise: () => {
+        // Initialize the game with hardcoded team index for now
+        get().initializeGame(3);
+        set({ gamePhase: 'desk' });
+      },
 
       initializeGame: (userTeamIndex: number) => {
         const teams: Team[] = DEFAULT_TEAMS.map(({ info }, index) => {
