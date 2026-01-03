@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useGameStore } from '../../stores/gameStore';
-import { useGameEngine } from '../../hooks/useGameEngine';
+import { useEventStore } from '../../stores/eventStore';
+import { useGameEngine, type GameEndResult } from '../../hooks/useGameEngine';
 import { useControls } from '../../hooks/useControls';
 import { useSubstitutions } from '../../hooks/useSubstitutions';
 import { PixiGameCanvas } from './PixiGameCanvas';
@@ -14,6 +15,7 @@ import type { GameState, Vector2 } from '../../types/GameSim';
 
 interface GameDayPageProps {
   onNavigate?: (page: string) => void;
+  onGameEnd?: () => void;
 }
 
 // Adapter function to convert engine GameState to LiveGame for UI components
@@ -133,8 +135,62 @@ function adaptGameStateToLiveGame(
   };
 }
 
-export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
-  const { playbook, teams, userTeamId } = useGameStore();
+export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd }) => {
+  const { playbook, teams, userTeamId, recordGameResult, saveCheckpoint, season } = useGameStore();
+  const eventStore = useEventStore();
+
+  // Get current week from event store
+  const currentWeek = eventStore.currentWeek;
+
+  // Game end handler - record result to store
+  const handleGameEnd = useCallback((result: GameEndResult) => {
+    if (!userTeamId || !teams.length) return;
+
+    const oppTeam = teams.find(t => t.info.id !== userTeamId);
+    if (!oppTeam) return;
+
+    // Record the game result
+    recordGameResult({
+      week: currentWeek,
+      homeTeamId: userTeamId,
+      awayTeamId: oppTeam.info.id,
+      homeScore: result.homeScore,
+      awayScore: result.awayScore,
+      userTeamId: userTeamId,
+      userWon: result.homeWon,
+      quarterScores: result.quarterScores,
+    });
+
+    // Notify event system of game result
+    eventStore.setLastGameResult(result.homeWon);
+
+    // Trigger parent callback
+    onGameEnd?.();
+  }, [userTeamId, teams, currentWeek, recordGameResult, eventStore, onGameEnd]);
+
+  // Quarter end handler - save checkpoint
+  const handleQuarterEnd = useCallback((quarter: number, homeScore: number, awayScore: number) => {
+    if (!userTeamId || !teams.length) return;
+
+    const oppTeam = teams.find(t => t.info.id !== userTeamId);
+    if (!oppTeam) return;
+
+    // Save checkpoint at end of each quarter
+    saveCheckpoint({
+      gameId: `week-${currentWeek}-game`,
+      quarter: quarter as 1 | 2 | 3 | 4,
+      timeRemaining: 0,
+      homeScore,
+      awayScore,
+      homeTeamId: userTeamId,
+      awayTeamId: oppTeam.info.id,
+      possession: 'home', // Will be updated with actual value
+      down: 1,
+      yardsToGo: 10,
+      ballPosition: 25,
+    });
+  }, [userTeamId, teams, currentWeek, saveCheckpoint]);
+
   const {
     gameState: engineState,
     selectPlay: engineSelectPlay,
@@ -158,7 +214,11 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate }) => {
     isInFieldGoalRange,
     lastKickResult,
     getCoverageOverlay,
-  } = useGameEngine();
+    isGameOver,
+  } = useGameEngine({
+    onGameEnd: handleGameEnd,
+    onQuarterEnd: handleQuarterEnd,
+  });
   const controls = useControls();
   const substitutions = useSubstitutions();
   const [showPlayCall, setShowPlayCall] = useState(false);
