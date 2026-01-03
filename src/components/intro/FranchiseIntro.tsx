@@ -20,56 +20,51 @@ interface IntroBeat {
 const TEX_BEATS: IntroBeat[] = [
   {
     id: 1,
-    image: 'stadium',
+    image: 'tex_beat_1',
     duration: 8000,
     text: "Thirty-one years I've owned this team. Three championships. And more bodies than I care to count. That's a joke, son. Mostly.",
     effect: 'zoomIn',
   },
   {
     id: 2,
-    image: 'oil-derricks',
-    duration: 10000,
+    image: 'tex_beat_2',
+    duration: 13000,
     text: "Now my last GM... poor bastard thought he was smart. Thought he could skim a little off the top. Thought Big Oil wouldn't notice. They found his car at the border. Never did find him.",
     effect: 'panLeft',
   },
   {
     id: 3,
-    image: 'tex-portrait',
-    duration: 9000,
+    image: 'tex_beat_3',
+    duration: 12000,
     text: "Let's get one thing straight. You don't deserve this job. Hell, you're nobody. But I like nobodies. Nobodies are grateful. Nobodies are loyal. And nobodies don't ask stupid goddamn questions.",
     effect: 'zoomIn',
   },
   {
     id: 4,
-    image: 'briefcase',
-    duration: 10000,
+    image: 'tex_beat_4',
+    duration: 13000,
     text: "Here's how this works. When we win - and we will win - I'm the genius who built this thing. I'm the one on camera. I'm the one shaking hands with the commissioner. You? You're in the background where you belong.",
     effect: 'panRight',
   },
   {
     id: 5,
-    image: 'tex-window',
-    duration: 9000,
+    image: 'tex_beat_5',
+    duration: 12000,
     text: "But when shit goes sideways? That's your name in the papers. Your face on the news. You're the fall guy, son. That's the job. That's the only job.",
     effect: 'zoomOut',
   },
   {
     id: 6,
-    image: 'tex-closeup',
-    duration: 12000,
+    image: 'tex_beat_6',
+    duration: 15000,
     text: "Now. You can walk outta here right now. No hard feelings. Or you can stay, get rich, and maybe - maybe - earn yourself a seat at the big boy table. So what's it gonna be, partner?",
     effect: 'zoomIn',
   },
 ];
 
-// Placeholder image backgrounds for each beat
-const BEAT_BACKGROUNDS: Record<string, string> = {
-  'stadium': 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-  'oil-derricks': 'linear-gradient(135deg, #2d1f1f 0%, #4a2c2c 50%, #1a0f0f 100%)',
-  'tex-portrait': 'linear-gradient(135deg, #1f1f2d 0%, #2c2c4a 50%, #0f0f1a 100%)',
-  'briefcase': 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #0a0a0a 100%)',
-  'tex-window': 'linear-gradient(135deg, #1f2d1f 0%, #2c4a2c 50%, #0f1a0f 100%)',
-  'tex-closeup': 'linear-gradient(135deg, #2d1f1f 0%, #4a2c2c 50%, #1a0a0a 100%)',
+// Get image URL for each beat (case-insensitive - use lowercase)
+const getImageUrl = (imageName: string): string => {
+  return `/images/${imageName}.png`;
 };
 
 // Typewriter hook
@@ -253,14 +248,28 @@ export const FranchiseIntro: React.FC = () => {
           isTransitioning ? 'opacity-0' : 'opacity-100'
         }`}
         style={{
-          background: BEAT_BACKGROUNDS[beat.image],
           ...getEffectStyle(beat.effect),
         }}
       >
-        {/* Placeholder beat indicator */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-stone-700 text-9xl font-black opacity-20">
-          {beat.id}
-        </div>
+        {/* Actual image */}
+        <img
+          src={getImageUrl(beat.image)}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            // Try alternate case extension before giving up
+            if (img.src.endsWith('.png')) {
+              img.src = img.src.replace('.png', '.PNG');
+            } else if (img.src.endsWith('.PNG')) {
+              // Both cases failed, hide image
+              img.style.display = 'none';
+            }
+          }}
+        />
+
+        {/* Dark overlay for text readability */}
+        <div className="absolute inset-0 bg-black/30" />
 
         {/* Vignette overlay */}
         <div
