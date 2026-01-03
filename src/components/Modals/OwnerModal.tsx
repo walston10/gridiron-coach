@@ -15,12 +15,11 @@ interface OwnerModalProps {
 }
 
 const MOOD_EMOJI: Record<string, string> = {
-  Happy: '😊',
-  Content: '🙂',
-  Neutral: '😐',
-  Concerned: '😟',
-  Angry: '😠',
-  Furious: '🤬',
+  ECSTATIC: '😊',
+  PLEASED: '🙂',
+  NEUTRAL: '😐',
+  IMPATIENT: '😟',
+  FURIOUS: '🤬',
 };
 
 const OWNER_DETAILS: Record<string, { wants: string[]; hates: string[]; quote: string }> = {
@@ -99,7 +98,7 @@ export const OwnerModal: React.FC<OwnerModalProps> = ({
           </div>
 
           <h2 className="text-white font-black text-xl">{owner.name}</h2>
-          <div className="text-purple-300 text-sm">{owner.type}</div>
+          <div className="text-purple-300 text-sm">"{owner.nickname}"</div>
 
           {/* Mood label */}
           <div className={`mt-2 inline-block px-3 py-1 rounded-full text-sm font-bold ${

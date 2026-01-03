@@ -1,8 +1,8 @@
 /**
  * Desk Calendar
  *
- * Day planner on the desk showing current week/day.
- * Has advance button to move to next day.
+ * Dark-themed day planner showing current week/day.
+ * GTA-style with neon accents.
  */
 
 import React from 'react';
@@ -26,16 +26,6 @@ const DAY_SHORT: Record<DayOfWeek, string> = {
   SUNDAY: 'S',
 };
 
-const DAY_FULL: Record<DayOfWeek, string> = {
-  MONDAY: 'MONDAY',
-  TUESDAY: 'TUESDAY',
-  WEDNESDAY: 'WEDNESDAY',
-  THURSDAY: 'THURSDAY',
-  FRIDAY: 'FRIDAY',
-  SATURDAY: 'SATURDAY',
-  SUNDAY: 'SUNDAY',
-};
-
 export const DeskCalendar: React.FC<DeskCalendarProps> = ({
   currentWeek,
   currentDay,
@@ -45,21 +35,31 @@ export const DeskCalendar: React.FC<DeskCalendarProps> = ({
   const currentDayIndex = DAYS_IN_ORDER.indexOf(currentDay);
 
   return (
-    <div className="h-full bg-white rounded shadow-lg p-3 flex flex-col">
-      {/* Calendar header */}
-      <div className="flex justify-between items-center border-b border-stone-200 pb-2 mb-2">
-        <div className="text-stone-800 font-bold text-sm">
+    <div
+      className="rounded-sm p-4 flex flex-col"
+      style={{
+        background: 'linear-gradient(135deg, #1c1917 0%, #0c0a09 100%)',
+        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3)',
+      }}
+    >
+      {/* Header */}
+      <div className="flex justify-between items-center mb-4">
+        <div className="text-amber-500 font-black text-lg tracking-tight">
           WEEK {currentWeek}
         </div>
-        <div className={`text-xs font-bold px-2 py-0.5 rounded ${
-          isGameDay ? 'bg-orange-500 text-white' : 'bg-stone-200 text-stone-600'
-        }`}>
-          {DAY_FULL[currentDay]}
+        <div
+          className={`text-xs font-bold px-2 py-1 rounded-sm ${
+            isGameDay
+              ? 'bg-orange-500 text-white'
+              : 'bg-stone-800 text-stone-400'
+          }`}
+        >
+          {currentDay}
         </div>
       </div>
 
       {/* Week grid */}
-      <div className="flex gap-1 mb-3">
+      <div className="flex gap-1 mb-4">
         {DAYS_IN_ORDER.map((day, index) => {
           const isPast = index < currentDayIndex;
           const isCurrent = day === currentDay;
@@ -69,16 +69,18 @@ export const DeskCalendar: React.FC<DeskCalendarProps> = ({
             <div
               key={day}
               className={`
-                flex-1 aspect-square rounded-sm flex items-center justify-center text-xs font-bold
-                ${isCurrent
-                  ? isSunday
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-blue-500 text-white'
-                  : isPast
-                    ? 'bg-stone-300 text-stone-500 line-through'
+                flex-1 aspect-square rounded-sm flex items-center justify-center
+                text-xs font-bold transition-all
+                ${
+                  isCurrent
+                    ? isSunday
+                      ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30'
+                      : 'bg-cyan-500 text-white shadow-lg shadow-cyan-500/30'
+                    : isPast
+                    ? 'bg-stone-800/50 text-stone-600'
                     : isSunday
-                      ? 'bg-orange-100 text-orange-600'
-                      : 'bg-stone-100 text-stone-600'
+                    ? 'bg-orange-950 text-orange-500 border border-orange-800/50'
+                    : 'bg-stone-800 text-stone-500'
                 }
               `}
             >
@@ -93,28 +95,17 @@ export const DeskCalendar: React.FC<DeskCalendarProps> = ({
         onClick={onAdvance}
         disabled={!onAdvance}
         className={`
-          flex-1 rounded font-bold text-sm uppercase tracking-wider
-          transition-all duration-200
-          ${isGameDay
-            ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white shadow-lg shadow-orange-500/30'
-            : 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/30'
+          py-3 rounded-sm font-black text-sm uppercase tracking-wider
+          transition-all duration-200 relative overflow-hidden
+          ${
+            isGameDay
+              ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white shadow-lg shadow-orange-500/30'
+              : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/30'
           }
-          ${!onAdvance ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          ${!onAdvance ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:scale-[1.02]'}
         `}
       >
-        <div className="flex items-center justify-center gap-2">
-          {isGameDay ? (
-            <>
-              <span>🏈</span>
-              <span>GAME DAY</span>
-            </>
-          ) : (
-            <>
-              <span>NEXT DAY</span>
-              <span>→</span>
-            </>
-          )}
-        </div>
+        {isGameDay ? 'GAME DAY' : 'NEXT DAY'}
       </button>
     </div>
   );

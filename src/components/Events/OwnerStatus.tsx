@@ -42,12 +42,11 @@ function getHeatColor(heat: number): string {
 }
 
 const MOOD_EMOJI: Record<string, string> = {
-  'Happy': '😊',
-  'Content': '🙂',
-  'Neutral': '😐',
-  'Concerned': '😟',
-  'Angry': '😠',
-  'Furious': '🤬',
+  'ECSTATIC': '😊',
+  'PLEASED': '🙂',
+  'NEUTRAL': '😐',
+  'IMPATIENT': '😟',
+  'FURIOUS': '🤬',
 };
 
 export const OwnerStatus: React.FC<OwnerStatusProps> = ({
@@ -89,7 +88,7 @@ export const OwnerStatus: React.FC<OwnerStatusProps> = ({
         <div className="text-4xl">{moodEmoji}</div>
         <div>
           <div className="text-white font-bold">{owner.name}</div>
-          <div className="text-sm text-gray-400">{owner.type}</div>
+          <div className="text-sm text-gray-400">"{owner.nickname}"</div>
         </div>
       </div>
 
