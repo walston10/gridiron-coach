@@ -8,117 +8,70 @@ interface PixiGameCanvasProps {
   height?: number;
 }
 
-// Team color palettes (using hex numbers for Pixi)
+// Team color palettes (using hex numbers for Pixi) - Retro style
 const TEAM_PALETTES = {
   home: {
     helmet: 0x1e3a8a,           // Navy blue
-    helmetHighlight: 0x3b82f6,
     jersey: 0x2563eb,           // Royal blue
-    jerseySecondary: 0xffffff,
+    jerseyStripe: 0xffffff,     // White stripe
     pants: 0xf0f0f0,
-    skin: 0xd4a574,
+    outline: 0x0f172a,          // Dark outline
   },
   away: {
     helmet: 0x991b1b,           // Dark red
-    helmetHighlight: 0xdc2626,
     jersey: 0xef4444,           // Red
-    jerseySecondary: 0xffffff,
+    jerseyStripe: 0xffffff,     // White stripe
     pants: 0x374151,
-    skin: 0xd4a574,
+    outline: 0x450a0a,          // Dark outline
   },
 };
 
-// Animation state for players
-interface PlayerAnimState {
-  legPhase: number;
-  bobPhase: number;
-  lastX: number;
-  lastY: number;
-  isMoving: boolean;
-}
-
-// Draw a vector player using Pixi Graphics
-function drawVectorPlayer(
+// Draw a retro-style player (blocky uniform, no legs animation)
+function drawRetroPlayer(
   graphics: Graphics,
   x: number,
   y: number,
   scale: number,
   palette: typeof TEAM_PALETTES.home,
-  animState: PlayerAnimState,
   isBallCarrier: boolean = false
 ) {
-  const baseSize = 14 * scale;
-
-  // Animation values
-  const bobOffset = animState.isMoving ? Math.sin(animState.bobPhase) * 2 * scale : 0;
-  const legSwing = animState.isMoving ? Math.sin(animState.legPhase) * 0.35 : 0;
+  const size = 12 * scale;
 
   // Ball carrier glow effect
   if (isBallCarrier) {
-    graphics.circle(x, y - baseSize * 0.3, baseSize * 2);
+    graphics.circle(x, y, size * 1.8);
+    graphics.fill({ color: 0xfbbf24, alpha: 0.4 });
+    graphics.circle(x, y, size * 1.4);
     graphics.fill({ color: 0xfbbf24, alpha: 0.3 });
-    graphics.circle(x, y - baseSize * 0.3, baseSize * 1.5);
-    graphics.fill({ color: 0xfbbf24, alpha: 0.2 });
   }
 
-  // Shadow on ground
-  graphics.ellipse(x, y + baseSize * 0.4, baseSize * 0.9, baseSize * 0.25);
-  graphics.fill({ color: 0x000000, alpha: 0.4 });
+  // Shadow
+  graphics.ellipse(x + 2 * scale, y + size * 0.6, size * 0.8, size * 0.3);
+  graphics.fill({ color: 0x000000, alpha: 0.35 });
 
-  // Legs
-  const legWidth = baseSize * 0.22;
-  const legHeight = baseSize * 0.45;
-  const legSpacing = baseSize * 0.25;
-  const legY = y + baseSize * 0.1 - bobOffset;
-
-  // Left leg (simplified - no rotation in Pixi version for performance)
-  const leftLegX = x - legSpacing - legWidth / 2 + Math.sin(legSwing) * 3;
-  graphics.roundRect(leftLegX, legY, legWidth, legHeight, legWidth * 0.3);
-  graphics.fill(palette.pants);
-
-  // Right leg
-  const rightLegX = x + legSpacing - legWidth / 2 - Math.sin(legSwing) * 3;
-  graphics.roundRect(rightLegX, legY, legWidth, legHeight, legWidth * 0.3);
-  graphics.fill(palette.pants);
-
-  // Body (trapezoid approximated with rect)
-  const bodyWidth = baseSize * 0.85;
-  const bodyHeight = baseSize * 0.55;
-  const bodyY = y - baseSize * 0.35 - bobOffset;
-
-  graphics.roundRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight, 3);
+  // Body/Jersey (main rectangle)
+  const bodyWidth = size * 1.1;
+  const bodyHeight = size * 0.9;
+  graphics.roundRect(x - bodyWidth / 2, y - bodyHeight / 2, bodyWidth, bodyHeight, 2 * scale);
   graphics.fill(palette.jersey);
+  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: palette.outline });
 
-  // Shoulder pad arc
-  graphics.moveTo(x - bodyWidth / 2 - 2, bodyY + 4);
-  graphics.quadraticCurveTo(x, bodyY - 4, x + bodyWidth / 2 + 2, bodyY + 4);
-  graphics.stroke({ width: Math.max(1.5, 2 * scale), color: palette.jerseySecondary });
+  // Jersey stripe (horizontal)
+  graphics.rect(x - bodyWidth / 2, y - 1 * scale, bodyWidth, 2 * scale);
+  graphics.fill(palette.jerseyStripe);
 
-  // Helmet
-  const helmetWidth = baseSize * 0.75;
-  const helmetHeight = baseSize * 0.65;
-  const helmetY = y - baseSize * 0.85 - bobOffset;
-
-  graphics.ellipse(x, helmetY, helmetWidth / 2, helmetHeight / 2);
+  // Helmet (circle on top)
+  const helmetRadius = size * 0.45;
+  const helmetY = y - bodyHeight / 2 - helmetRadius * 0.6;
+  graphics.circle(x, helmetY, helmetRadius);
   graphics.fill(palette.helmet);
+  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: palette.outline });
 
-  // Helmet stripe
-  graphics.moveTo(x, helmetY - helmetHeight / 2);
-  graphics.lineTo(x, helmetY + helmetHeight / 2 - 3 * scale);
-  graphics.stroke({ width: Math.max(1, 2 * scale), color: palette.jerseySecondary });
-
-  // Facemask
-  const faceX = x + helmetWidth * 0.35;
-  const faceY = helmetY + helmetHeight * 0.1;
-  graphics.moveTo(faceX - 4 * scale, faceY - 3 * scale);
-  graphics.lineTo(faceX + 3 * scale, faceY - 3 * scale);
-  graphics.moveTo(faceX - 4 * scale, faceY + 2 * scale);
-  graphics.lineTo(faceX + 3 * scale, faceY + 2 * scale);
-  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: 0x555555 });
-
-  // Helmet outline
-  graphics.ellipse(x, helmetY, helmetWidth / 2, helmetHeight / 2);
-  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: 0x000000, alpha: 0.3 });
+  // Facemask (small rectangle)
+  const faceWidth = size * 0.25;
+  const faceHeight = size * 0.2;
+  graphics.rect(x + helmetRadius * 0.3, helmetY - faceHeight / 2, faceWidth, faceHeight);
+  graphics.fill(0x666666);
 }
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
@@ -130,7 +83,6 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   const appRef = useRef<Application | null>(null);
   const fieldContainerRef = useRef<Container | null>(null);
   const dynamicContainerRef = useRef<Container | null>(null);
-  const animStatesRef = useRef<Map<string, PlayerAnimState>>(new Map());
   const [isReady, setIsReady] = useState(false);
 
   const ENGINE_WIDTH = 160;
@@ -413,17 +365,13 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     const offenseTeam = game.possession || 'home';
     const defenseTeam = offenseTeam === 'home' ? 'away' : 'home';
 
-    // Animation constants
-    const RUN_CYCLE_SPEED = 0.4;
-    const BOB_CYCLE_SPEED = 0.3;
-
     // Sort players by depth (far first for proper layering)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
     // Create a single Graphics object for all players (more efficient)
     const playerGraphics = new Graphics();
 
-    // Draw players using vector graphics
+    // Draw players using retro graphics
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
@@ -434,34 +382,8 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const isOffense = player.role === 'offense';
       const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
 
-      // Get or create animation state
-      let animState = animStates.get(player.id);
-      if (!animState) {
-        animState = {
-          legPhase: Math.random() * Math.PI * 2,
-          bobPhase: Math.random() * Math.PI * 2,
-          lastX: player.x,
-          lastY: player.y,
-          isMoving: false,
-        };
-        animStates.set(player.id, animState);
-      }
-
-      // Check if moving
-      const dx = player.x - animState.lastX;
-      const dy = player.y - animState.lastY;
-      const moved = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
-      animState.isMoving = moved;
-      animState.lastX = player.x;
-      animState.lastY = player.y;
-
-      if (moved) {
-        animState.legPhase += RUN_CYCLE_SPEED;
-        animState.bobPhase += BOB_CYCLE_SPEED;
-      }
-
-      // Draw the player
-      drawVectorPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, animState, false);
+      // Draw the player with retro style
+      drawRetroPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, false);
     });
 
     dynamicContainer.addChild(playerGraphics);
@@ -471,27 +393,8 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
       const palette = TEAM_PALETTES[offenseTeam];
 
-      let animState = animStates.get(game.ballCarrier.playerId);
-      if (!animState) {
-        animState = {
-          legPhase: 0,
-          bobPhase: 0,
-          lastX: game.ballCarrier.x,
-          lastY: game.ballCarrier.y,
-          isMoving: false,
-        };
-        animStates.set(game.ballCarrier.playerId, animState);
-      }
-
-      // Ball carrier always moving during play
-      if (game.state === 'PLAY_RUNNING' || game.state === 'SNAP') {
-        animState.isMoving = true;
-        animState.legPhase += RUN_CYCLE_SPEED * 1.2;
-        animState.bobPhase += BOB_CYCLE_SPEED * 1.2;
-      }
-
       const ballCarrierGraphics = new Graphics();
-      drawVectorPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, animState, true);
+      drawRetroPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, true);
       dynamicContainer.addChild(ballCarrierGraphics);
     }
 
