@@ -1,17 +1,42 @@
-// Core game types
+/**
+ * Game Simulation Types
+ *
+ * These types define what happens on the field during gameplay.
+ * Uses the simplified roster system from Player.ts
+ */
 
+import type {
+  RosterPosition,
+  OffenseFieldRole,
+  DefenseFieldRole,
+  FieldRole,
+  OffenseFormation,
+  DefenseFormation,
+  PlayerStats,
+  LineUnitStats,
+} from './Player';
+
+// Re-export formations for convenience
+export type { OffenseFormation, DefenseFormation };
+export type Formation = OffenseFormation | DefenseFormation;
+
+// =============================================================================
+// LEGACY POSITION TYPE (for backward compatibility during transition)
+// =============================================================================
+
+// This maps to field roles during gameplay
 export type Position =
   | 'QB' | 'RB' | 'FB' | 'WR' | 'TE' | 'LT' | 'LG' | 'C' | 'RG' | 'RT'  // Offense
   | 'DE' | 'DT' | 'NT' | 'OLB' | 'MLB' | 'ILB' | 'CB' | 'FS' | 'SS';    // Defense
 
-export type Formation =
-  | 'I_FORM' | 'SHOTGUN' | 'SINGLEBACK' | 'PISTOL'           // Offense
-  | '4_3' | '3_4' | 'NICKEL' | 'DIME' | '4_4';               // Defense
+// =============================================================================
+// PLAY TYPES
+// =============================================================================
 
 export type RouteType =
   | 'STREAK' | 'POST' | 'CORNER' | 'OUT' | 'IN' | 'SLANT'
   | 'CURL' | 'COMEBACK' | 'FLAT' | 'WHEEL' | 'DRAG' | 'BLOCK'
-  | 'SCREEN' | 'SWING' | 'DELAY' | 'RELEASE_BLOCK';  // Screen play routes
+  | 'SCREEN' | 'SWING' | 'DELAY' | 'RELEASE_BLOCK';
 
 export type CoverageType =
   | 'COVER_0' | 'COVER_1' | 'COVER_2' | 'COVER_3' | 'COVER_4'
@@ -19,75 +44,121 @@ export type CoverageType =
 
 export type BlitzType = 'NONE' | 'MLB' | 'OLB' | 'CB' | 'SAFETY' | 'ZONE';
 
+// =============================================================================
+// VECTOR / SPATIAL
+// =============================================================================
+
 export interface Vector2 {
   x: number;
   y: number;
 }
 
-// Player on field during play
+// =============================================================================
+// FIELD PLAYER (during gameplay)
+// =============================================================================
+
+/**
+ * A player on the field during a play.
+ *
+ * Key distinction:
+ * - `rosterPosition` is their position on the team (QB, WR1, FLEX, etc.)
+ * - `fieldRole` is their role in THIS play (QB, WR_X, SLOT, TE, FB, etc.)
+ * - `id` is the field position ID used for routes/assignments (WR1, SLOT, RB, etc.)
+ */
 export interface FieldPlayer {
-  id: string;
-  position: Position;
+  id: string;                           // Field position ID (for routes: 'WR1', 'SLOT', 'RB')
+  playerId: string;                     // Reference to actual Player.id in roster
+  rosterPosition: RosterPosition;       // Their roster position
+  fieldRole: FieldRole;                 // Their role in this formation
   location: Vector2;
   velocity: Vector2;
-  speed: number;        // 1-99
-  acceleration: number; // 1-99
+
+  // Physical attributes (copied from player stats)
+  speed: number;
+  acceleration: number;
+  strength?: number;
+  agility?: number;
+
+  // Assignments
   route?: RouteType;
   assignment?: 'BLOCK' | 'RUSH' | 'ZONE' | 'MAN';
-  targetId?: string;    // For man coverage - who they're covering
-  formationTarget?: Vector2;  // Target position for huddle-to-formation animation
-  // Position-specific stats
-  accuracy?: number;    // QB only: 1-99
-  armStrength?: number; // QB only: 1-99
-  catch?: number;       // WR/TE/RB/DB: 1-99
-  // Physical attributes
-  strength?: number;    // 1-99: affects blocking, tackling, carrying
-  agility?: number;     // 1-99: affects route running, evasion
-  // Skill ratings
-  tackle?: number;      // 1-99: defensive tackling ability
-  elusiveness?: number; // 1-99: ball carrier evasion
-  coverage?: number;    // 1-99: pass coverage skill
-  routeRunning?: number; // 1-99: receiver route precision
-  passRush?: number;    // 1-99: defensive pass rushing
-  awareness?: number;   // 1-99: football IQ
-  passBlock?: number;   // 1-99: pass protection
-  runBlock?: number;    // 1-99: run blocking
-  carrying?: number;    // 1-99: ball security
+  targetId?: string;                    // For man coverage - who they're covering
+  formationTarget?: Vector2;            // Target position for huddle-to-formation animation
+
+  // Position-specific stats (copied from player)
+  accuracy?: number;                    // QB
+  armStrength?: number;                 // QB
+  catch?: number;                       // Receivers
+  tackle?: number;
+  elusiveness?: number;
+  coverage?: number;
+  routeRunning?: number;
+  passRush?: number;
+  awareness?: number;
+  passBlock?: number;
+  runBlock?: number;
+  carrying?: number;
 }
 
-// Pass in flight tracking
+/**
+ * Line unit on the field (O-LINE or D-LINE)
+ * Represented as a single entity with aggregate behavior
+ */
+export interface FieldLineUnit {
+  id: 'OLINE' | 'DLINE';
+  location: Vector2;                    // Center point of the line
+  stats: LineUnitStats;
+  // Line unit doesn't have velocity - it's more of a zone
+}
+
+// =============================================================================
+// PASS TRACKING
+// =============================================================================
+
 export interface PassFlight {
   startLocation: Vector2;
   landingSpot: Vector2;
-  airTime: number;      // Total time in seconds
-  elapsedTime: number;  // Current elapsed time
-  intendedTarget?: string; // Player ID of intended receiver
+  airTime: number;
+  elapsedTime: number;
+  intendedTarget?: string;              // Field position ID of intended receiver
 }
 
-// Offensive play definition
+// =============================================================================
+// PLAY DEFINITIONS
+// =============================================================================
+
+/**
+ * Offensive play definition
+ * Routes now reference roster positions, which get mapped to field roles
+ */
 export interface OffensivePlay {
   id: string;
   name: string;
-  formation: Formation;
+  formation: OffenseFormation;
   type: 'RUN' | 'PASS' | 'PLAY_ACTION' | 'SCREEN';
-  routes: Record<string, RouteType>;        // position -> route
+
+  // Routes keyed by roster position (QB, RB, WR1, WR2, FLEX)
+  routes: Partial<Record<RosterPosition, RouteType>>;
+
   runGap?: 'LEFT_END' | 'LEFT_TACKLE' | 'LEFT_GUARD' | 'CENTER' | 'RIGHT_GUARD' | 'RIGHT_TACKLE' | 'RIGHT_END';
   rollout?: 'LEFT' | 'RIGHT' | 'NONE';
   description: string;
 }
 
-// Defensive play definition
 export interface DefensivePlay {
   id: string;
   name: string;
-  formation: Formation;
+  formation: DefenseFormation;
   coverage: CoverageType;
   blitz: BlitzType;
-  blitzers?: Position[];
+  blitzers?: RosterPosition[];          // Which roster positions blitz
   description: string;
 }
 
-// Game clock and state
+// =============================================================================
+// GAME STATE
+// =============================================================================
+
 export interface GameClock {
   quarter: 1 | 2 | 3 | 4;
   minutes: number;
@@ -97,7 +168,7 @@ export interface GameClock {
 }
 
 export interface FieldPosition {
-  yardLine: number;      // 0-100 (0 = own endzone, 100 = opponent endzone)
+  yardLine: number;                     // 0-100 (0 = own endzone, 100 = opponent endzone)
   down: 1 | 2 | 3 | 4;
   yardsToGo: number;
   possession: 'home' | 'away';
@@ -109,13 +180,13 @@ export interface GameScore {
 }
 
 export type PlayPhase =
-  | 'HUDDLE'        // Players in huddle, waiting for play call
-  | 'BREAKING_HUDDLE' // Players moving from huddle to formation
-  | 'PRE_SNAP'      // Selecting play, reading defense
-  | 'SNAP'          // Ball snapped, routes developing
-  | 'ACTIVE'        // Ball in play (pass thrown or handoff)
-  | 'TACKLE'        // Play ending
-  | 'WHISTLE';      // Play dead, calculating result
+  | 'HUDDLE'
+  | 'BREAKING_HUDDLE'
+  | 'PRE_SNAP'
+  | 'SNAP'
+  | 'ACTIVE'
+  | 'TACKLE'
+  | 'WHISTLE';
 
 export interface PlayResult {
   yardsGained: number;
@@ -127,8 +198,8 @@ export interface PlayResult {
   sack: boolean;
   safety?: boolean;
   tackledBy?: string;
-  clockStops: boolean;  // Whether the game clock should stop after this play
-  delayOfGame?: boolean; // Play clock expired
+  clockStops: boolean;
+  delayOfGame?: boolean;
   penalty?: {
     type: string;
     team: 'offense' | 'defense';
@@ -139,24 +210,41 @@ export interface PlayResult {
   };
 }
 
-// Full game state
+/**
+ * Full game state during simulation
+ */
 export interface GameState {
   phase: PlayPhase;
   clock: GameClock;
   field: FieldPosition;
   score: GameScore;
+
+  // Players on field (5 skill players each side)
   offensivePlayers: FieldPlayer[];
   defensivePlayers: FieldPlayer[];
-  ballCarrier?: string;        // Player ID
+
+  // Line units (aggregate stats, not individual players)
+  offensiveLine: FieldLineUnit;
+  defensiveLine: FieldLineUnit;
+
+  // Ball state
+  ballCarrier?: string;                 // Field position ID (e.g., 'RB', 'WR1')
   ballLocation: Vector2;
-  passFlight?: PassFlight;     // Ball in air tracking
+  passFlight?: PassFlight;
+
+  // Play info
   selectedPlay?: OffensivePlay | DefensivePlay;
   lastResult?: PlayResult;
-  handoffEffect?: { x: number; y: number; startTime: number };  // Visual effect when handoff occurs
-  currentTime?: number;        // Current game time for animation calculations
+
+  // Visual effects
+  handoffEffect?: { x: number; y: number; startTime: number };
+  currentTime?: number;
 }
 
-// Stats tracking
+// =============================================================================
+// STATS TRACKING
+// =============================================================================
+
 export interface GameStats {
   passingYards: number;
   rushingYards: number;
@@ -171,4 +259,35 @@ export interface GameStats {
   thirdDownConversions: number;
   thirdDownAttempts: number;
   timeOfPossession: number;
+}
+
+// =============================================================================
+// HELPER: Convert roster position to field ID for routes
+// =============================================================================
+
+/**
+ * Get the field ID used for routes based on roster position and formation.
+ * This is what the engine uses to assign routes to players.
+ */
+export function getFieldId(rosterPosition: RosterPosition, formation: OffenseFormation): string {
+  // Most positions keep their roster position as field ID
+  // FLEX changes based on formation
+  if (rosterPosition === 'FLEX') {
+    switch (formation) {
+      case 'I_FORM':
+      case 'GOAL_LINE':
+        return 'FB';
+      case 'SHOTGUN':
+      case 'SINGLEBACK':
+        return 'TE';
+      case 'PISTOL':
+      case 'SPREAD':
+        return 'SLOT';
+      default:
+        return 'TE';
+    }
+  }
+
+  // WR1 -> WR1, WR2 -> WR2, etc.
+  return rosterPosition;
 }

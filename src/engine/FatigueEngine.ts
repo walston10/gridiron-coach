@@ -219,6 +219,20 @@ export class FatigueEngine {
     return 'EXHAUSTED';
   }
 
+  // Get player fatigue display info (for SubstitutionPanel)
+  getPlayerFatigue(playerId: string): { playerId: string; position: string; level: 'FRESH' | 'GOOD' | 'TIRED' | 'VERY_TIRED' | 'EXHAUSTED'; percentage: number; shouldSub: boolean } | undefined {
+    const player = this.playerFatigue.get(playerId);
+    if (!player) return undefined;
+
+    return {
+      playerId,
+      position: 'FLEX', // Position is not tracked per player in simplified roster
+      level: this.getFatigueStatus(playerId),
+      percentage: player.fatigue,
+      shouldSub: this.shouldSubstitute(playerId),
+    };
+  }
+
   // Check if player should be subbed out
   shouldSubstitute(playerId: string): boolean {
     const fatigue = this.getFatigue(playerId);

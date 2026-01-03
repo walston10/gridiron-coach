@@ -1,8 +1,8 @@
 /**
- * Substitution Engine
+ * Substitution Engine (Simplified)
  *
- * Manages depth chart and player substitutions during gameplay.
- * Integrates with FatigueEngine for auto-substitution recommendations.
+ * With the simplified roster (5 skill players + 1 bench each per side),
+ * substitutions are straightforward: swap starter for bench at each position.
  */
 
 import type {
@@ -13,10 +13,16 @@ import type {
   SubstitutionAction,
   AutoSubSettings,
   PlayerFatigueDisplay,
-  FatigueLevel,
   PositionSlot,
 } from '../types/Substitution';
-import { OFFENSIVE_SLOTS, DEFENSIVE_SLOTS, validateStarterAssignment, canPlayPosition } from '../types/Substitution';
+import {
+  OFFENSIVE_SLOTS,
+  DEFENSIVE_SLOTS,
+  DEFAULT_LINEUP,
+  getOffensePositions,
+  getDefensePositions,
+} from '../types/Substitution';
+import type { OffenseRosterPosition, DefenseRosterPosition } from '../types/Player';
 import { fatigueEngine, type FatigueEngine } from './FatigueEngine';
 
 export class SubstitutionEngine {
@@ -30,10 +36,7 @@ export class SubstitutionEngine {
   constructor(fatigueEngineInstance: FatigueEngine = fatigueEngine) {
     this.fatigueEngine = fatigueEngineInstance;
     this.depthChart = { offense: [], defense: [] };
-    this.currentLineup = {
-      offense: new Map(),
-      defense: new Map(),
-    };
+    this.currentLineup = { ...DEFAULT_LINEUP };
     this.autoSubSettings = {
       enabled: true,
       fatigueThreshold: 70,
@@ -74,19 +77,19 @@ export class SubstitutionEngine {
 
     // Assign to offensive slots
     this.depthChart.offense = OFFENSIVE_SLOTS.map(slot => {
-      const candidates = byPosition.get(slot.position) || [];
+      const candidates = byPosition.get(slot.id) || [];
       return {
-        slot: slot.slot,
-        starters: candidates.slice(0, 3).map(p => p.id),
+        slot: slot.id,
+        starters: candidates.slice(0, 2).map(p => p.id), // Starter + 1 bench
       };
     });
 
     // Assign to defensive slots
     this.depthChart.defense = DEFENSIVE_SLOTS.map(slot => {
-      const candidates = byPosition.get(slot.position) || [];
+      const candidates = byPosition.get(slot.id) || [];
       return {
-        slot: slot.slot,
-        starters: candidates.slice(0, 3).map(p => p.id),
+        slot: slot.id,
+        starters: candidates.slice(0, 2).map(p => p.id), // Starter + 1 bench
       };
     });
 
@@ -96,20 +99,23 @@ export class SubstitutionEngine {
 
   // Reset current lineup to depth chart starters
   resetLineupToStarters(): void {
-    this.currentLineup.offense.clear();
-    this.currentLineup.defense.clear();
-
-    this.depthChart.offense.forEach(entry => {
-      if (entry.starters.length > 0) {
-        this.currentLineup.offense.set(entry.slot, entry.starters[0]);
-      }
-    });
-
-    this.depthChart.defense.forEach(entry => {
-      if (entry.starters.length > 0) {
-        this.currentLineup.defense.set(entry.slot, entry.starters[0]);
-      }
-    });
+    // Reset to all starters
+    this.currentLineup = {
+      offense: {
+        QB: 'starter',
+        RB: 'starter',
+        WR1: 'starter',
+        WR2: 'starter',
+        FLEX: 'starter',
+      },
+      defense: {
+        CB1: 'starter',
+        CB2: 'starter',
+        S: 'starter',
+        LB1: 'starter',
+        LB2: 'starter',
+      },
+    };
   }
 
   // Get depth chart
@@ -129,8 +135,20 @@ export class SubstitutionEngine {
 
   // Get player currently at a slot
   getPlayerAtSlot(slot: string, side: 'offense' | 'defense'): RosterPlayer | undefined {
-    const lineup = side === 'offense' ? this.currentLineup.offense : this.currentLineup.defense;
-    const playerId = lineup.get(slot);
+    const depthEntry = this.getDepthEntry(slot, side);
+
+    if (!depthEntry || depthEntry.starters.length === 0) return undefined;
+
+    // Get which player (starter or bench) is currently in
+    let lineupValue: 'starter' | 'bench';
+    if (side === 'offense') {
+      lineupValue = this.currentLineup.offense[slot as OffenseRosterPosition];
+    } else {
+      lineupValue = this.currentLineup.defense[slot as DefenseRosterPosition];
+    }
+    const playerIndex = lineupValue === 'starter' ? 0 : 1;
+    const playerId = depthEntry.starters[playerIndex];
+
     return playerId ? this.roster.get(playerId) : undefined;
   }
 
@@ -147,16 +165,7 @@ export class SubstitutionEngine {
 
     if (!entry) return false;
 
-    // Validate starter assignment (first player in list becomes starter)
-    if (playerIds.length > 0) {
-      const validation = validateStarterAssignment(this.depthChart, playerIds[0], slot);
-      if (!validation.valid) {
-        console.warn(`Cannot set ${playerIds[0]} as starter at ${slot} - already starting at ${validation.conflictSlot}`);
-        return false;
-      }
-    }
-
-    entry.starters = playerIds;
+    entry.starters = playerIds.slice(0, 2); // Max 2: starter + bench
     return true;
   }
 
@@ -168,27 +177,9 @@ export class SubstitutionEngine {
     newPlayerId: string
   ): boolean {
     const chart = side === 'offense' ? this.depthChart.offense : this.depthChart.defense;
-    const slots = side === 'offense' ? OFFENSIVE_SLOTS : DEFENSIVE_SLOTS;
     const entry = chart.find(e => e.slot === slot);
-    const slotDef = slots.find(s => s.slot === slot);
 
-    if (!entry || !slotDef) return false;
-
-    // Validate player can play this position
-    const player = this.roster.get(newPlayerId);
-    if (!player || !canPlayPosition(player, slotDef.position)) {
-      console.warn(`Player ${newPlayerId} cannot play position ${slotDef.position}`);
-      return false;
-    }
-
-    // If setting as starter, validate no conflicts
-    if (depthIndex === 0) {
-      const validation = validateStarterAssignment(this.depthChart, newPlayerId, slot);
-      if (!validation.valid) {
-        console.warn(`Cannot set ${newPlayerId} as starter - already starting at ${validation.conflictSlot}`);
-        return false;
-      }
-    }
+    if (!entry) return false;
 
     // Ensure array is large enough
     while (entry.starters.length <= depthIndex) {
@@ -199,157 +190,99 @@ export class SubstitutionEngine {
     return true;
   }
 
-  // Make an in-game substitution
-  substitute(slot: string, side: 'offense' | 'defense', newPlayerId: string, reason: SubstitutionAction['reason'] = 'MANUAL'): boolean {
-    const lineup = side === 'offense' ? this.currentLineup.offense : this.currentLineup.defense;
-    const oldPlayerId = lineup.get(slot);
+  // Substitute a player in a slot (swap starter/bench)
+  substitute(slot: string, side: 'offense' | 'defense'): boolean {
+    if (side === 'offense') {
+      const pos = slot as OffenseRosterPosition;
+      if (this.currentLineup.offense[pos]) {
+        const current = this.currentLineup.offense[pos];
+        this.currentLineup.offense[pos] = current === 'starter' ? 'bench' : 'starter';
 
-    if (!oldPlayerId || oldPlayerId === newPlayerId) return false;
+        // Fire callback
+        if (this.onSubstitution) {
+          this.onSubstitution({
+            position: pos,
+            from: current,
+            to: this.currentLineup.offense[pos],
+            reason: 'MANUAL',
+          });
+        }
+        return true;
+      }
+    } else {
+      const pos = slot as DefenseRosterPosition;
+      if (this.currentLineup.defense[pos]) {
+        const current = this.currentLineup.defense[pos];
+        this.currentLineup.defense[pos] = current === 'starter' ? 'bench' : 'starter';
 
-    // Validate new player exists and can play position
-    const slots = side === 'offense' ? OFFENSIVE_SLOTS : DEFENSIVE_SLOTS;
-    const slotDef = slots.find(s => s.slot === slot);
-    const player = this.roster.get(newPlayerId);
-
-    if (!player || !slotDef || !canPlayPosition(player, slotDef.position)) {
-      return false;
+        // Fire callback
+        if (this.onSubstitution) {
+          this.onSubstitution({
+            position: pos,
+            from: current,
+            to: this.currentLineup.defense[pos],
+            reason: 'MANUAL',
+          });
+        }
+        return true;
+      }
     }
-
-    lineup.set(slot, newPlayerId);
-
-    const action: SubstitutionAction = {
-      slot,
-      outPlayerId: oldPlayerId,
-      inPlayerId: newPlayerId,
-      reason,
-    };
-
-    this.onSubstitution?.(action);
-    return true;
+    return false;
   }
 
-  // Get fatigue display for all players in current lineup
-  getLineupFatigue(side: 'offense' | 'defense'): PlayerFatigueDisplay[] {
-    const lineup = side === 'offense' ? this.currentLineup.offense : this.currentLineup.defense;
-    const displays: PlayerFatigueDisplay[] = [];
-
-    lineup.forEach((playerId) => {
-      const fatigue = this.fatigueEngine.getFatigue(playerId);
-      const status = this.fatigueEngine.getFatigueStatus(playerId);
-
-      displays.push({
-        playerId,
-        level: status as FatigueLevel,
-        percentage: fatigue,
-        shouldSub: this.fatigueEngine.shouldSubstitute(playerId),
-      });
-    });
-
-    return displays;
-  }
-
-  // Get recommended substitutions based on fatigue
-  getAutoSubRecommendations(side: 'offense' | 'defense'): SubstitutionAction[] {
-    if (!this.autoSubSettings.enabled) return [];
-
-    const lineup = side === 'offense' ? this.currentLineup.offense : this.currentLineup.defense;
-    const chart = side === 'offense' ? this.depthChart.offense : this.depthChart.defense;
-    const recommendations: SubstitutionAction[] = [];
-
-    lineup.forEach((currentPlayerId, slot) => {
-      const fatigue = this.fatigueEngine.getFatigue(currentPlayerId);
-
-      if (fatigue >= this.autoSubSettings.fatigueThreshold) {
-        // Find backup who is more rested
-        const entry = chart.find(e => e.slot === slot);
-        if (!entry) return;
-
-        for (const backupId of entry.starters) {
-          if (backupId === currentPlayerId) continue;
-
-          const backupFatigue = this.fatigueEngine.getFatigue(backupId);
-          if (backupFatigue < fatigue - 20) {
-            recommendations.push({
-              slot,
-              outPlayerId: currentPlayerId,
-              inPlayerId: backupId,
-              reason: 'FATIGUE',
-            });
-            break;
-          }
-        }
-      } else if (this.autoSubSettings.respectStarters && fatigue < 30) {
-        // Check if starter should come back in
-        const entry = chart.find(e => e.slot === slot);
-        if (!entry || entry.starters.length === 0) return;
-
-        const starterId = entry.starters[0];
-        if (starterId !== currentPlayerId) {
-          const starterFatigue = this.fatigueEngine.getFatigue(starterId);
-          if (starterFatigue < 40) {
-            recommendations.push({
-              slot,
-              outPlayerId: currentPlayerId,
-              inPlayerId: starterId,
-              reason: 'FATIGUE',
-            });
-          }
-        }
-      }
-    });
-
-    return recommendations;
-  }
-
-  // Execute all recommended auto-subs
-  executeAutoSubs(side: 'offense' | 'defense'): SubstitutionAction[] {
-    const recommendations = this.getAutoSubRecommendations(side);
-    const executed: SubstitutionAction[] = [];
-
-    recommendations.forEach(rec => {
-      if (this.substitute(rec.slot, side, rec.inPlayerId, 'FATIGUE')) {
-        executed.push(rec);
-      }
-    });
-
-    return executed;
-  }
-
-  // Settings
+  // Auto-sub settings
   getAutoSubSettings(): AutoSubSettings {
-    return { ...this.autoSubSettings };
+    return this.autoSubSettings;
   }
 
-  setAutoSubSettings(settings: Partial<AutoSubSettings>): void {
-    this.autoSubSettings = { ...this.autoSubSettings, ...settings };
+  setAutoSubSettings(settings: AutoSubSettings): void {
+    this.autoSubSettings = settings;
   }
 
-  toggleAutoSub(): boolean {
+  toggleAutoSub(): void {
     this.autoSubSettings.enabled = !this.autoSubSettings.enabled;
-    return this.autoSubSettings.enabled;
   }
 
-  // Get available players for a slot (for dropdown selection)
-  getAvailablePlayers(slot: string, side: 'offense' | 'defense'): RosterPlayer[] {
+  // Set substitution callback
+  setOnSubstitution(callback: (action: SubstitutionAction) => void): void {
+    this.onSubstitution = callback;
+  }
+
+  // Get fatigue for all active players
+  getFatigueData(): Map<string, PlayerFatigueDisplay> {
+    const result = new Map<string, PlayerFatigueDisplay>();
+
+    // Get fatigue for all roster players
+    this.roster.forEach((player, playerId) => {
+      const fatigue = this.fatigueEngine.getPlayerFatigue(playerId);
+      if (fatigue) {
+        result.set(playerId, fatigue);
+      }
+    });
+
+    return result;
+  }
+
+  // Check if auto-sub is recommended for a position
+  shouldAutoSub(slot: string, side: 'offense' | 'defense'): boolean {
+    if (!this.autoSubSettings.enabled) return false;
+
+    const player = this.getPlayerAtSlot(slot, side);
+    if (!player) return false;
+
+    const fatigue = this.fatigueEngine.getPlayerFatigue(player.id);
+    return fatigue ? fatigue.percentage >= this.autoSubSettings.fatigueThreshold : false;
+  }
+
+  // Auto-sub all tired players
+  autoSubAll(side: 'offense' | 'defense'): void {
     const slots = side === 'offense' ? OFFENSIVE_SLOTS : DEFENSIVE_SLOTS;
-    const slotDef = slots.find(s => s.slot === slot);
 
-    if (!slotDef) return [];
-
-    return Array.from(this.roster.values()).filter(p =>
-      canPlayPosition(p, slotDef.position)
-    ).sort((a, b) => b.overall - a.overall);
-  }
-
-  // Get position slot definition
-  getSlotDefinition(slot: string, side: 'offense' | 'defense'): PositionSlot | undefined {
-    const slots = side === 'offense' ? OFFENSIVE_SLOTS : DEFENSIVE_SLOTS;
-    return slots.find(s => s.slot === slot);
-  }
-
-  // Event handler
-  setOnSubstitution(handler: (action: SubstitutionAction) => void): void {
-    this.onSubstitution = handler;
+    slots.forEach(slot => {
+      if (this.shouldAutoSub(slot.id, side)) {
+        this.substitute(slot.id, side);
+      }
+    });
   }
 }
 

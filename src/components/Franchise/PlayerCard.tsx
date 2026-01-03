@@ -67,7 +67,7 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, onClick, isCompa
         <div className="border-t border-gray-700 pt-2 text-sm">
           <div className="flex justify-between">
             <span className="text-gray-400">Salary:</span>
-            <span className="text-green-400">{formatSalary(player.contract.yearlysalary)}</span>
+            <span className="text-green-400">{formatSalary(player.contract.yearlySalary)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-400">Years:</span>

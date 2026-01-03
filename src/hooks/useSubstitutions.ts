@@ -1,9 +1,9 @@
 /**
- * useSubstitutions Hook
+ * useSubstitutions Hook (Simplified Roster)
  *
  * Manages substitution state during gameplay, integrating with
  * FatigueEngine for fatigue-based recommendations.
- * Uses actual team roster from game store.
+ * Uses simplified roster with 5 skill players + 1 bench each per side.
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
@@ -17,18 +17,17 @@ import type {
   PositionSlot,
 } from '../types/Substitution';
 import { OFFENSIVE_SLOTS, DEFENSIVE_SLOTS } from '../types/Substitution';
-import type { Player } from '../types/Player';
-import type { Position } from '../types/GameSim';
+import type { Player, Position } from '../types/Player';
 
-// Valid positions for substitution system (excludes K/P which aren't in GameSim)
+// Valid positions for substitution system (game positions)
 const VALID_POSITIONS: Position[] = [
-  'QB', 'RB', 'FB', 'WR', 'TE', 'LT', 'LG', 'C', 'RG', 'RT',
-  'DE', 'DT', 'NT', 'OLB', 'MLB', 'ILB', 'CB', 'FS', 'SS'
+  'QB', 'RB', 'FB', 'WR', 'TE',
+  'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB'
 ];
 
 // Convert game store Player to RosterPlayer for substitution system
 function convertToRosterPlayer(player: Player): RosterPlayer | null {
-  // Skip players with positions not in GameSim (K, P, etc.)
+  // Skip players with positions not used in games (linemen, K, P)
   if (!VALID_POSITIONS.includes(player.position as Position)) {
     return null;
   }
@@ -36,31 +35,13 @@ function convertToRosterPlayer(player: Player): RosterPlayer | null {
   return {
     id: player.id,
     name: player.lastName,
-    position: player.position as Position,
-    positions: [player.position as Position], // Could be expanded for multi-position players
+    position: player.position,
+    isStarter: player.isStarter ?? true,
     overall: player.overall,
-    speed: player.stats.speed,
-    acceleration: player.stats.acceleration,
-    attributes: {
-      strength: player.stats.strength,
-      agility: player.stats.agility,
-      awareness: player.stats.awareness,
-      catching: player.stats.catching,
-      carrying: player.stats.carrying,
-      throwPower: player.stats.throwPower,
-      throwAccuracy: player.stats.throwAccuracy,
-      routeRunning: player.stats.routeRunning,
-      passBlock: player.stats.passBlock,
-      runBlock: player.stats.runBlock,
-      tackle: player.stats.tackle,
-      coverage: player.stats.coverage,
-      passRush: player.stats.passRush,
-      elusiveness: player.stats.elusiveness,
-    },
   };
 }
 
-// Build initial depth chart
+// Build initial depth chart from roster
 function buildInitialDepthChart(
   roster: RosterPlayer[],
   slots: PositionSlot[]
@@ -82,21 +63,21 @@ function buildInitialDepthChart(
   const usedStarters = new Set<string>();
 
   return slots.map(slot => {
-    const candidates = byPosition.get(slot.position) || [];
+    const candidates = byPosition.get(slot.id) || [];
 
-    // Find first unused player for starter, allow repeats for backups
+    // Find first unused player for starter, allow second for bench
     const starters: string[] = [];
     candidates.forEach(player => {
       if (starters.length === 0 && !usedStarters.has(player.id)) {
         starters.push(player.id);
         usedStarters.add(player.id);
-      } else if (starters.length > 0 && starters.length < 3) {
-        starters.push(player.id);
+      } else if (starters.length === 1) {
+        starters.push(player.id); // Bench player
       }
     });
 
     return {
-      slot: slot.slot,
+      slot: slot.id,
       starters,
     };
   });
@@ -124,7 +105,7 @@ export function useSubstitutions(): UseSubstitutionsReturn {
   const { teams, userTeamId } = useGameStore();
   const userTeam = teams.find(t => t.info.id === userTeamId);
 
-  // Convert actual roster to RosterPlayer format (filtering out invalid positions)
+  // Convert actual roster to RosterPlayer format
   const roster = useMemo(() => {
     if (!userTeam?.roster) return [];
     return userTeam.roster
@@ -132,7 +113,7 @@ export function useSubstitutions(): UseSubstitutionsReturn {
       .filter((p): p is RosterPlayer => p !== null);
   }, [userTeam?.roster]);
 
-  // Build initial depth charts (memoized - changes would need roster edit)
+  // Build initial depth charts
   const offenseDepthChart = useMemo(() =>
     buildInitialDepthChart(roster, OFFENSIVE_SLOTS), [roster]
   );
@@ -185,6 +166,7 @@ export function useSubstitutions(): UseSubstitutionsReturn {
 
         map.set(playerId, {
           playerId,
+          position: 'QB', // Position tracked separately
           level: status as FatigueLevel,
           percentage: fatigue,
           shouldSub,
@@ -200,7 +182,6 @@ export function useSubstitutions(): UseSubstitutionsReturn {
   // Refresh fatigue on mount and when lineup changes
   useEffect(() => {
     refreshFatigue();
-    // Set up periodic refresh
     const interval = setInterval(refreshFatigue, 500);
     return () => clearInterval(interval);
   }, [refreshFatigue]);
@@ -243,7 +224,7 @@ export function useSubstitutions(): UseSubstitutionsReturn {
         const entry = offenseDepthChart.find(e => e.slot === slot);
         if (!entry) return;
 
-        // Find a rested backup
+        // Find a rested backup (the bench player)
         for (const backupId of entry.starters) {
           if (backupId === currentPlayerId) continue;
           const backupFatigue = fatigueEngine.getFatigue(backupId);
@@ -274,7 +255,7 @@ export function useSubstitutions(): UseSubstitutionsReturn {
         const entry = defenseDepthChart.find(e => e.slot === slot);
         if (!entry) return;
 
-        // Find a rested backup
+        // Find a rested backup (the bench player)
         for (const backupId of entry.starters) {
           if (backupId === currentPlayerId) continue;
           const backupFatigue = fatigueEngine.getFatigue(backupId);

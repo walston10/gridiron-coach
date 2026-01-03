@@ -12,14 +12,14 @@ export const generateContract = (player: Player, isRookie: boolean = false): Con
   
   return {
     years,
-    yearlysalary: yearlySalary,
+    yearlySalary: yearlySalary,
     guaranteedMoney: Math.round(yearlySalary * years * (isRookie ? 1 : 0.5)),
     signingBonus: isRookie ? 0 : Math.round(yearlySalary * 0.2),
   };
 };
 
 export const calculateCapHit = (contract: Contract): number => {
-  return contract.yearlysalary + Math.round(contract.signingBonus / contract.years);
+  return contract.yearlySalary + Math.round(contract.signingBonus / contract.years);
 };
 
 export const calculateDeadCap = (contract: Contract, yearsRemaining: number): number => {

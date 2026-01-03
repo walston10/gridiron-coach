@@ -63,7 +63,7 @@ export const GameView: React.FC<GameViewProps> = ({
 
   // Handle handoff to RB
   const handleHandoff = useCallback(() => {
-    const rb = gameState?.offensivePlayers.find(p => p.position === 'RB');
+    const rb = gameState?.offensivePlayers.find(p => p.rosterPosition === 'RB');
     if (rb) handoff(rb.id);
   }, [gameState, handoff]);
 

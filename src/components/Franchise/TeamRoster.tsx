@@ -25,8 +25,8 @@ export const TeamRoster: React.FC<TeamRosterProps> = ({ roster, onPlayerClick })
   const sortedRoster = [...filteredRoster].sort((a, b) => {
     if (sortBy === 'overall') return b.overall - a.overall;
     if (sortBy === 'salary') {
-      const aSalary = a.contract?.yearlysalary || 0;
-      const bSalary = b.contract?.yearlysalary || 0;
+      const aSalary = a.contract?.yearlySalary || 0;
+      const bSalary = b.contract?.yearlySalary || 0;
       return bSalary - aSalary;
     }
     // Sort by position order
