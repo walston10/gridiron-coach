@@ -18,7 +18,7 @@ import type {
   PlayerStatusUpdate,
 } from '../types/Events';
 import type { Owner } from '../types/Owner';
-import { OWNERS } from '../types/Owner';
+import { OWNERS, OWNER_LIST } from '../types/Owner';
 import {
   createEventSystemState,
   selectEventForDay,
@@ -66,7 +66,7 @@ export function useEventSystem(options: UseEventSystemOptions = {}): EventSystem
   const { onPlayerStatusChange, onGameOver } = options;
 
   // Initialize with default owner
-  const initialOwner = OWNERS.find(o => o.id === (options.ownerId || 'tex')) || OWNERS[0];
+  const initialOwner = OWNERS[options.ownerId || 'tex'] || OWNER_LIST[0];
   const [owner, setOwner] = useState<Owner>(initialOwner);
   const [state, setState] = useState<EventSystemState>(() => createEventSystemState(initialOwner));
   const [currentEvent, setCurrentEvent] = useState<GameEvent | null>(null);
@@ -75,7 +75,7 @@ export function useEventSystem(options: UseEventSystemOptions = {}): EventSystem
   // Start a new season with optional owner selection
   const startNewSeason = useCallback((ownerId?: string) => {
     const newOwner = ownerId
-      ? OWNERS.find(o => o.id === ownerId) || OWNERS[0]
+      ? OWNERS[ownerId] || OWNER_LIST[0]
       : owner;
 
     setOwner(newOwner);
