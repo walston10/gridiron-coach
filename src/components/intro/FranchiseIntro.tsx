@@ -5,7 +5,7 @@
  * 6 beats with crossfade transitions and typewriter subtitles.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 
 // Beat data for Tex owner
@@ -99,15 +99,63 @@ function useTypewriter(text: string, speed: number = 30) {
 }
 
 export const FranchiseIntro: React.FC = () => {
-  const { setPhase } = useGameStore();
+  const { setPhase, ownerType } = useGameStore();
   const [currentBeat, setCurrentBeat] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+
+  // Preloaded audio refs
+  const audioRefs = useRef<HTMLAudioElement[]>([]);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const beat = TEX_BEATS[currentBeat];
   const { displayed: subtitleText } = useTypewriter(beat?.text || '', 35);
 
+  // Preload all audio files on mount
+  useEffect(() => {
+    const loadAudio = async () => {
+      const audioPromises = TEX_BEATS.map((b) => {
+        return new Promise<HTMLAudioElement>((resolve) => {
+          const audio = new Audio(`/audio/${ownerType}_beat_${b.id}.wav`);
+          audio.preload = 'auto';
+          audio.addEventListener('canplaythrough', () => resolve(audio), { once: true });
+          audio.addEventListener('error', () => {
+            console.warn(`Failed to load audio: ${ownerType}_beat_${b.id}.wav`);
+            resolve(audio); // Resolve anyway so we don't block
+          }, { once: true });
+          audio.load();
+        });
+      });
+
+      const loadedAudio = await Promise.all(audioPromises);
+      audioRefs.current = loadedAudio;
+      setAudioLoaded(true);
+    };
+
+    loadAudio();
+
+    // Cleanup on unmount
+    return () => {
+      audioRefs.current.forEach(audio => {
+        audio.pause();
+        audio.src = '';
+      });
+    };
+  }, [ownerType]);
+
+  // Stop all audio helper
+  const stopAllAudio = useCallback(() => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
+      currentAudioRef.current = null;
+    }
+  }, []);
+
   // Advance to next beat
   const advanceBeat = useCallback(() => {
+    stopAllAudio();
+
     if (currentBeat < TEX_BEATS.length - 1) {
       setIsTransitioning(true);
       setTimeout(() => {
@@ -118,28 +166,35 @@ export const FranchiseIntro: React.FC = () => {
       // Intro complete, go to name input
       setPhase('nameInput');
     }
-  }, [currentBeat, setPhase]);
+  }, [currentBeat, setPhase, stopAllAudio]);
 
-  // Auto-advance timer
+  // Play audio and auto-advance timer
   useEffect(() => {
-    if (!beat) return;
+    if (!beat || !audioLoaded) return;
 
+    // Play the audio for this beat
+    const audio = audioRefs.current[currentBeat];
+    if (audio) {
+      currentAudioRef.current = audio;
+      audio.currentTime = 0;
+      audio.play().catch(err => {
+        console.warn('Audio playback failed:', err);
+      });
+    }
+
+    // Auto-advance after beat duration
     const timer = setTimeout(() => {
       advanceBeat();
     }, beat.duration);
 
-    // TODO: Audio playback would go here
-    // const audio = new Audio(`/audio/tex_beat_${beat.id}.mp3`);
-    // audio.play();
-
     return () => {
       clearTimeout(timer);
-      // audio.pause();
     };
-  }, [beat, advanceBeat]);
+  }, [beat, currentBeat, audioLoaded, advanceBeat]);
 
   // Skip intro
   const handleSkip = () => {
+    stopAllAudio();
     setPhase('nameInput');
   };
 
