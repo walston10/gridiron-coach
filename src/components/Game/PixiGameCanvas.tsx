@@ -213,7 +213,7 @@ export const PixiGameCanvas = forwardRef<HTMLDivElement, PixiGameCanvasProps>(({
     container.addChild(bottomEndzone);
   }, [width, scaleX, scaleY]);
 
-  // Draw a player with helmet shape
+  // Draw a player with retro uniform style
   const drawPlayer = useCallback((
     container: Container,
     player: FieldPlayer,
@@ -222,45 +222,48 @@ export const PixiGameCanvas = forwardRef<HTMLDivElement, PixiGameCanvasProps>(({
   ) => {
     const x = player.location.x * scaleX;
     const y = player.location.y * scaleY;
-    const radius = 5 * scaleX;
+    const size = 5 * scaleX;
 
     const playerGraphics = new Graphics();
 
     // Shadow
-    playerGraphics.ellipse(x + 2, y + 3, radius * 0.9, radius * 0.5);
-    playerGraphics.fill({ color: COLORS.shadow, alpha: 0.3 });
+    playerGraphics.ellipse(x + 1, y + size * 0.5, size * 0.8, size * 0.3);
+    playerGraphics.fill({ color: COLORS.shadow, alpha: 0.35 });
 
     // Ball carrier glow
     if (isBallCarrier) {
-      playerGraphics.circle(x, y, radius + 6);
-      playerGraphics.fill({ color: COLORS.ballCarrierGlow, alpha: 0.6 });
-      playerGraphics.circle(x, y, radius + 3);
-      playerGraphics.fill({ color: COLORS.ballCarrierGlow, alpha: 0.4 });
+      playerGraphics.circle(x, y, size * 1.8);
+      playerGraphics.fill({ color: COLORS.ballCarrierGlow, alpha: 0.5 });
+      playerGraphics.circle(x, y, size * 1.4);
+      playerGraphics.fill({ color: COLORS.ballCarrierGlow, alpha: 0.3 });
     }
 
-    // Player body (helmet shape - rounded top, flat bottom)
-    const mainColor = isOffense ? COLORS.offense : COLORS.defense;
-    const lightColor = isOffense ? COLORS.offenseLight : COLORS.defenseLight;
-    const darkColor = isOffense ? COLORS.offenseDark : COLORS.defenseDark;
+    // Colors
+    const jerseyColor = isOffense ? COLORS.offense : COLORS.defense;
+    const helmetColor = isOffense ? COLORS.offenseDark : COLORS.defenseDark;
+    const outlineColor = isOffense ? COLORS.offenseDark : COLORS.defenseDark;
 
-    // Helmet body
-    playerGraphics.circle(x, y, radius);
-    playerGraphics.fill(mainColor);
+    // Body/Jersey (main rectangle)
+    const bodyWidth = size * 1.2;
+    const bodyHeight = size * 1.0;
+    playerGraphics.roundRect(x - bodyWidth / 2, y - bodyHeight / 2, bodyWidth, bodyHeight, 1);
+    playerGraphics.fill(jerseyColor);
+    playerGraphics.stroke({ width: 1, color: outlineColor });
 
-    // Helmet shine (top highlight)
-    playerGraphics.arc(x, y, radius * 0.8, -Math.PI * 0.8, -Math.PI * 0.2);
-    playerGraphics.lineTo(x, y - radius * 0.3);
-    playerGraphics.closePath();
-    playerGraphics.fill({ color: lightColor, alpha: 0.4 });
+    // Jersey stripe
+    playerGraphics.rect(x - bodyWidth / 2, y - 0.5, bodyWidth, 1);
+    playerGraphics.fill(0xffffff);
 
-    // Facemask area (front)
-    const facemaskY = y + radius * 0.3;
-    playerGraphics.ellipse(x, facemaskY, radius * 0.5, radius * 0.3);
-    playerGraphics.fill({ color: 0x333333, alpha: 0.6 });
+    // Helmet (circle on top)
+    const helmetRadius = size * 0.45;
+    const helmetY = y - bodyHeight / 2 - helmetRadius * 0.5;
+    playerGraphics.circle(x, helmetY, helmetRadius);
+    playerGraphics.fill(helmetColor);
+    playerGraphics.stroke({ width: 1, color: outlineColor });
 
-    // Outline
-    playerGraphics.circle(x, y, radius);
-    playerGraphics.stroke({ width: 2, color: darkColor });
+    // Facemask
+    playerGraphics.rect(x + helmetRadius * 0.2, helmetY - 1, size * 0.2, 2);
+    playerGraphics.fill(0x666666);
 
     container.addChild(playerGraphics);
 
@@ -418,6 +421,78 @@ export const PixiGameCanvas = forwardRef<HTMLDivElement, PixiGameCanvasProps>(({
         gameState.passFlight.landingSpot,
         gameState.passFlight.elapsedTime / gameState.passFlight.airTime
       );
+    }
+
+    // Draw offensive line unit (5 linemen)
+    if (gameState.offensiveLine) {
+      const lineGraphics = new Graphics();
+      const lineX = gameState.offensiveLine.location.x * scaleX;
+      const lineY = gameState.offensiveLine.location.y * scaleY;
+      const spacing = 8 * scaleX;
+
+      for (let i = -2; i <= 2; i++) {
+        const px = lineX + i * spacing;
+        const size = 5 * scaleX;
+
+        // Shadow
+        lineGraphics.ellipse(px + 1, lineY + size * 0.5, size * 0.8, size * 0.3);
+        lineGraphics.fill({ color: COLORS.shadow, alpha: 0.35 });
+
+        // Body (larger for linemen)
+        const bodyWidth = size * 1.4;
+        const bodyHeight = size * 1.2;
+        lineGraphics.roundRect(px - bodyWidth / 2, lineY - bodyHeight / 2, bodyWidth, bodyHeight, 1);
+        lineGraphics.fill(COLORS.offense);
+        lineGraphics.stroke({ width: 1, color: COLORS.offenseDark });
+
+        // Jersey stripe
+        lineGraphics.rect(px - bodyWidth / 2, lineY - 0.5, bodyWidth, 1);
+        lineGraphics.fill(0xffffff);
+
+        // Helmet
+        const helmetRadius = size * 0.4;
+        const helmetY = lineY - bodyHeight / 2 - helmetRadius * 0.5;
+        lineGraphics.circle(px, helmetY, helmetRadius);
+        lineGraphics.fill(COLORS.offenseDark);
+        lineGraphics.stroke({ width: 1, color: COLORS.offenseDark });
+      }
+      playersContainer.addChild(lineGraphics);
+    }
+
+    // Draw defensive line unit (3 linemen)
+    if (gameState.defensiveLine) {
+      const lineGraphics = new Graphics();
+      const lineX = gameState.defensiveLine.location.x * scaleX;
+      const lineY = gameState.defensiveLine.location.y * scaleY;
+      const spacing = 12 * scaleX;
+
+      for (let i = -1; i <= 1; i++) {
+        const px = lineX + i * spacing;
+        const size = 5 * scaleX;
+
+        // Shadow
+        lineGraphics.ellipse(px + 1, lineY + size * 0.5, size * 0.8, size * 0.3);
+        lineGraphics.fill({ color: COLORS.shadow, alpha: 0.35 });
+
+        // Body (larger for linemen)
+        const bodyWidth = size * 1.4;
+        const bodyHeight = size * 1.2;
+        lineGraphics.roundRect(px - bodyWidth / 2, lineY - bodyHeight / 2, bodyWidth, bodyHeight, 1);
+        lineGraphics.fill(COLORS.defense);
+        lineGraphics.stroke({ width: 1, color: COLORS.defenseDark });
+
+        // Jersey stripe
+        lineGraphics.rect(px - bodyWidth / 2, lineY - 0.5, bodyWidth, 1);
+        lineGraphics.fill(0xffffff);
+
+        // Helmet
+        const helmetRadius = size * 0.4;
+        const helmetY = lineY - bodyHeight / 2 - helmetRadius * 0.5;
+        lineGraphics.circle(px, helmetY, helmetRadius);
+        lineGraphics.fill(COLORS.defenseDark);
+        lineGraphics.stroke({ width: 1, color: COLORS.defenseDark });
+      }
+      playersContainer.addChild(lineGraphics);
     }
 
     // Draw offensive players

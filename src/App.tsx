@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useGameStore } from './stores/gameStore';
 import { MainLayout } from './components/Layout/MainLayout';
-import { Dashboard } from './components/Home/Dashboard';
+import { DeskPage } from './components/Desk';
 import { PlayDesigner } from './components/PlayDesigner/PlayDesigner';
 import { PlaybookPage } from './components/Playbook/PlaybookPage';
 import { GameDayPage } from './components/GameDay/GameDayPage';
@@ -13,18 +13,20 @@ import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
 
 function App() {
-  const { userTeamId, initializeGame } = useGameStore();
+  const { userTeamId, initializeGame, teams } = useGameStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
+
+  const userTeam = teams.find(t => t.info.id === userTeamId);
 
   if (!userTeamId) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-white mb-8">🏈 Gridiron Coach</h1>
-          <p className="text-gray-400 mb-8">Build your dynasty. Call the shots.</p>
+          <h1 className="text-4xl font-bold text-white mb-8">🏈 Illegal Motion</h1>
+          <p className="text-gray-400 mb-8">Build your dynasty. Bend the rules.</p>
           <button
             onClick={() => initializeGame(3)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg text-lg font-bold"
+            className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-3 rounded-lg text-lg font-bold"
           >
             Start New Franchise
           </button>
@@ -33,9 +35,23 @@ function App() {
     );
   }
 
+  // Home page uses the full-screen desk view (no sidebar)
+  if (currentPage === 'home') {
+    return (
+      <DeskPage
+        teamName={userTeam?.info.name || 'Moles'}
+        ownerId="tex"
+        onStartGame={() => setCurrentPage('gameday')}
+        onGameOver={(reason) => {
+          console.log('Game over:', reason);
+          // TODO: Handle game over state
+        }}
+      />
+    );
+  }
+
   const renderPage = () => {
     switch (currentPage) {
-      case 'home': return <Dashboard />;
       case 'designer': return <PlayDesigner />;
       case 'playbook': return <PlaybookPage />;
       case 'gameday': return <GameDayPage onNavigate={(page) => setCurrentPage(page as Page)} />;
@@ -43,7 +59,7 @@ function App() {
       case 'scouting': return <ScoutingCenter />;
       case 'draft': return <DraftPage />;
       case 'freeagency': return <FreeAgencyPage />;
-      default: return <Dashboard />;
+      default: return null;
     }
   };
 
