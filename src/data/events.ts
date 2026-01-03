@@ -84,15 +84,16 @@ export const STARTER_EVENTS: GameEvent[] = [
     day: 'MONDAY',
     rarity: 'COMMON',
     character: 'DOCTOR',
+    targetPosition: 'RB',
     description:
-      "Your starting running back's MRI shows a Grade 2 hamstring strain. The doctor says 2-3 weeks minimum, but he wants to play through it. Sunday's game is crucial.",
+      "{{playerName}}'s MRI shows a Grade 2 hamstring strain. The doctor says 2-3 weeks minimum, but {{playerFirstName}} wants to play through it. Sunday's game is crucial.",
     cooldown: 4,
     choices: [
       {
         id: 'full_rest',
-        text: 'Shut him down for 3 weeks',
+        text: 'Shut {{playerFirstName}} down for 3 weeks',
         flavorText:
-          "The right call for his long-term health. He's frustrated but the medical staff approves.",
+          "The right call for {{playerFirstName}}'s long-term health. He's frustrated but the medical staff approves.",
         consequences: {
           culture: 10,
           playerTrust: -5,
@@ -110,9 +111,9 @@ export const STARTER_EVENTS: GameEvent[] = [
       },
       {
         id: 'let_him_decide',
-        text: 'Let him decide',
+        text: 'Let {{playerFirstName}} decide',
         flavorText:
-          "You leave it to him. He chooses to play, of course. Now it's on him if it gets worse.",
+          "You leave it to {{playerFirstName}}. He chooses to play, of course. Now it's on him if it gets worse.",
         consequences: {
           culture: -5,
           playerTrust: 5,
