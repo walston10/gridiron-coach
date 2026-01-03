@@ -2,23 +2,24 @@ import type { DraftProspect, Position, PlayerStats } from '../types';
 import { generatePlayer } from './playerGenerator';
 
 // Position-relevant stats for scouting - reveal these first
+// Note: Intangibles (motor, ego) are harder to scout - revealed later or through combine/interviews
 const POSITION_RELEVANT_STATS: Record<string, (keyof PlayerStats)[]> = {
-  QB: ['throwPower', 'throwAccuracy', 'awareness', 'speed', 'agility', 'strength'],
-  RB: ['speed', 'acceleration', 'carrying', 'elusiveness', 'agility', 'catching', 'strength'],
-  WR: ['speed', 'acceleration', 'catching', 'routeRunning', 'agility', 'elusiveness'],
-  TE: ['catching', 'routeRunning', 'runBlock', 'passBlock', 'strength', 'speed'],
-  LT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
-  LG: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
-  C: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
-  RG: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
-  RT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'acceleration'],
-  DE: ['passRush', 'tackle', 'strength', 'speed', 'agility', 'awareness'],
-  DT: ['passRush', 'tackle', 'strength', 'awareness', 'agility', 'acceleration'],
-  OLB: ['tackle', 'passRush', 'coverage', 'speed', 'agility', 'awareness'],
-  MLB: ['tackle', 'coverage', 'awareness', 'speed', 'strength', 'agility'],
-  CB: ['coverage', 'speed', 'agility', 'acceleration', 'awareness', 'tackle'],
-  FS: ['coverage', 'speed', 'awareness', 'tackle', 'agility', 'acceleration'],
-  SS: ['coverage', 'tackle', 'speed', 'awareness', 'strength', 'agility'],
+  QB: ['throwPower', 'throwAccuracy', 'awareness', 'composure', 'speed', 'agility', 'discipline'],
+  RB: ['speed', 'acceleration', 'carrying', 'elusiveness', 'agility', 'stamina', 'toughness', 'catching'],
+  WR: ['speed', 'acceleration', 'catching', 'routeRunning', 'agility', 'discipline', 'elusiveness'],
+  TE: ['catching', 'routeRunning', 'runBlock', 'passBlock', 'strength', 'toughness', 'speed'],
+  LT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'discipline'],
+  LG: ['passBlock', 'runBlock', 'strength', 'awareness', 'motor', 'agility'],
+  C: ['passBlock', 'runBlock', 'strength', 'awareness', 'discipline', 'agility'],
+  RG: ['passBlock', 'runBlock', 'strength', 'awareness', 'motor', 'agility'],
+  RT: ['passBlock', 'runBlock', 'strength', 'awareness', 'agility', 'discipline'],
+  DE: ['passRush', 'tackle', 'strength', 'speed', 'motor', 'stamina', 'agility'],
+  DT: ['passRush', 'tackle', 'strength', 'toughness', 'awareness', 'agility'],
+  OLB: ['tackle', 'passRush', 'coverage', 'speed', 'motor', 'agility', 'awareness'],
+  MLB: ['tackle', 'coverage', 'awareness', 'discipline', 'composure', 'speed', 'strength'],
+  CB: ['coverage', 'speed', 'agility', 'composure', 'discipline', 'awareness', 'tackle'],
+  FS: ['coverage', 'speed', 'awareness', 'composure', 'tackle', 'agility'],
+  SS: ['coverage', 'tackle', 'speed', 'toughness', 'awareness', 'strength', 'agility'],
 };
 
 export const generateDraftClass = (size: number = 250): DraftProspect[] => {
@@ -96,10 +97,11 @@ export const scoutProspect = (prospect: DraftProspect, pointsSpent: number): Dra
     revealed[stat] = Math.min(99, Math.max(40, prospect.player.stats[stat] + noise));
   }
 
+  // 22 total stats now (added stamina, toughness, discipline, composure, motor, ego)
   return {
     ...prospect,
     scoutedStats: revealed,
-    isFullyScouted: Object.keys(revealed).length >= 16,
+    isFullyScouted: Object.keys(revealed).length >= 22,
   };
 };
 

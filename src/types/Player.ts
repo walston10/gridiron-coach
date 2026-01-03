@@ -164,11 +164,21 @@ export const DEFENSE_FORMATION_ROLES: Record<DefenseFormation, DefenseRoleMappin
 
 export type PlayerStats = {
   // Physical attributes
-  speed: number;          // 1-99
-  acceleration: number;   // 1-99
-  strength: number;       // 1-99
-  agility: number;        // 1-99
-  awareness: number;      // 1-99
+  speed: number;          // 1-99 - Top end speed
+  acceleration: number;   // 1-99 - Burst off the line
+  strength: number;       // 1-99 - Power in collisions
+  agility: number;        // 1-99 - Change of direction
+  stamina: number;        // 1-99 - How fast they fatigue in-game
+  toughness: number;      // 1-99 - Injury resistance, playing through pain
+
+  // Mental attributes
+  awareness: number;      // 1-99 - General football IQ, acts as modifier
+  discipline: number;     // 1-99 - Penalties, blown assignments, mistakes
+  composure: number;      // 1-99 - Performance in clutch/pressure moments
+
+  // Intangibles (hidden/drama stats)
+  motor: number;          // 1-99 - Effort consistency (taking plays off)
+  ego: number;            // 1-99 - Reaction to benching, fewer targets, criticism
 
   // Skill attributes
   catching: number;       // WR, TE, RB
@@ -351,23 +361,23 @@ export function calculateOverall(stats: PlayerStats, position: RosterPosition): 
 function getPositionWeights(position: RosterPosition): Partial<Record<keyof PlayerStats, number>> {
   switch (position) {
     case 'QB':
-      return { throwAccuracy: 3, throwPower: 2, awareness: 2, speed: 1, agility: 1 };
+      return { throwAccuracy: 3, throwPower: 2, awareness: 2, composure: 2, speed: 1, agility: 1 };
     case 'RB':
-      return { speed: 3, agility: 2, carrying: 2, elusiveness: 2, catching: 1 };
+      return { speed: 3, agility: 2, carrying: 2, elusiveness: 2, stamina: 1, toughness: 1, catching: 1 };
     case 'WR1':
     case 'WR2':
-      return { speed: 3, catching: 3, routeRunning: 2, agility: 1 };
+      return { speed: 3, catching: 3, routeRunning: 2, agility: 1, discipline: 1 };
     case 'FLEX':
-      return { catching: 2, runBlock: 2, speed: 2, strength: 2, routeRunning: 1 };
+      return { catching: 2, runBlock: 2, speed: 2, strength: 2, toughness: 1, routeRunning: 1 };
     case 'CB1':
     case 'CB2':
-      return { speed: 3, coverage: 3, agility: 2, awareness: 1 };
+      return { speed: 3, coverage: 3, agility: 2, composure: 1, discipline: 1, awareness: 1 };
     case 'S':
-      return { speed: 2, coverage: 2, tackle: 2, awareness: 2, strength: 1 };
+      return { speed: 2, coverage: 2, tackle: 2, awareness: 2, composure: 1, strength: 1 };
     case 'LB1':
     case 'LB2':
-      return { tackle: 3, speed: 2, strength: 2, coverage: 1, awareness: 1 };
+      return { tackle: 3, speed: 2, strength: 2, coverage: 1, awareness: 1, motor: 1 };
     default:
-      return { speed: 1, strength: 1, awareness: 1 };
+      return { speed: 1, strength: 1, awareness: 1, stamina: 1 };
   }
 }
