@@ -9,3 +9,4 @@ export { RouteRunner, ROUTE_DEFS } from './RouteRunner';
 export type { RoutePhase, RouteState, RouteDefinition } from './RouteRunner';
 export { DefenseAI, COVERAGE_SCHEMES, ZONE_DEFINITIONS } from './DefenseAI';
 export type { DefensePhase, DefenderAssignment, CoverageScheme, ZoneType } from './DefenseAI';
+export { BlockingEngine, blockingEngine } from './BlockingEngine';
