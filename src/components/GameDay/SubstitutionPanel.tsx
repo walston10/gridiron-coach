@@ -62,15 +62,15 @@ const DepthChartRow: React.FC<{
     .filter((p): p is RosterPlayer => p !== undefined && p.id !== currentPlayerId);
 
   const handleSelect = useCallback((playerId: string) => {
-    onSubstitute(slotDef.slot, playerId);
+    onSubstitute(slotDef.id, playerId);
     setIsOpen(false);
-  }, [slotDef.slot, onSubstitute]);
+  }, [slotDef.id, onSubstitute]);
 
   return (
     <div className="grid grid-cols-[80px_1fr_60px] items-center gap-2 py-1.5 px-2 hover:bg-gray-800/50 rounded text-sm relative">
       {/* Position label */}
       <div className="font-medium text-gray-400">
-        {slotDef.displayName}
+        {slotDef.name}
       </div>
 
       {/* Player dropdown */}
@@ -187,13 +187,13 @@ export const SubstitutionPanel: React.FC<SubstitutionPanelProps> = ({
       <div className="flex-1 overflow-y-auto">
         <div className="p-1">
           {slots.map((slotDef) => {
-            const entry = depthChart.find(e => e.slot === slotDef.slot);
-            const currentPlayerId = currentLineup.get(slotDef.slot);
+            const entry = depthChart.find(e => e.slot === slotDef.id);
+            const currentPlayerId = currentLineup.get(slotDef.id);
             const fatigue = currentPlayerId ? fatigueData.get(currentPlayerId) : undefined;
 
             return (
               <DepthChartRow
-                key={slotDef.slot}
+                key={slotDef.id}
                 slotDef={slotDef}
                 currentPlayerId={currentPlayerId}
                 depth={entry?.starters || []}

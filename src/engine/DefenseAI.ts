@@ -1,4 +1,5 @@
 import type { Vector2, FieldPlayer, CoverageType, DefensivePlay } from '../types/GameSim';
+import type { RosterPosition } from '../types/Player';
 
 /**
  * Defense AI phases:
@@ -225,10 +226,13 @@ export class DefenseAI {
     this.lineOfScrimmage = los;
     const scheme = COVERAGE_SCHEMES[play.coverage];
 
-    // Categorize receivers for smart matching
-    const wideReceivers = offensivePlayers.filter(p => p.position === 'WR');
-    const tightEnds = offensivePlayers.filter(p => p.position === 'TE');
-    const runningBacks = offensivePlayers.filter(p => p.position === 'RB' || p.position === 'FB');
+    // Categorize receivers for smart matching using roster positions
+    // WR1/WR2 = wide receivers, FLEX = TE/FB/Slot, RB = running back
+    const wideReceivers = offensivePlayers.filter(p =>
+      p.rosterPosition === 'WR1' || p.rosterPosition === 'WR2'
+    );
+    const flexPlayers = offensivePlayers.filter(p => p.rosterPosition === 'FLEX');
+    const runningBacks = offensivePlayers.filter(p => p.rosterPosition === 'RB');
 
     // Sort WRs by horizontal position (leftmost first)
     wideReceivers.sort((a, b) => a.location.x - b.location.x);
@@ -240,15 +244,8 @@ export class DefenseAI {
       const positionKey = this.getPositionKey(defender);
       const assignment = scheme[positionKey as keyof CoverageScheme];
 
-      // D-line always rushes
-      if (['DE', 'DT', 'NT'].includes(defender.position)) {
-        this.defenderStates.set(defender.id, {
-          phase: 'PRE_SNAP',
-          assignment: { type: 'RUSH', rushType: defender.location.x < 80 ? 'OUTSIDE' : 'INSIDE' },
-          lastKnownBallLocation: { x: 80, y: los },
-        });
-        return;
-      }
+      // With simplified roster, D-LINE is a unit - no individual rushers
+      // LBs can blitz based on play call
 
       if (!assignment) {
         // Default zone for unknown positions
@@ -272,11 +269,11 @@ export class DefenseAI {
         state.zoneBounds = ZONE_DEFINITIONS[assignment.zone](los);
       }
 
-      // Smart man coverage assignment based on defender position
+      // Smart man coverage assignment based on defender roster position
       if (assignment.type === 'MAN') {
         let target: FieldPlayer | undefined;
 
-        if (defender.position === 'CB') {
+        if (defender.rosterPosition === 'CB1' || defender.rosterPosition === 'CB2') {
           // CBs cover WRs - match by side of field
           const isLeftCB = defender.location.x < 80;
           target = wideReceivers.find(wr => {
@@ -288,24 +285,21 @@ export class DefenseAI {
           if (!target) {
             target = wideReceivers.find(wr => !assignedReceivers.has(wr.id));
           }
-        } else if (defender.position === 'SS') {
-          // Strong safety covers TE
-          target = tightEnds.find(te => !assignedReceivers.has(te.id));
-          if (!target) {
-            target = wideReceivers.find(wr => !assignedReceivers.has(wr.id));
-          }
-        } else if (['MLB', 'ILB', 'OLB'].includes(defender.position)) {
-          // Linebackers cover RB/FB first, then TE
+        } else if (defender.rosterPosition === 'LB1' || defender.rosterPosition === 'LB2') {
+          // Linebackers cover RB first, then FLEX
           target = runningBacks.find(rb => !assignedReceivers.has(rb.id));
           if (!target) {
-            target = tightEnds.find(te => !assignedReceivers.has(te.id));
+            target = flexPlayers.find(f => !assignedReceivers.has(f.id));
           }
         } else {
-          // FS or other - cover nearest unassigned
-          const allReceivers = [...wideReceivers, ...tightEnds, ...runningBacks]
-            .filter(r => !assignedReceivers.has(r.id));
-          if (allReceivers.length > 0) {
-            target = this.findNearest(defender.location, allReceivers) || undefined;
+          // Safety - cover nearest unassigned (FLEX first as TE threat)
+          target = flexPlayers.find(f => !assignedReceivers.has(f.id));
+          if (!target) {
+            const allReceivers = [...wideReceivers, ...runningBacks]
+              .filter(r => !assignedReceivers.has(r.id));
+            if (allReceivers.length > 0) {
+              target = this.findNearest(defender.location, allReceivers) || undefined;
+            }
           }
         }
 
@@ -320,15 +314,14 @@ export class DefenseAI {
   }
 
   private getPositionKey(defender: FieldPlayer): string {
-    // Map defender IDs to scheme keys
-    const mapping: Record<string, string> = {
-      cb1: 'cb1', cb2: 'cb2', ncb: 'ncb',
-      fs: 'fs', ss: 'ss',
-      mlb: 'mlb', mlb1: 'mlb', mlb2: 'mlb',
-      olb1: 'olb1', olb2: 'olb2',
-      ilb1: 'ilb1', ilb2: 'ilb2',
+    // Map roster positions to scheme keys
+    // With simplified roster: CB1, CB2, S, LB1, LB2
+    const rosterMapping: Record<string, string> = {
+      'CB1': 'cb1', 'CB2': 'cb2',
+      'S': 'fs',  // Safety maps to free safety scheme
+      'LB1': 'mlb', 'LB2': 'olb1',
     };
-    return mapping[defender.id] || defender.position.toLowerCase();
+    return rosterMapping[defender.rosterPosition] || defender.rosterPosition.toLowerCase();
   }
 
   onSnap(currentTime: number): void {
@@ -390,18 +383,13 @@ export class DefenseAI {
       return this.pursuitMovement(defender);
     }
 
-    // D-line and linebackers pursue the ball carrier more aggressively
-    const isDLineman = ['DE', 'DT', 'NT'].includes(defender.position);
-    const isLinebacker = ['MLB', 'ILB', 'OLB'].includes(defender.position);
-    const isSecondary = ['CB', 'FS', 'SS'].includes(defender.position);
+    // Linebackers pursue the ball carrier more aggressively (D-line is a unit now)
+    const isLinebacker = ['LB1', 'LB2'].includes(defender.rosterPosition);
+    const isSecondary = ['CB1', 'CB2', 'S'].includes(defender.rosterPosition);
 
-    // If ball carrier is not QB and D-line, always pursue
+    // If ball carrier is not QB, linebackers pursue
     if (this.ballCarrierId && this.ballCarrierId.toLowerCase() !== 'qb') {
-      if (isDLineman) {
-        state.phase = 'PURSUIT';
-        return this.pursuitMovement(defender);
-      }
-      // Linebackers pursue if carrier is within 30 units
+      // Linebackers pursue if carrier is within 40 units
       if (isLinebacker) {
         const distToBall = this.distance(defender.location, this.ballLocation);
         if (distToBall < 40) {
@@ -475,7 +463,7 @@ export class DefenseAI {
 
     // Find receivers in or near this zone - expand search area
     const receiversInZone = offensivePlayers.filter(p => {
-      if (!['WR', 'TE', 'RB'].includes(p.position)) return false;
+      if (!['WR1', 'WR2', 'FLEX', 'RB'].includes(p.rosterPosition)) return false;
       // Wider detection area for zone defense
       return p.location.x >= zone.minX - 15 && p.location.x <= zone.maxX + 15 &&
              p.location.y >= zone.minY - 15 && p.location.y <= zone.maxY + 40;
@@ -684,8 +672,8 @@ export class DefenseAI {
     // Get defender's reaction/coverage ratings
     const coverageRating = (defender.coverage ?? 70) / 100;
     const speedRating = (defender.speed ?? 70) / 100;
-    const isDB = ['CB', 'FS', 'SS'].includes(defender.position);
-    const isLB = ['MLB', 'ILB', 'OLB'].includes(defender.position);
+    const isDB = ['CB1', 'CB2', 'S'].includes(defender.rosterPosition);
+    const isLB = ['LB1', 'LB2'].includes(defender.rosterPosition);
 
     // DBs have the best ball skills and break fastest
     // Reaction speed based on distance and position
@@ -745,12 +733,8 @@ export class DefenseAI {
     // Only D-line pursues and linebackers spy/contain
 
     const qbBehindLOS = this.qbLocation.y < this.lineOfScrimmage;
-    const isSecondary = ['CB', 'FS', 'SS'].includes(defender.position);
-
-    // D-line always chases the scrambling QB
-    if (['DE', 'DT', 'NT'].includes(defender.position)) {
-      return this.pursuitMovement(defender);
-    }
+    const isSecondary = ['CB1', 'CB2', 'S'].includes(defender.rosterPosition);
+    const isLinebacker = ['LB1', 'LB2'].includes(defender.rosterPosition);
 
     // CRITICAL: Secondary stays in coverage until ball crosses LOS
     // This prevents leaving receivers wide open
@@ -764,9 +748,9 @@ export class DefenseAI {
     }
 
     // Linebackers: contain the edges and spy, don't full-out chase
-    if (['MLB', 'ILB', 'OLB'].includes(defender.position)) {
-      // OLBs contain the edge on their side
-      if (defender.position === 'OLB') {
+    if (['LB1', 'LB2'].includes(defender.rosterPosition)) {
+      // LB2 (OLB role) contains the edge on their side
+      if (defender.rosterPosition === 'LB2') {
         const onQbSide = (defender.location.x < 80) === (this.qbLocation.x < 80);
         if (onQbSide) {
           // Contain this edge

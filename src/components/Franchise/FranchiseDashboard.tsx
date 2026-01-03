@@ -68,7 +68,7 @@ export const FranchiseDashboard: React.FC = () => {
       )}
 
       {activeTab === 'depth' && (
-        <DepthChart roster={userTeam.roster} depthChart={userTeam.depthChart} />
+        <DepthChart roster={userTeam.roster} />
       )}
 
       {activeTab === 'schedule' && season && (

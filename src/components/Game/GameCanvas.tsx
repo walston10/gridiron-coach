@@ -184,7 +184,7 @@ export const GameCanvas = forwardRef<HTMLCanvasElement, GameCanvasProps>(({
     ctx.textBaseline = 'middle';
 
     // Abbreviate position for display
-    const posLabel = getPositionLabel(player.position);
+    const posLabel = getPositionLabel(player.rosterPosition);
     ctx.fillText(posLabel, x, y);
   }, [toCanvasX, toCanvasY]);
 

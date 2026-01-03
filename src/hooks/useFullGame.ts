@@ -97,7 +97,7 @@ export function useFullGame(userTeam: 'home' | 'away' = 'home') {
 
   const handoff = useCallback(() => {
     if (!playState) return;
-    const rb = playState.offensivePlayers.find(p => p.position === 'RB');
+    const rb = playState.offensivePlayers.find(p => p.rosterPosition === 'RB');
     if (rb) {
       engineRef.current?.handoff(rb.id);
     }

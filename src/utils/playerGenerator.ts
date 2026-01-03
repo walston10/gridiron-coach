@@ -18,6 +18,7 @@ const POSITION_STAT_WEIGHTS: Record<Position, Partial<Record<keyof PlayerStats, 
   NT: { strength: 2, tackle: 1.5 },
   OLB: { passRush: 1.5, tackle: 1.5, coverage: 1, speed: 1 },
   MLB: { tackle: 2, awareness: 1.5, coverage: 1 },
+  ILB: { tackle: 2, awareness: 1.5, coverage: 1 },  // Inside linebacker
   CB: { coverage: 2, speed: 1.5, agility: 1.5 },
   FS: { coverage: 2, speed: 1, tackle: 1, awareness: 1.5 },
   SS: { coverage: 1.5, tackle: 1.5, strength: 1 },

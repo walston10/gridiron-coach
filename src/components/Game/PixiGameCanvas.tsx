@@ -272,7 +272,7 @@ export const PixiGameCanvas = forwardRef<HTMLDivElement, PixiGameCanvasProps>(({
       fill: 0xffffff,
     });
 
-    const posLabel = getPositionLabel(player.position);
+    const posLabel = getPositionLabel(player.rosterPosition);
     const label = new Text({ text: posLabel, style: labelStyle });
     label.anchor.set(0.5);
     label.position.set(x, y - 1);
