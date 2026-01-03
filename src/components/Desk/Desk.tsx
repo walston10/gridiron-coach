@@ -2,22 +2,15 @@
  * Desk Component
  *
  * The main dashboard - a top-down view of the GM's desk.
- * All game management happens through interacting with desk objects.
+ * GTA-style dark aesthetic with neon accents.
  */
 
-import React, { useState, useEffect } from 'react';
-import type { GameEvent, Choice, ChoiceResult, Meters, EventSystemState } from '../../types/Events';
+import React, { useState } from 'react';
+import type { GameEvent, Choice, ChoiceResult, EventSystemState } from '../../types/Events';
 import type { Owner } from '../../types/Owner';
-import { DeskInfoBar } from './DeskInfoBar';
 import { DeskMeters } from './DeskMeters';
 import { DeskOwnerPhoto } from './DeskOwnerPhoto';
-import { DeskPhone } from './DeskPhone';
-import { DeskComputer } from './DeskComputer';
-import { DeskFiles } from './DeskFiles';
-import { DeskNewspaper } from './DeskNewspaper';
 import { DeskCalendar } from './DeskCalendar';
-import { DeskDoor } from './DeskDoor';
-import { DeskWhiskey } from './DeskWhiskey';
 import { EventModal } from '../Modals/EventModal';
 import { OwnerModal } from '../Modals/OwnerModal';
 import { ComputerModal } from '../Modals/ComputerModal';
@@ -44,63 +37,17 @@ function getEventTriggerObject(event: GameEvent): EventTriggerObject {
   }
 }
 
-// Visual state based on game situation
-type DeskMood = 'calm' | 'tense' | 'investigation' | 'winning' | 'losing';
-
-function getDeskMood(state: EventSystemState, record: { wins: number; losses: number }): DeskMood {
-  if (state.hidden.heat >= 50) return 'investigation';
-  if (state.hidden.heat >= 30) return 'tense';
-  if (state.hidden.ownerPatience < 40) return 'losing';
-  if (record.wins >= 3 && record.wins > record.losses) return 'winning';
-  return 'calm';
-}
-
-const MOOD_STYLES: Record<DeskMood, { bg: string; overlay: string; ambientClass: string }> = {
-  calm: {
-    bg: 'from-amber-950/20 via-stone-900 to-stone-950',
-    overlay: 'bg-amber-500/5',
-    ambientClass: 'shadow-amber-900/20',
-  },
-  tense: {
-    bg: 'from-orange-950/30 via-stone-900 to-stone-950',
-    overlay: 'bg-orange-500/10',
-    ambientClass: 'shadow-orange-900/30',
-  },
-  investigation: {
-    bg: 'from-red-950/40 via-stone-950 to-black',
-    overlay: 'bg-red-500/10',
-    ambientClass: 'shadow-red-900/40',
-  },
-  winning: {
-    bg: 'from-amber-900/30 via-stone-800 to-stone-900',
-    overlay: 'bg-amber-400/10',
-    ambientClass: 'shadow-amber-500/30',
-  },
-  losing: {
-    bg: 'from-slate-950 via-stone-950 to-black',
-    overlay: 'bg-slate-500/5',
-    ambientClass: 'shadow-slate-900/50',
-  },
-};
-
 export interface DeskProps {
-  // Game state
   eventState: EventSystemState;
   owner: Owner;
   record: { wins: number; losses: number };
   teamName: string;
-
-  // Current event
   currentEvent: GameEvent | null;
   lastResult: ChoiceResult | null;
-
-  // Actions
   onSelectEvent: () => void;
   onMakeChoice: (choice: Choice) => void;
   onAdvanceDay: () => void;
   onDismissResult: () => void;
-
-  // Optional: navigation to game
   onStartGame?: () => void;
 }
 
@@ -111,35 +58,23 @@ export const Desk: React.FC<DeskProps> = ({
   teamName,
   currentEvent,
   lastResult,
-  onSelectEvent,
   onMakeChoice,
   onAdvanceDay,
   onDismissResult,
   onStartGame,
+  onSelectEvent,
 }) => {
-  // Modal states
   const [showOwnerModal, setShowOwnerModal] = useState(false);
   const [showComputerModal, setShowComputerModal] = useState(false);
   const [showFilesModal, setShowFilesModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
 
-  // Determine what's triggering
   const triggerObject = currentEvent ? getEventTriggerObject(currentEvent) : null;
-  const deskMood = getDeskMood(eventState, record);
-  const moodStyle = MOOD_STYLES[deskMood];
-
-  // Calculate stress level for whiskey glass (0-100)
-  const stressLevel = Math.min(100, eventState.hidden.heat + (100 - eventState.hidden.ownerPatience) / 2);
+  const isGameDay = eventState.currentDay === 'SUNDAY';
 
   // Handle clicking on objects with pending events
-  const handlePhoneClick = () => {
-    if (triggerObject === 'phone' && currentEvent) {
-      setShowEventModal(true);
-    }
-  };
-
-  const handleDoorClick = () => {
-    if (triggerObject === 'door' && currentEvent) {
+  const handleEventTrigger = () => {
+    if (currentEvent) {
       setShowEventModal(true);
     }
   };
@@ -152,51 +87,83 @@ export const Desk: React.FC<DeskProps> = ({
     }
   };
 
-  const handleNewspaperClick = () => {
-    if (triggerObject === 'newspaper' && currentEvent) {
-      setShowEventModal(true);
-    }
-  };
-
-  // Handle choice made in event modal
   const handleChoice = (choice: Choice) => {
     onMakeChoice(choice);
-    // Modal stays open to show result
   };
 
-  // Handle continuing after result
   const handleContinue = () => {
     setShowEventModal(false);
     onDismissResult();
   };
 
-  // Handle advancing day
   const handleAdvanceDay = () => {
     onAdvanceDay();
-    // This might trigger a new event
     onSelectEvent();
   };
 
-  // Check if it's game day
-  const isGameDay = eventState.currentDay === 'SUNDAY';
+  // Generate headline
+  const headline = currentEvent
+    ? currentEvent.title.toUpperCase()
+    : eventState.hidden.heat >= 50
+    ? 'SOURCES: INVESTIGATION LOOMS'
+    : eventState.hidden.ownerPatience < 30
+    ? 'COACH ON THE HOT SEAT?'
+    : `WEEK ${eventState.currentWeek} UNDERWAY`;
 
   return (
-    <div className={`relative w-full h-screen bg-gradient-to-b ${moodStyle.bg} overflow-hidden`}>
-      {/* Ambient overlay */}
-      <div className={`absolute inset-0 ${moodStyle.overlay} pointer-events-none`} />
-
-      {/* Wood grain texture overlay */}
+    <div className="relative w-full h-screen bg-stone-950 overflow-hidden">
+      {/* Dark wood desk surface */}
       <div
-        className="absolute inset-0 opacity-10 pointer-events-none"
+        className="absolute inset-0"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+          background: `
+            linear-gradient(180deg,
+              #1a1512 0%,
+              #231c17 20%,
+              #2a211a 50%,
+              #1f1914 80%,
+              #0f0c0a 100%
+            )
+          `,
         }}
       />
 
-      {/* Main desk layout */}
-      <div className="relative h-full flex flex-col p-4 md:p-8">
-        {/* Top row - Info bar and owner photo */}
-        <div className="flex justify-between items-start mb-6">
+      {/* Subtle wood grain texture */}
+      <div
+        className="absolute inset-0 opacity-[0.15]"
+        style={{
+          backgroundImage: `
+            repeating-linear-gradient(
+              90deg,
+              transparent 0px,
+              rgba(139, 90, 43, 0.1) 1px,
+              transparent 2px,
+              transparent 20px
+            ),
+            repeating-linear-gradient(
+              85deg,
+              transparent 0px,
+              rgba(101, 67, 33, 0.08) 1px,
+              transparent 3px,
+              transparent 40px
+            )
+          `,
+        }}
+      />
+
+      {/* Desk lamp glow (top-left) */}
+      <div
+        className="absolute -top-20 -left-20 w-96 h-96 rounded-full opacity-30"
+        style={{
+          background: 'radial-gradient(circle, rgba(255,180,100,0.3) 0%, transparent 70%)',
+        }}
+      />
+
+      {/* Main layout */}
+      <div className="relative h-full flex flex-col p-6">
+        {/* Top bar - Owner, Team info, Record */}
+        <div className="flex justify-between items-start mb-4 z-10">
+          {/* Owner photo */}
           <DeskOwnerPhoto
             owner={owner}
             patience={eventState.hidden.ownerPatience}
@@ -204,73 +171,136 @@ export const Desk: React.FC<DeskProps> = ({
             onClick={handleOwnerClick}
           />
 
-          {/* Door/Window area (background) */}
-          <DeskDoor
-            hasVisitor={triggerObject === 'door'}
-            visitorType={currentEvent?.character}
-            onClick={handleDoorClick}
-          />
+          {/* Center - Event/Visitor notification */}
+          {currentEvent && triggerObject !== 'owner' && (
+            <button
+              onClick={handleEventTrigger}
+              className="px-6 py-3 bg-gradient-to-r from-amber-600 to-orange-600
+                         rounded-sm text-white font-black uppercase tracking-wider
+                         shadow-lg shadow-orange-900/50 hover:from-amber-500 hover:to-orange-500
+                         transform hover:scale-105 transition-all animate-pulse"
+            >
+              <span className="text-sm opacity-80">
+                {triggerObject === 'phone' ? '📞 INCOMING CALL' : '🚪 VISITOR'}
+              </span>
+              <div className="text-lg">{currentEvent.character.replace('_', ' ')}</div>
+            </button>
+          )}
 
-          <DeskInfoBar
-            week={eventState.currentWeek}
-            day={eventState.currentDay}
-            teamName={teamName}
-            record={record}
-            slushFund={eventState.hidden.slushFund}
-          />
+          {/* Team info - right side */}
+          <div className="text-right">
+            <div className="text-amber-500/60 text-xs font-bold tracking-widest">
+              WEEK {eventState.currentWeek} — {eventState.currentDay}
+            </div>
+            <div className="text-white font-black text-2xl tracking-tight">
+              {teamName} <span className="text-amber-500">{record.wins}-{record.losses}</span>
+            </div>
+            <div className="text-emerald-400 text-sm font-mono">
+              SLUSH FUND <span className="font-bold">${eventState.hidden.slushFund.toLocaleString()}</span>
+            </div>
+          </div>
         </div>
 
-        {/* Desk surface */}
-        <div
-          className={`flex-1 relative bg-gradient-to-br from-stone-800 via-stone-900 to-stone-950
-                      rounded-lg border border-stone-700/50 shadow-2xl ${moodStyle.ambientClass}
-                      p-6 md:p-8`}
-        >
-          {/* Desk objects layout */}
-          <div className="h-full grid grid-cols-12 grid-rows-6 gap-4">
-            {/* Top row of desk - Phone, Computer, Files */}
-            <div className="col-span-3 row-span-2">
-              <DeskPhone
-                isRinging={triggerObject === 'phone'}
-                onClick={handlePhoneClick}
-              />
+        {/* Main desk area */}
+        <div className="flex-1 flex gap-6">
+          {/* Left side - Newspaper & objects */}
+          <div className="flex-1 flex flex-col gap-4">
+            {/* Newspaper */}
+            <div
+              className="flex-1 relative rounded-sm overflow-hidden"
+              style={{
+                background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
+                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3)',
+              }}
+            >
+              <div className="absolute inset-0 border border-stone-700/30" />
+              <div className="p-4 h-full flex flex-col">
+                {/* Newspaper header */}
+                <div className="flex items-center justify-between border-b border-amber-900/30 pb-2 mb-3">
+                  <div className="text-amber-600/80 font-serif text-sm font-bold tracking-[0.2em]">
+                    THE SPORTING TRIBUNE
+                  </div>
+                  <div className="text-stone-600 text-xs">EST. 1923</div>
+                </div>
+
+                {/* Headline */}
+                <div className="flex-1 flex items-center justify-center">
+                  <h1 className="text-stone-300 font-black text-2xl md:text-3xl text-center leading-tight font-serif">
+                    {headline}
+                  </h1>
+                </div>
+
+                {/* Fake article lines */}
+                <div className="space-y-2 opacity-30">
+                  <div className="h-1 bg-stone-600 w-full" />
+                  <div className="h-1 bg-stone-600 w-11/12" />
+                  <div className="h-1 bg-stone-600 w-full" />
+                  <div className="flex gap-4">
+                    <div className="h-1 bg-stone-600 w-1/2" />
+                    <div className="h-1 bg-stone-600 w-1/3" />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="col-span-4 row-span-2">
-              <DeskComputer onClick={() => setShowComputerModal(true)} />
-            </div>
+            {/* Bottom row - Computer and Files buttons */}
+            <div className="flex gap-4">
+              {/* Computer */}
+              <button
+                onClick={() => setShowComputerModal(true)}
+                className="flex-1 p-4 rounded-sm transition-all hover:scale-[1.02]"
+                style={{
+                  background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-8 bg-cyan-500 rounded-sm flex items-center justify-center">
+                    <div className="w-6 h-4 bg-cyan-900 rounded-sm" />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-white font-bold text-sm">COMPUTER</div>
+                    <div className="text-stone-500 text-xs">Roster • Schedule • Standings</div>
+                  </div>
+                </div>
+              </button>
 
-            <div className="col-span-3 row-span-2">
-              <DeskFiles onClick={() => setShowFilesModal(true)} />
+              {/* Files */}
+              <button
+                onClick={() => setShowFilesModal(true)}
+                className="flex-1 p-4 rounded-sm transition-all hover:scale-[1.02]"
+                style={{
+                  background: 'linear-gradient(135deg, #422006 0%, #27170a 100%)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)',
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-10 bg-amber-600 rounded-sm relative">
+                    <div className="absolute top-1 left-1 right-1 h-2 bg-red-600 rounded-sm text-[6px] text-white font-bold flex items-center justify-center">
+                      COACH
+                    </div>
+                  </div>
+                  <div className="text-left">
+                    <div className="text-white font-bold text-sm">FILES</div>
+                    <div className="text-stone-500 text-xs">Playbook • Scouting • Contracts</div>
+                  </div>
+                </div>
+              </button>
             </div>
+          </div>
 
-            {/* Meters on the right */}
-            <div className="col-span-2 row-span-4 row-start-1">
-              <DeskMeters meters={eventState.meters} />
-            </div>
+          {/* Right side - Meters and Calendar */}
+          <div className="w-72 flex flex-col gap-4">
+            {/* Meters panel */}
+            <DeskMeters meters={eventState.meters} />
 
-            {/* Middle row - Newspaper */}
-            <div className="col-span-6 row-span-2 col-start-1 row-start-3">
-              <DeskNewspaper
-                headline={getHeadline(currentEvent, eventState, record)}
-                hasEvent={triggerObject === 'newspaper'}
-                onClick={handleNewspaperClick}
-              />
-            </div>
-
-            {/* Bottom row - Whiskey and Calendar */}
-            <div className="col-span-2 row-span-2 row-start-5">
-              <DeskWhiskey fillLevel={stressLevel} />
-            </div>
-
-            <div className="col-span-4 row-span-2 row-start-5">
-              <DeskCalendar
-                currentWeek={eventState.currentWeek}
-                currentDay={eventState.currentDay}
-                isGameDay={isGameDay}
-                onAdvance={isGameDay ? onStartGame : handleAdvanceDay}
-              />
-            </div>
+            {/* Calendar / Day advance */}
+            <DeskCalendar
+              currentWeek={eventState.currentWeek}
+              currentDay={eventState.currentDay}
+              isGameDay={isGameDay}
+              onAdvance={isGameDay ? onStartGame : handleAdvanceDay}
+            />
           </div>
         </div>
       </div>
@@ -297,56 +327,18 @@ export const Desk: React.FC<DeskProps> = ({
       )}
 
       {showComputerModal && (
-        <ComputerModal
-          onClose={() => setShowComputerModal(false)}
-        />
+        <ComputerModal onClose={() => setShowComputerModal(false)} />
       )}
 
       {showFilesModal && (
-        <FilesModal
-          onClose={() => setShowFilesModal(false)}
-        />
+        <FilesModal onClose={() => setShowFilesModal(false)} />
       )}
 
       {lastResult && !showEventModal && (
-        <ResultModal
-          result={lastResult}
-          onContinue={onDismissResult}
-        />
+        <ResultModal result={lastResult} onContinue={onDismissResult} />
       )}
     </div>
   );
 };
-
-// Helper to generate newspaper headlines
-function getHeadline(
-  event: GameEvent | null,
-  state: EventSystemState,
-  record: { wins: number; losses: number }
-): string {
-  if (event) {
-    // Event-specific headlines
-    return event.title.toUpperCase();
-  }
-
-  // Context-based generic headlines
-  if (state.hidden.heat >= 75) {
-    return 'FEDS CIRCLING PROGRAM';
-  }
-  if (state.hidden.heat >= 50) {
-    return 'SOURCES: INVESTIGATION LOOMS';
-  }
-  if (state.hidden.ownerPatience < 30) {
-    return 'COACH ON THE HOT SEAT?';
-  }
-  if (record.wins > record.losses && record.wins >= 3) {
-    return 'TEAM SURGING TOWARD PLAYOFFS';
-  }
-  if (record.losses > record.wins && record.losses >= 3) {
-    return 'SEASON SPIRALING OUT OF CONTROL';
-  }
-
-  return `WEEK ${state.currentWeek} PREP CONTINUES`;
-}
 
 export default Desk;

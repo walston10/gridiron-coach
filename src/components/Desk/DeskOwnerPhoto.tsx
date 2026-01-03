@@ -1,8 +1,7 @@
 /**
  * Desk Owner Photo
  *
- * Framed photo of the owner on the wall/desk.
- * Shows current mood and can be clicked for status.
+ * Framed photo of the owner - GTA-style portrait frame.
  */
 
 import React from 'react';
@@ -16,19 +15,12 @@ interface DeskOwnerPhotoProps {
   onClick: () => void;
 }
 
-const MOOD_STYLES: Record<string, { emoji: string; borderColor: string; bgTint: string }> = {
-  Happy: { emoji: '😊', borderColor: 'border-amber-500', bgTint: 'from-amber-900/30' },
-  Content: { emoji: '🙂', borderColor: 'border-stone-500', bgTint: 'from-stone-800/30' },
-  Neutral: { emoji: '😐', borderColor: 'border-stone-600', bgTint: 'from-stone-900/30' },
-  Concerned: { emoji: '😟', borderColor: 'border-orange-600', bgTint: 'from-orange-900/30' },
-  Angry: { emoji: '😠', borderColor: 'border-red-600', bgTint: 'from-red-900/30' },
-  Furious: { emoji: '🤬', borderColor: 'border-red-700', bgTint: 'from-red-950/50' },
-};
-
-const OWNER_COLORS: Record<string, string> = {
-  tex: 'bg-amber-800',
-  hale: 'bg-slate-700',
-  kessler: 'bg-stone-700',
+const MOOD_STYLES: Record<string, { emoji: string; frameColor: string; label: string }> = {
+  ECSTATIC: { emoji: '😊', frameColor: '#3b82f6', label: 'ECSTATIC' },
+  PLEASED: { emoji: '🙂', frameColor: '#22c55e', label: 'PLEASED' },
+  NEUTRAL: { emoji: '😐', frameColor: '#eab308', label: 'NEUTRAL' },
+  IMPATIENT: { emoji: '😟', frameColor: '#f97316', label: 'IMPATIENT' },
+  FURIOUS: { emoji: '🤬', frameColor: '#ef4444', label: 'FURIOUS' },
 };
 
 export const DeskOwnerPhoto: React.FC<DeskOwnerPhotoProps> = ({
@@ -38,59 +30,74 @@ export const DeskOwnerPhoto: React.FC<DeskOwnerPhotoProps> = ({
   onClick,
 }) => {
   const mood = getOwnerMood(patience);
-  const moodStyle = MOOD_STYLES[mood] || MOOD_STYLES.Neutral;
-  const ownerColor = OWNER_COLORS[owner.id] || 'bg-stone-700';
+  const moodStyle = MOOD_STYLES[mood] || MOOD_STYLES.NEUTRAL;
 
   return (
     <button
       onClick={onClick}
       className={`
-        relative w-24 h-28 rounded-sm overflow-hidden cursor-pointer
+        relative w-20 h-24 cursor-pointer
         transition-all duration-300 hover:scale-105
-        ${hasEvent ? 'animate-pulse ring-2 ring-amber-400' : ''}
+        ${hasEvent ? 'animate-pulse' : ''}
       `}
     >
       {/* Frame */}
-      <div className={`absolute inset-0 border-4 ${moodStyle.borderColor} rounded-sm`} />
+      <div
+        className="absolute inset-0 rounded-sm"
+        style={{
+          background: `linear-gradient(135deg, ${moodStyle.frameColor}40 0%, ${moodStyle.frameColor}80 100%)`,
+          boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 ${moodStyle.frameColor}40`,
+        }}
+      />
 
-      {/* Photo background */}
-      <div className={`absolute inset-1 ${ownerColor} bg-gradient-to-b ${moodStyle.bgTint} to-transparent`}>
-        {/* Placeholder portrait */}
-        <div className="h-full flex flex-col items-center justify-center p-2">
-          {/* Mood emoji */}
-          <div className="text-3xl mb-1">{moodStyle.emoji}</div>
+      {/* Inner photo area */}
+      <div
+        className="absolute inset-1 rounded-sm flex flex-col items-center justify-center"
+        style={{
+          background: 'linear-gradient(135deg, #292524 0%, #1c1917 100%)',
+        }}
+      >
+        {/* Mood emoji */}
+        <div className="text-2xl mb-1">{moodStyle.emoji}</div>
 
-          {/* Owner name */}
-          <div className="text-white text-xs font-bold text-center leading-tight">
-            {owner.name.split(' ')[0]}
-          </div>
+        {/* Owner name */}
+        <div className="text-white text-xs font-black tracking-tight">
+          {owner.name.split(' ')[0]}
+        </div>
 
-          {/* Mood label */}
-          <div className="text-stone-400 text-[10px] uppercase mt-0.5">
-            {mood}
-          </div>
+        {/* Mood label */}
+        <div
+          className="text-[9px] font-bold uppercase mt-0.5"
+          style={{ color: moodStyle.frameColor }}
+        >
+          {moodStyle.label}
         </div>
       </div>
 
-      {/* Event indicator glow */}
+      {/* Event glow */}
       {hasEvent && (
-        <div className="absolute inset-0 bg-amber-400/20 animate-pulse" />
+        <div
+          className="absolute -inset-1 rounded-sm animate-pulse pointer-events-none"
+          style={{
+            boxShadow: `0 0 20px ${moodStyle.frameColor}60`,
+          }}
+        />
       )}
 
-      {/* Cracked frame effect when owner is furious */}
+      {/* Cracked frame when furious */}
       {patience < 20 && (
-        <div className="absolute inset-0 pointer-events-none">
-          <svg className="w-full h-full" viewBox="0 0 100 120">
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-sm">
+          <svg className="w-full h-full opacity-50" viewBox="0 0 80 96">
             <path
-              d="M10,0 L15,30 L5,50 L20,80 L10,120"
+              d="M8,0 L12,24 L4,40 L16,64 L8,96"
               fill="none"
-              stroke="rgba(255,255,255,0.3)"
+              stroke="rgba(255,100,100,0.6)"
               strokeWidth="1"
             />
             <path
-              d="M90,0 L85,40 L95,70 L80,100 L90,120"
+              d="M72,0 L68,32 L76,56 L64,80 L72,96"
               fill="none"
-              stroke="rgba(255,255,255,0.3)"
+              stroke="rgba(255,100,100,0.6)"
               strokeWidth="1"
             />
           </svg>
