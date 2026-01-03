@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Application, Graphics, Container, Text, TextStyle, Sprite, RenderTexture } from 'pixi.js';
+import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
 import type { LiveGame } from '../../types';
 
 interface PixiGameCanvasProps {
@@ -8,173 +8,117 @@ interface PixiGameCanvasProps {
   height?: number;
 }
 
-// Team color schemes (helmet, jersey, pants)
-const TEAM_COLORS = {
+// Team color palettes (using hex numbers for Pixi)
+const TEAM_PALETTES = {
   home: {
-    helmet: 0x1e3a8a,    // Navy blue
-    jersey: 0x3b82f6,    // Royal blue
-    pants: 0xf0f0f0,     // White
+    helmet: 0x1e3a8a,           // Navy blue
+    helmetHighlight: 0x3b82f6,
+    jersey: 0x2563eb,           // Royal blue
+    jerseySecondary: 0xffffff,
+    pants: 0xf0f0f0,
+    skin: 0xd4a574,
   },
   away: {
-    helmet: 0x991b1b,    // Dark red
-    jersey: 0xef4444,    // Red
-    pants: 0x444444,     // Dark gray
+    helmet: 0x991b1b,           // Dark red
+    helmetHighlight: 0xdc2626,
+    jersey: 0xef4444,           // Red
+    jerseySecondary: 0xffffff,
+    pants: 0x374151,
+    skin: 0xd4a574,
   },
 };
-const BALL_CARRIER_GLOW = 0xfbbf24;
 
-// Darken a color by a factor
-const darkenColor = (color: number, factor: number): number => {
-  const r = Math.floor(((color >> 16) & 0xff) * factor);
-  const g = Math.floor(((color >> 8) & 0xff) * factor);
-  const b = Math.floor((color & 0xff) * factor);
-  return (r << 16) | (g << 8) | b;
-};
+// Animation state for players
+interface PlayerAnimState {
+  legPhase: number;
+  bobPhase: number;
+  lastX: number;
+  lastY: number;
+  isMoving: boolean;
+}
 
-// Create a player texture (called once per team color combo)
-const createPlayerTexture = (
-  app: Application,
-  helmetColor: number,
-  jerseyColor: number,
-  pantsColor: number,
-  hasBall: boolean = false
-): RenderTexture => {
-  const p = 3; // pixel size
-  const spriteWidth = p * 12;
-  const spriteHeight = p * 14;
+// Draw a vector player using Pixi Graphics
+function drawVectorPlayer(
+  graphics: Graphics,
+  x: number,
+  y: number,
+  scale: number,
+  palette: typeof TEAM_PALETTES.home,
+  animState: PlayerAnimState,
+  isBallCarrier: boolean = false
+) {
+  const baseSize = 14 * scale;
 
-  const graphics = new Graphics();
-
-  // Darker variants for shading
-  const helmetDark = darkenColor(helmetColor, 0.7);
-  const jerseyDark = darkenColor(jerseyColor, 0.7);
-  const pantsDark = darkenColor(pantsColor, 0.7);
-  const skin = 0xd4a574;
-  const skinDark = 0xb8956a;
-  const facemask = 0x555555;
-  const black = 0x111111;
-
-  const startX = p * 2; // offset to center in texture
-  const startY = p * 1;
+  // Animation values
+  const bobOffset = animState.isMoving ? Math.sin(animState.bobPhase) * 2 * scale : 0;
+  const legSwing = animState.isMoving ? Math.sin(animState.legPhase) * 0.35 : 0;
 
   // Ball carrier glow effect
-  if (hasBall) {
-    graphics.rect(0, 0, spriteWidth, spriteHeight);
-    graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.4 });
-    graphics.rect(p * 1, p * 1, spriteWidth - p * 2, spriteHeight - p * 2);
-    graphics.fill({ color: BALL_CARRIER_GLOW, alpha: 0.3 });
+  if (isBallCarrier) {
+    graphics.circle(x, y - baseSize * 0.3, baseSize * 2);
+    graphics.fill({ color: 0xfbbf24, alpha: 0.3 });
+    graphics.circle(x, y - baseSize * 0.3, baseSize * 1.5);
+    graphics.fill({ color: 0xfbbf24, alpha: 0.2 });
   }
 
-  // Shadow under player
-  graphics.ellipse(spriteWidth / 2, spriteHeight - p * 1.5, p * 4, p * 1.5);
-  graphics.fill({ color: 0x000000, alpha: 0.5 });
+  // Shadow on ground
+  graphics.ellipse(x, y + baseSize * 0.4, baseSize * 0.9, baseSize * 0.25);
+  graphics.fill({ color: 0x000000, alpha: 0.4 });
 
-  // Helper to draw pixel
-  const px = (col: number, row: number, color: number) => {
-    graphics.rect(startX + col * p, startY + row * p, p, p);
-    graphics.fill(color);
-  };
+  // Legs
+  const legWidth = baseSize * 0.22;
+  const legHeight = baseSize * 0.45;
+  const legSpacing = baseSize * 0.25;
+  const legY = y + baseSize * 0.1 - bobOffset;
 
-  // Row 0: Helmet top
-  px(0, 0, helmetDark);
-  px(1, 0, helmetColor);
-  px(2, 0, helmetColor);
-  px(3, 0, helmetDark);
+  // Left leg (simplified - no rotation in Pixi version for performance)
+  const leftLegX = x - legSpacing - legWidth / 2 + Math.sin(legSwing) * 3;
+  graphics.roundRect(leftLegX, legY, legWidth, legHeight, legWidth * 0.3);
+  graphics.fill(palette.pants);
 
-  // Row 1: Helmet with stripe
-  px(-1, 1, helmetDark);
-  px(0, 1, helmetColor);
-  px(1, 1, 0xffffff);
-  px(2, 1, 0xffffff);
-  px(3, 1, helmetColor);
-  px(4, 1, helmetDark);
+  // Right leg
+  const rightLegX = x + legSpacing - legWidth / 2 - Math.sin(legSwing) * 3;
+  graphics.roundRect(rightLegX, legY, legWidth, legHeight, legWidth * 0.3);
+  graphics.fill(palette.pants);
 
-  // Row 2: Helmet with facemask
-  px(-1, 2, helmetColor);
-  px(0, 2, helmetColor);
-  px(1, 2, helmetColor);
-  px(2, 2, facemask);
-  px(3, 2, skin);
-  px(4, 2, facemask);
+  // Body (trapezoid approximated with rect)
+  const bodyWidth = baseSize * 0.85;
+  const bodyHeight = baseSize * 0.55;
+  const bodyY = y - baseSize * 0.35 - bobOffset;
 
-  // Row 3: Face/chin
-  px(0, 3, helmetDark);
-  px(1, 3, facemask);
-  px(2, 3, skin);
-  px(3, 3, skinDark);
+  graphics.roundRect(x - bodyWidth / 2, bodyY, bodyWidth, bodyHeight, 3);
+  graphics.fill(palette.jersey);
 
-  // Row 4: Neck/shoulders
-  px(-1, 4, jerseyColor);
-  px(0, 4, jerseyColor);
-  px(1, 4, skin);
-  px(2, 4, jerseyColor);
-  px(3, 4, jerseyColor);
-  px(4, 4, jerseyDark);
+  // Shoulder pad arc
+  graphics.moveTo(x - bodyWidth / 2 - 2, bodyY + 4);
+  graphics.quadraticCurveTo(x, bodyY - 4, x + bodyWidth / 2 + 2, bodyY + 4);
+  graphics.stroke({ width: Math.max(1.5, 2 * scale), color: palette.jerseySecondary });
 
-  // Row 5: Jersey/torso
-  px(-2, 5, jerseyColor);
-  px(-1, 5, jerseyColor);
-  px(0, 5, jerseyColor);
-  px(1, 5, jerseyColor);
-  px(2, 5, jerseyColor);
-  px(3, 5, jerseyDark);
-  px(4, 5, jerseyDark);
-  px(5, 5, skin);
+  // Helmet
+  const helmetWidth = baseSize * 0.75;
+  const helmetHeight = baseSize * 0.65;
+  const helmetY = y - baseSize * 0.85 - bobOffset;
 
-  // Row 6: Jersey lower
-  px(-2, 6, skin);
-  px(-1, 6, jerseyColor);
-  px(0, 6, jerseyColor);
-  px(1, 6, jerseyColor);
-  px(2, 6, jerseyDark);
-  px(3, 6, jerseyDark);
-  px(5, 6, skin);
+  graphics.ellipse(x, helmetY, helmetWidth / 2, helmetHeight / 2);
+  graphics.fill(palette.helmet);
 
-  // Row 7: Lower torso
-  px(-1, 7, jerseyDark);
-  px(0, 7, jerseyColor);
-  px(1, 7, jerseyColor);
-  px(2, 7, jerseyDark);
-  px(3, 7, jerseyDark);
+  // Helmet stripe
+  graphics.moveTo(x, helmetY - helmetHeight / 2);
+  graphics.lineTo(x, helmetY + helmetHeight / 2 - 3 * scale);
+  graphics.stroke({ width: Math.max(1, 2 * scale), color: palette.jerseySecondary });
 
-  // Row 8: Belt
-  px(0, 8, black);
-  px(1, 8, black);
-  px(2, 8, black);
-  px(3, 8, black);
+  // Facemask
+  const faceX = x + helmetWidth * 0.35;
+  const faceY = helmetY + helmetHeight * 0.1;
+  graphics.moveTo(faceX - 4 * scale, faceY - 3 * scale);
+  graphics.lineTo(faceX + 3 * scale, faceY - 3 * scale);
+  graphics.moveTo(faceX - 4 * scale, faceY + 2 * scale);
+  graphics.lineTo(faceX + 3 * scale, faceY + 2 * scale);
+  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: 0x555555 });
 
-  // Row 9: Pants upper
-  px(-1, 9, pantsColor);
-  px(0, 9, pantsColor);
-  px(1, 9, pantsDark);
-  px(2, 9, pantsColor);
-  px(3, 9, pantsColor);
-
-  // Row 10: Pants lower
-  px(-1, 10, pantsColor);
-  px(0, 10, pantsDark);
-  px(2, 10, pantsDark);
-  px(3, 10, pantsColor);
-
-  // Row 11: Cleats
-  px(-1, 11, black);
-  px(0, 11, black);
-  px(2, 11, black);
-  px(3, 11, black);
-
-  // Create texture from graphics
-  const texture = RenderTexture.create({ width: spriteWidth, height: spriteHeight });
-  app.renderer.render({ container: graphics, target: texture });
-  graphics.destroy();
-
-  return texture;
-};
-
-interface TextureCache {
-  home: RenderTexture;
-  away: RenderTexture;
-  homeBall: RenderTexture;
-  awayBall: RenderTexture;
+  // Helmet outline
+  graphics.ellipse(x, helmetY, helmetWidth / 2, helmetHeight / 2);
+  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: 0x000000, alpha: 0.3 });
 }
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
@@ -186,7 +130,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   const appRef = useRef<Application | null>(null);
   const fieldContainerRef = useRef<Container | null>(null);
   const dynamicContainerRef = useRef<Container | null>(null);
-  const textureCacheRef = useRef<TextureCache | null>(null);
+  const animStatesRef = useRef<Map<string, PlayerAnimState>>(new Map());
   const [isReady, setIsReady] = useState(false);
 
   const ENGINE_WIDTH = 160;
@@ -198,7 +142,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
   const engineYToYardLine = (y: number) => Math.floor(y / 3) - 10;
 
-  // Initialize Pixi and create texture cache
+  // Initialize Pixi
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -232,15 +176,6 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
         appRef.current = app;
 
-        // Create texture cache for player sprites
-        const textureCache: TextureCache = {
-          home: createPlayerTexture(app, TEAM_COLORS.home.helmet, TEAM_COLORS.home.jersey, TEAM_COLORS.home.pants, false),
-          away: createPlayerTexture(app, TEAM_COLORS.away.helmet, TEAM_COLORS.away.jersey, TEAM_COLORS.away.pants, false),
-          homeBall: createPlayerTexture(app, TEAM_COLORS.home.helmet, TEAM_COLORS.home.jersey, TEAM_COLORS.home.pants, true),
-          awayBall: createPlayerTexture(app, TEAM_COLORS.away.helmet, TEAM_COLORS.away.jersey, TEAM_COLORS.away.pants, true),
-        };
-        textureCacheRef.current = textureCache;
-
         // Containers for layering
         const fieldContainer = new Container();
         const dynamicContainer = new Container();
@@ -262,13 +197,6 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
     return () => {
       cancelled = true;
-      if (textureCacheRef.current) {
-        textureCacheRef.current.home.destroy(true);
-        textureCacheRef.current.away.destroy(true);
-        textureCacheRef.current.homeBall.destroy(true);
-        textureCacheRef.current.awayBall.destroy(true);
-        textureCacheRef.current = null;
-      }
       if (appRef.current) {
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
@@ -281,11 +209,11 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
   // Render game
   useEffect(() => {
-    if (!appRef.current || !fieldContainerRef.current || !dynamicContainerRef.current || !textureCacheRef.current) return;
+    if (!appRef.current || !fieldContainerRef.current || !dynamicContainerRef.current) return;
 
     const fieldContainer = fieldContainerRef.current;
     const dynamicContainer = dynamicContainerRef.current;
-    const textureCache = textureCacheRef.current;
+    const animStates = animStatesRef.current;
 
     // Clear containers
     fieldContainer.removeChildren();
@@ -482,38 +410,89 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     }
 
     // Determine team assignments
-    const offenseTeam = game.possession;
-    const defenseTeam = game.possession === 'home' ? 'away' : 'home';
+    const offenseTeam = game.possession || 'home';
+    const defenseTeam = offenseTeam === 'home' ? 'away' : 'home';
+
+    // Animation constants
+    const RUN_CYCLE_SPEED = 0.4;
+    const BOB_CYCLE_SPEED = 0.3;
 
     // Sort players by depth (far first for proper layering)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
-    // Draw players using cached sprite textures
+    // Create a single Graphics object for all players (more efficient)
+    const playerGraphics = new Graphics();
+
+    // Draw players using vector graphics
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
 
-      const isOffense = player.role === 'offense';
-      const team = isOffense ? offenseTeam : defenseTeam;
-      const texture = textureCache[team];
+      // Skip ball carrier (drawn on top separately)
+      if (game.ballCarrier && player.id === game.ballCarrier.playerId) return;
 
-      const sprite = new Sprite(texture);
-      sprite.anchor.set(0.5);
-      sprite.position.set(pos.x, pos.y);
-      sprite.scale.set(pos.scale);
-      dynamicContainer.addChild(sprite);
+      const isOffense = player.role === 'offense';
+      const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
+
+      // Get or create animation state
+      let animState = animStates.get(player.id);
+      if (!animState) {
+        animState = {
+          legPhase: Math.random() * Math.PI * 2,
+          bobPhase: Math.random() * Math.PI * 2,
+          lastX: player.x,
+          lastY: player.y,
+          isMoving: false,
+        };
+        animStates.set(player.id, animState);
+      }
+
+      // Check if moving
+      const dx = player.x - animState.lastX;
+      const dy = player.y - animState.lastY;
+      const moved = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+      animState.isMoving = moved;
+      animState.lastX = player.x;
+      animState.lastY = player.y;
+
+      if (moved) {
+        animState.legPhase += RUN_CYCLE_SPEED;
+        animState.bobPhase += BOB_CYCLE_SPEED;
+      }
+
+      // Draw the player
+      drawVectorPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, animState, false);
     });
 
-    // Draw ball carrier with glow texture
+    dynamicContainer.addChild(playerGraphics);
+
+    // Draw ball carrier on top with glow
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
-      const ballTexture = textureCache[`${offenseTeam}Ball` as keyof TextureCache];
+      const palette = TEAM_PALETTES[offenseTeam];
 
-      const sprite = new Sprite(ballTexture);
-      sprite.anchor.set(0.5);
-      sprite.position.set(pos.x, pos.y);
-      sprite.scale.set(pos.scale);
-      dynamicContainer.addChild(sprite);
+      let animState = animStates.get(game.ballCarrier.playerId);
+      if (!animState) {
+        animState = {
+          legPhase: 0,
+          bobPhase: 0,
+          lastX: game.ballCarrier.x,
+          lastY: game.ballCarrier.y,
+          isMoving: false,
+        };
+        animStates.set(game.ballCarrier.playerId, animState);
+      }
+
+      // Ball carrier always moving during play
+      if (game.state === 'PLAY_RUNNING' || game.state === 'SNAP') {
+        animState.isMoving = true;
+        animState.legPhase += RUN_CYCLE_SPEED * 1.2;
+        animState.bobPhase += BOB_CYCLE_SPEED * 1.2;
+      }
+
+      const ballCarrierGraphics = new Graphics();
+      drawVectorPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, animState, true);
+      dynamicContainer.addChild(ballCarrierGraphics);
     }
 
     // Draw ball in flight
@@ -543,22 +522,29 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       dynamicContainer.addChild(ballGraphics);
     }
 
-    // Draw handoff effect
+    // Draw handoff effect with multiple rings
     if (game.handoffEffect) {
       const pos = toScreen(game.handoffEffect.x, game.handoffEffect.y);
       const progress = game.handoffEffect.progress;
 
       const maxRadius = 60 * pos.scale;
-      const ringRadius = maxRadius * progress;
       const opacity = 1 - progress;
 
       const effectGraphics = new Graphics();
-      effectGraphics.circle(pos.x, pos.y, ringRadius);
-      effectGraphics.stroke({
-        width: Math.max(3, 6 * pos.scale * (1 - progress)),
-        color: 0xffd700,
-        alpha: opacity,
-      });
+
+      // Multiple rings for more impact
+      for (let i = 0; i < 2; i++) {
+        const ringProgress = Math.max(0, progress - i * 0.15);
+        const ringOp = Math.max(0, opacity - i * 0.3);
+        const radius = maxRadius * ringProgress;
+
+        effectGraphics.circle(pos.x, pos.y, radius);
+        effectGraphics.stroke({
+          width: Math.max(2, (5 - i * 2) * pos.scale * (1 - ringProgress)),
+          color: 0xffd700,
+          alpha: ringOp,
+        });
+      }
 
       if (progress < 0.3) {
         const innerOpacity = 1 - (progress / 0.3);

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { useCanvas } from '../../hooks/useCanvas';
 import type { LiveGame } from '../../types';
 
@@ -8,18 +8,281 @@ interface GameCanvasProps {
   height?: number;
 }
 
-// Team colors for visual distinction
-const OFFENSE_PRIMARY = '#1e3a8a'; // Navy blue
-const OFFENSE_SECONDARY = '#3b82f6'; // Light blue
-const DEFENSE_PRIMARY = '#991b1b'; // Dark red
-const DEFENSE_SECONDARY = '#ef4444'; // Light red
-const BALL_CARRIER_GLOW = '#fbbf24'; // Yellow/gold
+// Team color palettes (will be extended to use actual team colors)
+const TEAM_PALETTES = {
+  home: {
+    helmet: '#1e3a8a',     // Navy blue
+    helmetHighlight: '#3b82f6',
+    jersey: '#2563eb',     // Royal blue
+    jerseySecondary: '#ffffff',
+    pants: '#f0f0f0',
+    skin: '#d4a574',
+  },
+  away: {
+    helmet: '#991b1b',     // Dark red
+    helmetHighlight: '#dc2626',
+    jersey: '#ef4444',     // Red
+    jerseySecondary: '#ffffff',
+    pants: '#374151',
+    skin: '#d4a574',
+  },
+};
+
+const SHADOW_COLOR = 'rgba(0, 0, 0, 0.4)';
+
+// Animation state tracking (persists between frames)
+interface PlayerAnimState {
+  legPhase: number;      // 0 to 2π for leg swing cycle
+  bobPhase: number;      // 0 to 2π for body bob
+  lastX: number;
+  lastY: number;
+  isMoving: boolean;
+}
+
+// Route trail point
+interface TrailPoint {
+  x: number;
+  y: number;
+  age: number;  // frames since created
+}
+
+// Draw a vector player with smooth anti-aliased shapes
+function drawVectorPlayer(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  palette: typeof TEAM_PALETTES.home,
+  animState: PlayerAnimState,
+  isBallCarrier: boolean = false,
+  jerseyNumber?: number
+) {
+  const baseSize = 14 * scale;
+
+  // Animation values
+  const bobOffset = animState.isMoving ? Math.sin(animState.bobPhase) * 2 * scale : 0;
+  const legSwing = animState.isMoving ? Math.sin(animState.legPhase) * 0.35 : 0; // radians
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Ball carrier glow effect
+  if (isBallCarrier) {
+    const gradient = ctx.createRadialGradient(0, -baseSize * 0.3, 0, 0, -baseSize * 0.3, baseSize * 2);
+    gradient.addColorStop(0, 'rgba(251, 191, 36, 0.6)');
+    gradient.addColorStop(0.5, 'rgba(251, 191, 36, 0.2)');
+    gradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, -baseSize * 0.3, baseSize * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Shadow on ground
+  ctx.fillStyle = SHADOW_COLOR;
+  ctx.beginPath();
+  ctx.ellipse(0, baseSize * 0.4, baseSize * 0.9, baseSize * 0.25, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs (two rectangles that swing when moving)
+  const legWidth = baseSize * 0.22;
+  const legHeight = baseSize * 0.45;
+  const legSpacing = baseSize * 0.25;
+  const legY = baseSize * 0.1 - bobOffset;
+
+  ctx.fillStyle = palette.pants;
+
+  // Left leg
+  ctx.save();
+  ctx.translate(-legSpacing, legY);
+  ctx.rotate(legSwing);
+  ctx.beginPath();
+  ctx.roundRect(-legWidth / 2, 0, legWidth, legHeight, legWidth * 0.3);
+  ctx.fill();
+  ctx.restore();
+
+  // Right leg
+  ctx.save();
+  ctx.translate(legSpacing, legY);
+  ctx.rotate(-legSwing);
+  ctx.beginPath();
+  ctx.roundRect(-legWidth / 2, 0, legWidth, legHeight, legWidth * 0.3);
+  ctx.fill();
+  ctx.restore();
+
+  // Body (trapezoid with rounded corners) - shoulders wider than waist
+  const bodyTopWidth = baseSize * 0.9;
+  const bodyBottomWidth = baseSize * 0.7;
+  const bodyHeight = baseSize * 0.55;
+  const bodyY = -baseSize * 0.35 - bobOffset;
+
+  ctx.fillStyle = palette.jersey;
+  ctx.beginPath();
+  ctx.moveTo(-bodyBottomWidth / 2, bodyY + bodyHeight);
+  ctx.lineTo(-bodyTopWidth / 2, bodyY);
+  ctx.quadraticCurveTo(-bodyTopWidth / 2 - 2, bodyY - 2, -bodyTopWidth / 2 + 4, bodyY - 2);
+  ctx.lineTo(bodyTopWidth / 2 - 4, bodyY - 2);
+  ctx.quadraticCurveTo(bodyTopWidth / 2 + 2, bodyY - 2, bodyTopWidth / 2, bodyY);
+  ctx.lineTo(bodyBottomWidth / 2, bodyY + bodyHeight);
+  ctx.closePath();
+  ctx.fill();
+
+  // Shoulder pads (arc on top of body)
+  ctx.strokeStyle = palette.jerseySecondary;
+  ctx.lineWidth = Math.max(1.5, 2 * scale);
+  ctx.beginPath();
+  ctx.arc(0, bodyY + 2, bodyTopWidth / 2, Math.PI * 1.1, Math.PI * 1.9);
+  ctx.stroke();
+
+  // Jersey number (if provided)
+  if (jerseyNumber !== undefined && scale > 0.5) {
+    ctx.fillStyle = palette.jerseySecondary;
+    ctx.font = `bold ${Math.max(8, Math.floor(10 * scale))}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(jerseyNumber.toString(), 0, bodyY + bodyHeight * 0.4);
+  }
+
+  // Helmet (smooth oval with highlight)
+  const helmetWidth = baseSize * 0.75;
+  const helmetHeight = baseSize * 0.65;
+  const helmetY = -baseSize * 0.85 - bobOffset;
+
+  // Main helmet shape
+  ctx.fillStyle = palette.helmet;
+  ctx.beginPath();
+  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Helmet highlight (glossy effect)
+  const highlightGradient = ctx.createRadialGradient(
+    -helmetWidth * 0.15, helmetY - helmetHeight * 0.2, 0,
+    -helmetWidth * 0.1, helmetY - helmetHeight * 0.1, helmetWidth * 0.4
+  );
+  highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+  highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = highlightGradient;
+  ctx.beginPath();
+  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Helmet stripe
+  ctx.strokeStyle = palette.jerseySecondary;
+  ctx.lineWidth = Math.max(1, 2 * scale);
+  ctx.beginPath();
+  ctx.moveTo(0, helmetY - helmetHeight / 2);
+  ctx.lineTo(0, helmetY + helmetHeight / 2 - 3 * scale);
+  ctx.stroke();
+
+  // Facemask (gray grid)
+  ctx.strokeStyle = '#555555';
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  const faceX = helmetWidth * 0.35;
+  const faceY = helmetY + helmetHeight * 0.1;
+
+  // Horizontal bars
+  ctx.beginPath();
+  ctx.moveTo(faceX - 4 * scale, faceY - 3 * scale);
+  ctx.lineTo(faceX + 3 * scale, faceY - 3 * scale);
+  ctx.moveTo(faceX - 4 * scale, faceY + 2 * scale);
+  ctx.lineTo(faceX + 3 * scale, faceY + 2 * scale);
+  ctx.stroke();
+
+  // Helmet outline
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  ctx.beginPath();
+  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Draw route trail with gradient fade
+function drawRouteTrail(
+  ctx: CanvasRenderingContext2D,
+  trail: TrailPoint[],
+  toScreen: (x: number, y: number) => { x: number; y: number; scale: number },
+  color: string
+) {
+  if (trail.length < 2) return;
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  for (let i = 1; i < trail.length; i++) {
+    const prev = trail[i - 1];
+    const curr = trail[i];
+    const prevPos = toScreen(prev.x, prev.y);
+    const currPos = toScreen(curr.x, curr.y);
+
+    // Fade based on age
+    const maxAge = 60;
+    const alpha = Math.max(0, 1 - curr.age / maxAge);
+
+    ctx.strokeStyle = color.replace(')', `, ${alpha * 0.6})`).replace('rgb', 'rgba');
+    ctx.lineWidth = Math.max(1, 3 * currPos.scale * alpha);
+
+    ctx.beginPath();
+    ctx.moveTo(prevPos.x, prevPos.y);
+    ctx.lineTo(currPos.x, currPos.y);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// Draw pressure indicator ring around QB
+function drawPressureIndicator(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scale: number,
+  pressure: number // 0 to 1
+) {
+  if (pressure <= 0) return;
+
+  const radius = 20 * scale;
+  const ringWidth = 4 * scale;
+
+  // Interpolate color from green to red
+  const r = Math.floor(pressure * 239);
+  const g = Math.floor((1 - pressure) * 68);
+  const color = `rgb(${r}, ${g}, 68)`;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = ringWidth;
+  ctx.globalAlpha = 0.5 + pressure * 0.3;
+
+  // Pulsing ring
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner glow
+  const gradient = ctx.createRadialGradient(x, y, radius * 0.5, x, y, radius);
+  gradient.addColorStop(0, 'rgba(255, 0, 0, 0)');
+  gradient.addColorStop(1, `rgba(${r}, ${g}, 68, ${pressure * 0.3})`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
   game,
   width = 900,
   height = 600,
 }) => {
+  // Persistent animation state for each player
+  const animStatesRef = useRef<Map<string, PlayerAnimState>>(new Map());
+  // Route trails for receivers
+  const routeTrailsRef = useRef<Map<string, TrailPoint[]>>(new Map());
+
   const draw = useCallback((ctx: CanvasRenderingContext2D, _frameCount: number) => {
     const ENGINE_WIDTH = 160;  // Sideline to sideline
 
@@ -333,145 +596,301 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       });
     }
 
+    // Determine team assignments based on possession
+    const offenseTeam = game.possession || 'home';
+    const defenseTeam = offenseTeam === 'home' ? 'away' : 'home';
+
     // Sort players by depth (far players drawn first)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
-    // Draw players
+    // Animation speed constants
+    const RUN_CYCLE_SPEED = 0.4;  // radians per frame
+    const BOB_CYCLE_SPEED = 0.3;
+
+    // Update animation states and draw route trails for receivers
+    const animStates = animStatesRef.current;
+    const routeTrails = routeTrailsRef.current;
+
+    // Draw route trails first (behind players)
+    if (game.state === 'PLAY_RUNNING' || game.state === 'SNAP') {
+      routeTrails.forEach((trail, playerId) => {
+        // Age all points and remove old ones
+        for (let i = trail.length - 1; i >= 0; i--) {
+          trail[i].age++;
+          if (trail[i].age > 60) {
+            trail.splice(i, 1);
+          }
+        }
+
+        // Find the player to get their current position
+        const player = game.playerPositions.find(p => p.id === playerId);
+        if (player && player.role === 'offense') {
+          // Add new trail point
+          if (trail.length === 0 ||
+              Math.abs(trail[trail.length - 1].x - player.x) > 1 ||
+              Math.abs(trail[trail.length - 1].y - player.y) > 1) {
+            trail.push({ x: player.x, y: player.y, age: 0 });
+          }
+
+          // Draw the trail
+          drawRouteTrail(ctx, trail, toScreen, 'rgb(59, 130, 246)');
+        }
+      });
+    } else {
+      // Clear trails when play is not running
+      routeTrails.clear();
+    }
+
+    // Draw players with vector graphics
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
 
       // Skip if off screen
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
 
+      // Skip ball carrier (drawn on top separately)
+      if (game.ballCarrier && player.id === game.ballCarrier.playerId) return;
+
       const isOffense = player.role === 'offense';
-      const baseRadius = 14;
-      const radius = baseRadius * pos.scale;
+      const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
 
-      // Player shadow (on ground)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.beginPath();
-      ctx.ellipse(pos.x + 2, pos.y + radius * 0.3, radius * 0.8, radius * 0.3, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // Get or create animation state
+      let animState = animStates.get(player.id);
+      if (!animState) {
+        animState = {
+          legPhase: Math.random() * Math.PI * 2,
+          bobPhase: Math.random() * Math.PI * 2,
+          lastX: player.x,
+          lastY: player.y,
+          isMoving: false,
+        };
+        animStates.set(player.id, animState);
+      }
 
-      // Player body
-      const primaryColor = isOffense ? OFFENSE_PRIMARY : DEFENSE_PRIMARY;
-      const secondaryColor = isOffense ? OFFENSE_SECONDARY : DEFENSE_SECONDARY;
+      // Check if player is moving
+      const dx = player.x - animState.lastX;
+      const dy = player.y - animState.lastY;
+      const moved = Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5;
+      animState.isMoving = moved;
+      animState.lastX = player.x;
+      animState.lastY = player.y;
 
-      // Outer circle
-      ctx.fillStyle = primaryColor;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-      ctx.fill();
+      // Update animation phases when moving
+      if (moved) {
+        animState.legPhase += RUN_CYCLE_SPEED;
+        animState.bobPhase += BOB_CYCLE_SPEED;
+      }
 
-      // Inner highlight (3D effect)
-      ctx.fillStyle = secondaryColor;
-      ctx.beginPath();
-      ctx.arc(pos.x - radius * 0.2, pos.y - radius * 0.2, radius * 0.6, 0, Math.PI * 2);
-      ctx.fill();
+      // Initialize route trail for receivers
+      if (isOffense && !routeTrails.has(player.id)) {
+        routeTrails.set(player.id, []);
+      }
 
-      // Border
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.lineWidth = Math.max(1, 2 * pos.scale);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Draw the vector player
+      drawVectorPlayer(
+        ctx,
+        pos.x,
+        pos.y,
+        pos.scale,
+        palette,
+        animState,
+        false,
+        undefined // Jersey numbers could be added from player data
+      );
     });
 
     // Draw ball carrier on top with highlight
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
-      const baseRadius = 14;
-      const radius = baseRadius * pos.scale;
+      const palette = TEAM_PALETTES[offenseTeam];
 
-      // Glow effect
-      ctx.shadowColor = BALL_CARRIER_GLOW;
-      ctx.shadowBlur = 20 * pos.scale;
-      ctx.fillStyle = BALL_CARRIER_GLOW;
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius + 4 * pos.scale, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      // Get animation state
+      let animState = animStates.get(game.ballCarrier.playerId);
+      if (!animState) {
+        animState = {
+          legPhase: 0,
+          bobPhase: 0,
+          lastX: game.ballCarrier.x,
+          lastY: game.ballCarrier.y,
+          isMoving: false,
+        };
+        animStates.set(game.ballCarrier.playerId, animState);
+      }
 
-      // Player
-      ctx.fillStyle = '#fef08a';
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-      ctx.fill();
+      // Ball carrier is always moving during play
+      if (game.state === 'PLAY_RUNNING' || game.state === 'SNAP') {
+        animState.isMoving = true;
+        animState.legPhase += RUN_CYCLE_SPEED * 1.2; // Faster run
+        animState.bobPhase += BOB_CYCLE_SPEED * 1.2;
+      }
 
-      // Border
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(2, 3 * pos.scale);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Draw with ball carrier highlight
+      drawVectorPlayer(
+        ctx,
+        pos.x,
+        pos.y,
+        pos.scale,
+        palette,
+        animState,
+        true // Ball carrier glow
+      );
     }
 
-    // Draw ball in flight
+    // Draw ball in flight with spiral effect
     if (game.ballInFlight) {
       const pos = toScreen(game.ballInFlight.x, game.ballInFlight.y);
       const arcHeight = Math.sin(game.ballInFlight.progress * Math.PI);
       const liftAmount = arcHeight * 60 * pos.scale;
 
-      // Shadow on ground
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      const shadowSize = (8 + arcHeight * 4) * pos.scale;
+      // Ball spin rotation (based on progress)
+      const spinAngle = game.ballInFlight.progress * Math.PI * 8; // 4 full rotations
+
+      // Shadow on ground (shrinks as ball rises)
+      const shadowOpacity = 0.3 + (1 - arcHeight) * 0.2;
+      ctx.fillStyle = `rgba(0, 0, 0, ${shadowOpacity})`;
+      const shadowSize = (6 + arcHeight * 6) * pos.scale;
       ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y, shadowSize, shadowSize * 0.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(pos.x, pos.y, shadowSize, shadowSize * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Football
+      ctx.save();
+      ctx.translate(pos.x, pos.y - liftAmount);
+      ctx.rotate(spinAngle * 0.1); // Slight rotation for spiral effect
+
+      const ballWidth = 14 * pos.scale;
+      const ballHeight = 8 * pos.scale;
+
+      // Glow effect
       ctx.shadowColor = '#fbbf24';
-      ctx.shadowBlur = 15;
-      ctx.fillStyle = '#92400e';
-      const ballWidth = 12 * pos.scale;
-      const ballHeight = 7 * pos.scale;
+      ctx.shadowBlur = 12 * pos.scale;
+
+      // Main football body with gradient
+      const ballGradient = ctx.createRadialGradient(
+        -ballWidth * 0.2, -ballHeight * 0.2, 0,
+        0, 0, ballWidth
+      );
+      ballGradient.addColorStop(0, '#b45309');
+      ballGradient.addColorStop(0.5, '#92400e');
+      ballGradient.addColorStop(1, '#78350f');
+      ctx.fillStyle = ballGradient;
       ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y - liftAmount, ballWidth, ballHeight, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, ballWidth, ballHeight, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Highlight
-      ctx.fillStyle = '#b45309';
-      ctx.beginPath();
-      ctx.ellipse(pos.x - 2, pos.y - liftAmount - 2, ballWidth * 0.5, ballHeight * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // Subtle outline
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Laces
+      // Laces (white stitching)
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = Math.max(1, 2 * pos.scale);
+      ctx.lineWidth = Math.max(1.5, 2 * pos.scale);
+      ctx.lineCap = 'round';
+
+      // Center lace line
       ctx.beginPath();
-      ctx.moveTo(pos.x - 4 * pos.scale, pos.y - liftAmount);
-      ctx.lineTo(pos.x + 4 * pos.scale, pos.y - liftAmount);
+      ctx.moveTo(-ballWidth * 0.35, 0);
+      ctx.lineTo(ballWidth * 0.35, 0);
       ctx.stroke();
+
+      // Cross laces
+      const laceCount = 4;
+      const laceSpacing = (ballWidth * 0.6) / laceCount;
+      for (let i = 0; i < laceCount; i++) {
+        const laceX = -ballWidth * 0.25 + i * laceSpacing;
+        ctx.beginPath();
+        ctx.moveTo(laceX, -ballHeight * 0.25);
+        ctx.lineTo(laceX, ballHeight * 0.25);
+        ctx.stroke();
+      }
+
+      ctx.restore();
     }
 
-    // Draw handoff effect (expanding ring flash)
+    // Draw handoff effect (expanding ring flash with particle burst)
     if (game.handoffEffect) {
       const pos = toScreen(game.handoffEffect.x, game.handoffEffect.y);
       const progress = game.handoffEffect.progress;
 
       // Expanding ring that fades out
       const maxRadius = 60 * pos.scale;
-      const ringRadius = maxRadius * progress;
       const opacity = 1 - progress;
 
-      ctx.strokeStyle = `rgba(255, 215, 0, ${opacity})`; // Gold color
-      ctx.lineWidth = Math.max(3, 6 * pos.scale * (1 - progress));
-      ctx.shadowColor = '#ffd700';
-      ctx.shadowBlur = 20 * (1 - progress);
-      ctx.beginPath();
-      ctx.arc(pos.x, pos.y, ringRadius, 0, Math.PI * 2);
-      ctx.stroke();
+      // Multiple rings for more impact
+      for (let i = 0; i < 2; i++) {
+        const ringProgress = Math.max(0, progress - i * 0.15);
+        const ringOp = Math.max(0, opacity - i * 0.3);
+        const radius = maxRadius * ringProgress;
 
-      // Inner flash
+        ctx.strokeStyle = `rgba(255, 215, 0, ${ringOp})`;
+        ctx.lineWidth = Math.max(2, (5 - i * 2) * pos.scale * (1 - ringProgress));
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Inner flash with gradient
       if (progress < 0.3) {
         const innerOpacity = 1 - (progress / 0.3);
-        ctx.fillStyle = `rgba(255, 255, 200, ${innerOpacity * 0.6})`;
+        const flashGradient = ctx.createRadialGradient(
+          pos.x, pos.y, 0,
+          pos.x, pos.y, 25 * pos.scale * (1 - progress / 0.3)
+        );
+        flashGradient.addColorStop(0, `rgba(255, 255, 255, ${innerOpacity * 0.8})`);
+        flashGradient.addColorStop(0.5, `rgba(255, 220, 100, ${innerOpacity * 0.5})`);
+        flashGradient.addColorStop(1, `rgba(255, 200, 50, 0)`);
+        ctx.fillStyle = flashGradient;
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 20 * pos.scale * (1 - progress / 0.3), 0, Math.PI * 2);
+        ctx.arc(pos.x, pos.y, 25 * pos.scale * (1 - progress / 0.3), 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.shadowBlur = 0;
+
+      // Dust particles (small dots moving outward)
+      if (progress < 0.7) {
+        const particleCount = 8;
+        for (let i = 0; i < particleCount; i++) {
+          const angle = (i / particleCount) * Math.PI * 2 + progress * 2;
+          const dist = progress * 40 * pos.scale;
+          const particleX = pos.x + Math.cos(angle) * dist;
+          const particleY = pos.y + Math.sin(angle) * dist * 0.5; // Flatten for perspective
+          const particleSize = (1 - progress) * 3 * pos.scale;
+
+          ctx.fillStyle = `rgba(200, 180, 150, ${(1 - progress / 0.7) * 0.6})`;
+          ctx.beginPath();
+          ctx.arc(particleX, particleY, particleSize, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Draw pressure indicator for QB when defenders are close
+    // Find the QB as the backmost offensive player (before snap or during passing)
+    if ((game.state === 'SNAP' || game.state === 'PLAY_RUNNING') && !game.ballCarrier) {
+      const offensivePlayers = game.playerPositions.filter(p => p.role === 'offense');
+      // QB is typically the backmost offensive player
+      const qb = offensivePlayers.reduce((back, p) => {
+        if (!back || p.y < back.y) return p;
+        return back;
+      }, null as typeof offensivePlayers[0] | null);
+
+      if (qb) {
+        // Calculate pressure based on nearby defenders
+        const defenders = game.playerPositions.filter(p => p.role === 'defense');
+        let pressure = 0;
+        defenders.forEach(d => {
+          const dist = Math.sqrt((d.x - qb.x) ** 2 + (d.y - qb.y) ** 2);
+          if (dist < 30) {
+            pressure += (30 - dist) / 30;
+          }
+        });
+        pressure = Math.min(1, pressure / 2); // Normalize
+
+        if (pressure > 0.1) {
+          const qbPos = toScreen(qb.x, qb.y);
+          drawPressureIndicator(ctx, qbPos.x, qbPos.y, qbPos.scale, pressure);
+        }
+      }
     }
 
     // Vignette effect
