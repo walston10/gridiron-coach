@@ -5,9 +5,10 @@
  * This is the entry point for the dashboard/management view.
  */
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import { Desk } from './Desk';
 import { useEventSystem } from '../../hooks/useEventSystem';
+import { useGameStore } from '../../stores/gameStore';
 
 interface DeskPageProps {
   teamName?: string;
@@ -27,8 +28,18 @@ export const DeskPage: React.FC<DeskPageProps> = ({
     onGameOver,
   });
 
-  // Track wins/losses from game state (placeholder for now)
-  const record = { wins: 2, losses: 1 };
+  // Get actual record from game state
+  const { userTeamId, season } = useGameStore();
+  const record = useMemo(() => {
+    if (!season?.standings || !userTeamId) {
+      return { wins: 0, losses: 0 };
+    }
+    const teamStanding = season.standings.find(s => s.teamId === userTeamId);
+    return {
+      wins: teamStanding?.wins ?? 0,
+      losses: teamStanding?.losses ?? 0,
+    };
+  }, [season?.standings, userTeamId]);
 
   // Select event when day changes or on initial load
   useEffect(() => {
