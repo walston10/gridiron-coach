@@ -35,7 +35,7 @@ const TEX_BEATS: IntroBeat[] = [
   {
     id: 3,
     image: 'tex_beat_3',
-    duration: 12000,
+    duration: 12500,
     text: "Let's get one thing straight. You don't deserve this job. Hell, you're nobody. But I like nobodies. Nobodies are grateful. Nobodies are loyal. And nobodies don't ask stupid goddamn questions.",
     effect: 'zoomIn',
   },
@@ -49,7 +49,7 @@ const TEX_BEATS: IntroBeat[] = [
   {
     id: 5,
     image: 'tex_beat_5',
-    duration: 12000,
+    duration: 11750,
     text: "But when shit goes sideways? That's your name in the papers. Your face on the news. You're the fall guy, son. That's the job. That's the only job.",
     effect: 'zoomOut',
   },

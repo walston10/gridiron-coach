@@ -748,13 +748,13 @@ export const STARTER_EVENTS: GameEvent[] = [
   },
 
   // ==========================================================================
-  // TUESDAY - Player Scandal (RARE)
+  // TUESDAY - Player Scandal (GUARANTEED for testing)
   // ==========================================================================
   {
     id: 'velveeta_incident',
     title: "{playerName}'s Personal Chef Files Police Report",
     day: 'TUESDAY',
-    rarity: 'RARE',
+    rarity: 'GUARANTEED',
     character: 'PLAYER',
     targetPosition: 'WR1',
     prerequisites: {

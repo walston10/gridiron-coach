@@ -9,6 +9,27 @@ import React, { useState } from 'react';
 import type { GameEvent, Choice, ChoiceResult, Meters } from '../../types/Events';
 import type { ShadyActionType } from '../../types/Events';
 import { getEscalatingCost, getDiminishedSuccessRate } from '../../engine/EventEngine';
+import type { Player } from '../../types/Player';
+
+/**
+ * Replace template placeholders in event text with actual player info
+ * Supports both single and double curly brace formats
+ */
+function interpolateEventText(text: string, player?: Player | null): string {
+  if (!player) return text;
+
+  const fullName = `${player.firstName} ${player.lastName}`;
+
+  return text
+    .replace(/\{\{playerName\}\}/g, fullName)
+    .replace(/\{\{playerFirstName\}\}/g, player.firstName)
+    .replace(/\{\{playerLastName\}\}/g, player.lastName)
+    .replace(/\{\{playerPosition\}\}/g, player.position)
+    .replace(/\{playerName\}/g, fullName)
+    .replace(/\{playerFirstName\}/g, player.firstName)
+    .replace(/\{playerLastName\}/g, player.lastName)
+    .replace(/\{playerPosition\}/g, player.position);
+}
 
 interface EventModalProps {
   event: GameEvent;
@@ -18,6 +39,7 @@ interface EventModalProps {
   onChoice: (choice: Choice) => void;
   onContinue: () => void;
   onClose: () => void;
+  contextPlayer?: Player | null;
 }
 
 // Character portrait styles
@@ -64,9 +86,27 @@ export const EventModal: React.FC<EventModalProps> = ({
   onChoice,
   onContinue,
   onClose,
+  contextPlayer,
 }) => {
   const [hoveredChoice, setHoveredChoice] = useState<Choice | null>(null);
+  const [imageError, setImageError] = useState(false);
+  const [imageSrc, setImageSrc] = useState(event.imageUrl || '');
   const characterStyle = CHARACTER_STYLES[event.character] || CHARACTER_STYLES.PLAYER;
+
+  // Handle image loading errors with case-insensitive fallback
+  const handleImageError = () => {
+    if (imageSrc && imageSrc.endsWith('.png')) {
+      setImageSrc(imageSrc.replace('.png', '.PNG'));
+    } else if (imageSrc && imageSrc.endsWith('.PNG')) {
+      setImageSrc(imageSrc.replace('.PNG', '.png'));
+    } else {
+      setImageError(true);
+    }
+  };
+
+  // Interpolate player info into event text
+  const displayTitle = interpolateEventText(event.title, contextPlayer);
+  const displayDescription = interpolateEventText(event.description, contextPlayer);
 
   // Calculate actual costs and rates for display
   const getDisplayCost = (choice: Choice): number => {
@@ -159,22 +199,37 @@ export const EventModal: React.FC<EventModalProps> = ({
   // Main event view
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-      <div className="bg-gradient-to-b from-stone-800 to-stone-900 rounded-lg max-w-2xl w-full overflow-hidden border border-stone-600/50 shadow-2xl">
+      <div className="bg-gradient-to-b from-stone-800 to-stone-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-stone-600/50 shadow-2xl">
         {/* Character portrait section */}
-        <div className={`bg-gradient-to-br ${characterStyle.bg} p-8 relative`}>
+        <div className={`bg-gradient-to-br ${characterStyle.bg} relative overflow-hidden ${imageSrc && !imageError ? 'min-h-[400px]' : 'p-8'}`}>
+          {/* Event image if available */}
+          {imageSrc && !imageError && (
+            <div className="w-full h-full min-h-[400px]">
+              <img
+                src={imageSrc}
+                alt=""
+                className="w-full h-full object-contain"
+                onError={handleImageError}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+            </div>
+          )}
+
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 text-stone-400 hover:text-white text-2xl"
+            className="absolute top-4 right-4 text-stone-400 hover:text-white text-2xl z-10"
           >
             ×
           </button>
 
-          {/* Portrait placeholder */}
-          <div className="flex flex-col items-center">
-            <div className={`w-24 h-24 rounded-full ${characterStyle.border} border-4 bg-stone-900/50 flex items-center justify-center mb-4`}>
-              <span className="text-5xl">{characterStyle.emoji}</span>
-            </div>
+          {/* Portrait placeholder - show emoji only when no image */}
+          <div className="flex flex-col items-center relative z-10">
+            {(!imageSrc || imageError) && (
+              <div className={`w-24 h-24 rounded-full ${characterStyle.border} border-4 bg-stone-900/50 flex items-center justify-center mb-4`}>
+                <span className="text-5xl">{characterStyle.emoji}</span>
+              </div>
+            )}
             <div className="text-stone-300 text-xs uppercase tracking-widest">
               {event.character.replace('_', ' ')}
             </div>
@@ -184,13 +239,22 @@ export const EventModal: React.FC<EventModalProps> = ({
         {/* Event content */}
         <div className="p-6">
           {/* Title */}
-          <h2 className="text-2xl font-black text-white mb-4 text-center">
-            {event.title}
+          <h2 className="text-2xl font-black text-white mb-2 text-center">
+            {displayTitle}
           </h2>
+
+          {/* Player info badge - show position so user knows who */}
+          {contextPlayer && (
+            <div className="flex justify-center mb-4">
+              <span className="px-3 py-1 bg-blue-600/30 border border-blue-500/50 rounded-full text-blue-300 text-sm font-medium">
+                {contextPlayer.position} • {contextPlayer.firstName} {contextPlayer.lastName}
+              </span>
+            </div>
+          )}
 
           {/* Description */}
           <p className="text-stone-300 text-lg leading-relaxed mb-6 text-center italic">
-            "{event.description}"
+            "{displayDescription}"
           </p>
 
           {/* Slush fund display */}
@@ -221,8 +285,10 @@ export const EventModal: React.FC<EventModalProps> = ({
                     }
                   `}
                 >
-                  {/* Choice text */}
-                  <div className="text-white font-medium mb-2">{choice.text}</div>
+                  {/* Choice text - interpolate player info */}
+                  <div className="text-white font-medium mb-2">
+                    {interpolateEventText(choice.text, contextPlayer)}
+                  </div>
 
                   {/* Tags and info */}
                   <div className="flex flex-wrap gap-1.5 items-center">
@@ -262,7 +328,7 @@ export const EventModal: React.FC<EventModalProps> = ({
             <div className="mt-4 p-3 bg-stone-950/50 rounded-lg border border-stone-700">
               <div className="text-stone-400 text-xs mb-1">Preview:</div>
               <div className="text-stone-300 text-sm italic">
-                {hoveredChoice.flavorText || 'Make your choice...'}
+                {interpolateEventText(hoveredChoice.flavorText || 'Make your choice...', contextPlayer)}
               </div>
             </div>
           )}

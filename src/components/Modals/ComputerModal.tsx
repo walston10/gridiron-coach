@@ -5,6 +5,8 @@
  */
 
 import React, { useState } from 'react';
+import { useGameStore } from '../../stores/gameStore';
+import type { Player } from '../../types';
 
 interface ComputerModalProps {
   onClose: () => void;
@@ -12,8 +14,28 @@ interface ComputerModalProps {
 
 type Tab = 'roster' | 'schedule' | 'standings';
 
+// Helper to get best player at a position from roster
+function getStarterAtPosition(roster: Player[], position: string): Player | undefined {
+  const candidates = roster.filter(p => p.position === position);
+  if (candidates.length === 0) return undefined;
+  // Return highest overall
+  return candidates.sort((a, b) => b.overall - a.overall)[0];
+}
+
+// Helper to get backups at a position
+function getBackupsAtPosition(roster: Player[], position: string, limit: number = 2): Player[] {
+  const candidates = roster.filter(p => p.position === position);
+  if (candidates.length <= 1) return [];
+  // Sort by overall, skip starter, return backups
+  return candidates.sort((a, b) => b.overall - a.overall).slice(1, limit + 1);
+}
+
 export const ComputerModal: React.FC<ComputerModalProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>('roster');
+  const { teams, userTeamId } = useGameStore();
+
+  const userTeam = teams.find(t => t.info.id === userTeamId);
+  const roster = userTeam?.roster || [];
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -53,7 +75,7 @@ export const ComputerModal: React.FC<ComputerModalProps> = ({ onClose }) => {
 
         {/* Content area */}
         <div className="flex-1 overflow-auto p-6 bg-gradient-to-b from-stone-900 to-stone-950">
-          {activeTab === 'roster' && <RosterTab />}
+          {activeTab === 'roster' && <RosterTab roster={roster} />}
           {activeTab === 'schedule' && <ScheduleTab />}
           {activeTab === 'standings' && <StandingsTab />}
         </div>
@@ -62,22 +84,63 @@ export const ComputerModal: React.FC<ComputerModalProps> = ({ onClose }) => {
   );
 };
 
-// Roster Tab - Placeholder
-const RosterTab: React.FC = () => {
+// Roster Tab - Uses real roster data
+interface RosterTabProps {
+  roster: Player[];
+}
+
+const RosterTab: React.FC<RosterTabProps> = ({ roster }) => {
+  // Build starters from actual roster
+  const qb = getStarterAtPosition(roster, 'QB');
+  const rb = getStarterAtPosition(roster, 'RB');
+  const wr1 = getStarterAtPosition(roster, 'WR');
+  const wrs = roster.filter(p => p.position === 'WR').sort((a, b) => b.overall - a.overall);
+  const wr2 = wrs[1];
+  const te = getStarterAtPosition(roster, 'TE');
+
+  const cb1 = getStarterAtPosition(roster, 'CB');
+  const cbs = roster.filter(p => p.position === 'CB').sort((a, b) => b.overall - a.overall);
+  const cb2 = cbs[1];
+  const safety = getStarterAtPosition(roster, 'FS') || getStarterAtPosition(roster, 'SS');
+  const lb1 = getStarterAtPosition(roster, 'MLB') || getStarterAtPosition(roster, 'OLB');
+  const lbs = roster.filter(p => ['MLB', 'OLB', 'ILB'].includes(p.position)).sort((a, b) => b.overall - a.overall);
+  const lb2 = lbs[1];
+
+  // Calculate O-LINE and D-LINE averages
+  const oLinemen = roster.filter(p => ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.position));
+  const oLineAvg = oLinemen.length > 0
+    ? Math.round(oLinemen.reduce((sum, p) => sum + p.overall, 0) / oLinemen.length)
+    : 70;
+
+  const dLinemen = roster.filter(p => ['DE', 'DT', 'NT'].includes(p.position));
+  const dLineAvg = dLinemen.length > 0
+    ? Math.round(dLinemen.reduce((sum, p) => sum + p.overall, 0) / dLinemen.length)
+    : 70;
+
+  const formatPlayer = (player: Player | undefined, pos: string) => {
+    if (!player) return { pos, name: 'Empty', ovr: 0, status: 'HEALTHY' };
+    return {
+      pos,
+      name: `${player.firstName} ${player.lastName}`,
+      ovr: player.overall,
+      status: player.injuryStatus ? 'INJURED' : 'HEALTHY',
+    };
+  };
+
   const offensePlayers = [
-    { pos: 'QB', name: 'Marcus Williams', ovr: 82, status: 'HEALTHY' },
-    { pos: 'RB', name: 'Darius Jackson', ovr: 78, status: 'HEALTHY' },
-    { pos: 'WR1', name: 'Terrell Moore', ovr: 85, status: 'UNHAPPY' },
-    { pos: 'WR2', name: 'Chris Adams', ovr: 74, status: 'HEALTHY' },
-    { pos: 'FLEX', name: 'Jordan Bell', ovr: 76, status: 'HEALTHY' },
+    formatPlayer(qb, 'QB'),
+    formatPlayer(rb, 'RB'),
+    formatPlayer(wr1, 'WR1'),
+    formatPlayer(wr2, 'WR2'),
+    formatPlayer(te, 'FLEX'),
   ];
 
   const defensePlayers = [
-    { pos: 'CB1', name: 'Devon Harris', ovr: 80, status: 'HEALTHY' },
-    { pos: 'CB2', name: 'Marcus Thompson', ovr: 75, status: 'HEALTHY' },
-    { pos: 'S', name: 'Andre Williams', ovr: 79, status: 'HEALTHY' },
-    { pos: 'LB1', name: 'James Carter', ovr: 84, status: 'HEALTHY' },
-    { pos: 'LB2', name: 'Tony Mitchell', ovr: 77, status: 'INJURED' },
+    formatPlayer(cb1, 'CB1'),
+    formatPlayer(cb2, 'CB2'),
+    formatPlayer(safety, 'S'),
+    formatPlayer(lb1, 'LB1'),
+    formatPlayer(lb2, 'LB2'),
   ];
 
   const getStatusColor = (status: string) => {
@@ -122,7 +185,7 @@ const RosterTab: React.FC = () => {
               <span className="text-stone-400 font-mono text-sm">O-LINE</span>
               <span className="text-stone-300 font-medium">Offensive Line Unit</span>
             </div>
-            <span className="text-blue-400 font-bold text-lg">76</span>
+            <span className={`${getOvrColor(oLineAvg)} font-bold text-lg`}>{oLineAvg}</span>
           </div>
         </div>
       </div>
@@ -151,7 +214,7 @@ const RosterTab: React.FC = () => {
               <span className="text-stone-400 font-mono text-sm">D-LINE</span>
               <span className="text-stone-300 font-medium">Defensive Line Unit</span>
             </div>
-            <span className="text-blue-400 font-bold text-lg">74</span>
+            <span className={`${getOvrColor(dLineAvg)} font-bold text-lg`}>{dLineAvg}</span>
           </div>
         </div>
       </div>

@@ -17,8 +17,8 @@ import type { GameState, FieldPlayer } from '../types/GameSim';
 interface UseMobileControlsOptions {
   /** Game engine instance */
   engine: GameEngine | null;
-  /** Canvas element for input handling */
-  canvas: HTMLCanvasElement | null;
+  /** DOM element for touch/mouse input handling */
+  canvas: HTMLElement | null;
   /** Whether user is on offense or defense */
   side: 'offense' | 'defense';
   /** Function to convert screen coords to field coords */

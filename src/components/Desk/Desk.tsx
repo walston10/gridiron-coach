@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import type { GameEvent, Choice, ChoiceResult, EventSystemState } from '../../types/Events';
 import type { Owner } from '../../types/Owner';
+import type { Player } from '../../types/Player';
 import { DeskMeters } from './DeskMeters';
 import { DeskOwnerPhoto } from './DeskOwnerPhoto';
 import { DeskCalendar } from './DeskCalendar';
@@ -44,6 +45,7 @@ export interface DeskProps {
   teamName: string;
   currentEvent: GameEvent | null;
   lastResult: ChoiceResult | null;
+  contextPlayer?: Player | null;
   onSelectEvent: () => void;
   onMakeChoice: (choice: Choice) => void;
   onAdvanceDay: () => void;
@@ -58,6 +60,7 @@ export const Desk: React.FC<DeskProps> = ({
   teamName,
   currentEvent,
   lastResult,
+  contextPlayer,
   onMakeChoice,
   onAdvanceDay,
   onDismissResult,
@@ -328,6 +331,7 @@ export const Desk: React.FC<DeskProps> = ({
           onChoice={handleChoice}
           onContinue={handleContinue}
           onClose={() => setShowEventModal(false)}
+          contextPlayer={contextPlayer}
         />
       )}
 

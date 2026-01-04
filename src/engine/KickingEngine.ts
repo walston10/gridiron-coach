@@ -80,15 +80,19 @@ export class KickingEngine {
 
     if (this.autoResolve) {
       // Auto-resolve return: average ~22 yards
+      // landingYardLine is yards past the 35 (e.g., 30 = kick landed at the 65 yard line = opponent's 35)
+      // Receiving team's starting position = 100 - (35 + landingYardLine) = 100 - 35 - landingYardLine = 65 - landingYardLine
+      // After return: add returnYards
       const returnYards = 15 + Math.random() * 15;
-      const newYardLine = Math.round(100 - landingYardLine + returnYards);
+      const catchYardLine = Math.max(1, 100 - 35 - landingYardLine); // Where they catch it (their perspective)
+      const newYardLine = Math.round(catchYardLine + returnYards);
 
       return {
         type: 'KICKOFF',
         success: true,
         distance: kickDistance,
-        netYards: 100 - newYardLine,
-        newYardLine: Math.min(Math.max(newYardLine, 1), 99),
+        netYards: 35 + landingYardLine - newYardLine, // Net yards from kicker's 35
+        newYardLine: Math.min(Math.max(newYardLine, 1), 50), // Cap at midfield for returns
         touchback: false,
         returnYards: Math.round(returnYards),
         blocked: false,

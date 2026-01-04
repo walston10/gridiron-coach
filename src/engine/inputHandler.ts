@@ -39,7 +39,7 @@ interface GestureState {
 }
 
 export class InputHandler {
-  private canvas: HTMLCanvasElement;
+  private canvas: HTMLElement;
   private onGesture?: GestureCallback;
   private onInputState?: InputStateCallback;
   private screenToField?: (pos: Point) => Point;

@@ -64,8 +64,8 @@ export type InputStateCallback = (state: InputState) => void;
 
 /** Input handler configuration */
 export interface InputHandlerConfig {
-  /** Canvas element to attach listeners to */
-  canvas: HTMLCanvasElement;
+  /** DOM element to attach touch/mouse listeners to */
+  canvas: HTMLElement;
   /** Callback for discrete gestures (tap, swipe end, hold) */
   onGesture?: GestureCallback;
   /** Callback for continuous input state updates */

@@ -14,7 +14,7 @@ import { SubstitutionPanel } from './SubstitutionPanel';
 import { OrientationPrompt, TheCallButton } from '../gameplay';
 import type { Play } from '../../types';
 import type { LiveGame, GameState as LiveGameState } from '../../types/Game';
-import type { GameState, Vector2 } from '../../types/GameSim';
+import type { GameState } from '../../types/GameSim';
 import type { Point } from '../../types/input.types';
 
 interface GameDayPageProps {
@@ -236,13 +236,17 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const [showCoverageOverlay, setShowCoverageOverlay] = useState(false);
   const [slushFundBalance] = useState(50000); // TODO: Wire to actual slush fund store
 
-  // Canvas ref for mobile touch controls
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  // Canvas ref for mobile touch controls - use callback ref to trigger re-render when mounted
+  const [canvasElement, setCanvasElement] = useState<HTMLDivElement | null>(null);
+  const canvasContainerRef = useCallback((node: HTMLDivElement | null) => {
+    if (node !== null) {
+      setCanvasElement(node);
+    }
+  }, []);
 
   // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
   const moveBallCarrierRef = useRef(moveBallCarrier);
-  const animationFrameRef = useRef<number | null>(null);
   const phaseRef = useRef(engineState?.phase);
 
   // Keep refs updated
@@ -264,54 +268,63 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   // Check if user has plays
   const hasPlays = playbook.plays.length > 0;
 
-  // Handle keyboard controls for ball carrier movement using requestAnimationFrame
-  useEffect(() => {
-    const updateMovement = () => {
-      const phase = phaseRef.current;
-      if (phase !== 'SNAP' && phase !== 'ACTIVE') {
-        animationFrameRef.current = requestAnimationFrame(updateMovement);
-        return;
-      }
+  // Screen to field coordinate conversion for touch controls
+  // MUST be defined before early returns to maintain consistent hook order
+  const screenToField = useCallback((screenPos: Point): Point => {
+    if (!canvasElement || !engineState) {
+      return { x: 0, y: 0 };
+    }
 
-      const ctrl = controlsRef.current;
-      const direction: Vector2 = { x: 0, y: 0 };
+    const rect = canvasElement.getBoundingClientRect();
+    const ENGINE_WIDTH = 160;
+    const VISIBLE_YARDS = 50;
+    const YARDS_TO_UNITS = 3;
+    const HORIZON_Y = 80;
+    const fieldMarginX = 50;
+    const fieldTop = HORIZON_Y;
+    const fieldBottom = rect.height - 40;
+    const fieldHeight = fieldBottom - fieldTop;
 
-      // Map controls to direction (up = toward opponent endzone = negative y in field coords)
-      if (ctrl.up) direction.y = -1;
-      if (ctrl.down) direction.y = 1;
-      if (ctrl.left) direction.x = -1;
-      if (ctrl.right) direction.x = 1;
+    const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
+    const losEngineY = yardLineToEngineY(engineState.field.yardLine);
+    const viewportStartY = losEngineY - 12 * YARDS_TO_UNITS;
+    const minViewport = yardLineToEngineY(-10);
+    const maxViewport = yardLineToEngineY(110) - VISIBLE_YARDS * YARDS_TO_UNITS;
+    const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
+    const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
 
-      // Normalize diagonal movement to prevent faster diagonal speed
-      if (direction.x !== 0 && direction.y !== 0) {
-        const diagonalScale = 0.707; // 1/sqrt(2)
-        direction.x *= diagonalScale;
-        direction.y *= diagonalScale;
-      }
+    const depth = (fieldBottom - screenPos.y) / fieldHeight;
+    const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
 
-      // Sprint multiplier when holding shift (action2)
-      if (ctrl.action2 && (direction.x !== 0 || direction.y !== 0)) {
-        direction.x *= 1.5;
-        direction.y *= 1.5;
-      }
+    const perspectiveScale = 1 - depth * 0.6;
+    const centerX = rect.width / 2;
+    const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
+    const normalizedX = (screenPos.x - centerX) / fieldWidthAtDepth + 0.5;
+    const engineX = normalizedX * ENGINE_WIDTH;
 
-      if (direction.x !== 0 || direction.y !== 0) {
-        moveBallCarrierRef.current(direction);
-      }
-
-      animationFrameRef.current = requestAnimationFrame(updateMovement);
+    return {
+      x: Math.max(0, Math.min(ENGINE_WIDTH, engineX)),
+      y: Math.max(clampedStartY, Math.min(clampedEndY, engineY)),
     };
+  }, [engineState, canvasElement]);
 
-    // Start the animation loop
-    animationFrameRef.current = requestAnimationFrame(updateMovement);
+  // Determine if user is on offense (home team has possession)
+  const isUserOffenseForControls = engineState?.field.possession === 'home';
 
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-    };
-  }, []); // Empty deps - uses refs for all values
+  // Wire up mobile touch/drag controls
+  const mobileControls = useMobileControls({
+    engine: getEngine(),
+    canvas: canvasElement, // Use state variable, not ref.current (ref would be null on first render)
+    side: isUserOffenseForControls ? 'offense' : 'defense',
+    screenToField,
+    onAction: (action) => {
+      // Log actions for debugging
+      console.log('[MobileControls]', action);
+    },
+  });
+
+  // NOTE: Keyboard controls (WASD) removed - using touch/drag controls via useMobileControls hook
+  // The mobileControls hook above handles all movement input through touch/drag gestures
 
   // Use refs for snap handler to avoid stale closures
   const snapRef = useRef(snap);
@@ -517,46 +530,6 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   // User is on offense when their team (home) has possession
   const isUserOffense = game.possession === 'home';
 
-  // Screen to field coordinate conversion for touch controls
-  const screenToField = useCallback((screenPos: Point): Point => {
-    const container = canvasContainerRef.current;
-    if (!container || !engineState) {
-      return { x: 0, y: 0 };
-    }
-
-    const rect = container.getBoundingClientRect();
-    const ENGINE_WIDTH = 160;
-    const VISIBLE_YARDS = 50;
-    const YARDS_TO_UNITS = 3;
-    const HORIZON_Y = 80;
-    const fieldMarginX = 50;
-    const fieldTop = HORIZON_Y;
-    const fieldBottom = rect.height - 40;
-    const fieldHeight = fieldBottom - fieldTop;
-
-    const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
-    const losEngineY = yardLineToEngineY(engineState.field.yardLine);
-    const viewportStartY = losEngineY - 12 * YARDS_TO_UNITS;
-    const minViewport = yardLineToEngineY(-10);
-    const maxViewport = yardLineToEngineY(110) - VISIBLE_YARDS * YARDS_TO_UNITS;
-    const clampedStartY = Math.max(minViewport, Math.min(viewportStartY, maxViewport));
-    const clampedEndY = clampedStartY + VISIBLE_YARDS * YARDS_TO_UNITS;
-
-    const depth = (fieldBottom - screenPos.y) / fieldHeight;
-    const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
-
-    const perspectiveScale = 1 - depth * 0.6;
-    const centerX = rect.width / 2;
-    const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
-    const normalizedX = (screenPos.x - centerX) / fieldWidthAtDepth + 0.5;
-    const engineX = normalizedX * ENGINE_WIDTH;
-
-    return {
-      x: Math.max(0, Math.min(ENGINE_WIDTH, engineX)),
-      y: Math.max(clampedStartY, Math.min(clampedEndY, engineY)),
-    };
-  }, [engineState]);
-
   // Determine play situation for The Call button
   const getPlaySituation = (): 'sack' | 'fumble' | 'touchdown' | 'big-gain' | 'normal' => {
     if (!engineState?.lastResult) return 'normal';
@@ -579,7 +552,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
       {/* Landscape orientation required for mobile */}
       <OrientationPrompt />
 
-      <div className="min-h-screen bg-slate-950 flex flex-col">
+      <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
         {/* Top Bar - Scoreboard */}
       <div className="p-4 pb-0 flex items-center justify-between">
         <Scoreboard
@@ -606,7 +579,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
       </div>
 
       {/* Main Content - Field + Substitution Panel */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         {/* Left sidebar - Game Controls */}
         <div className="w-48 p-4 flex flex-col gap-3">
           {/* Coverage overlay toggle */}
@@ -648,7 +621,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
         </div>
 
         {/* Field area */}
-        <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex-1 flex items-center justify-center p-4 min-h-0">
           <div
             ref={canvasContainerRef}
             className="relative cursor-crosshair"

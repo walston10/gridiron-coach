@@ -80,6 +80,7 @@ export const DeskPage: React.FC<DeskPageProps> = ({
       teamName={teamName}
       currentEvent={eventSystem.currentEvent}
       lastResult={eventSystem.lastResult}
+      contextPlayer={eventSystem.contextPlayer}
       onSelectEvent={handleSelectEvent}
       onMakeChoice={eventSystem.makeChoice}
       onAdvanceDay={handleAdvanceDay}

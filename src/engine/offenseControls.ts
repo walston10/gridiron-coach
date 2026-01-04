@@ -69,7 +69,7 @@ export class OffenseControls {
         type: 'move',
         direction: {
           x: state.direction.x * speed,
-          y: state.direction.y * speed,
+          y: -state.direction.y * speed, // Invert Y for field coordinates (same as createMoveAction)
         },
       };
     }

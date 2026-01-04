@@ -22,9 +22,11 @@ import type {
   PlayerEffect,
 } from '../types/Events';
 import type { Owner } from '../types/Owner';
+import type { Player } from '../types/Player';
 import { OWNERS, OWNER_LIST } from '../types/Owner';
 import { useEventStore } from '../stores/eventStore';
 import { useEffectsStore } from '../stores/effectsStore';
+import { useGameStore } from '../stores/gameStore';
 import {
   selectEventForDay,
   resolveChoice,
@@ -49,6 +51,7 @@ export interface EventSystemHook {
   owner: Owner;
   currentEvent: GameEvent | null;
   lastResult: ChoiceResult | null;
+  contextPlayer: Player | null;  // The player this event is about (if any)
 
   // Status flags
   isUnderInvestigation: boolean;
@@ -66,12 +69,30 @@ export interface EventSystemHook {
   getAvailableEvents: () => GameEvent[];
 }
 
+// Helper to map RosterPosition (WR1, WR2, etc.) to Position (WR, RB, etc.)
+function rosterPositionToPosition(rosterPos: string): string {
+  const mapping: Record<string, string> = {
+    'WR1': 'WR',
+    'WR2': 'WR',
+    'RB': 'RB',
+    'QB': 'QB',
+    'FLEX': 'WR', // Default to WR for flex
+    'CB1': 'CB',
+    'CB2': 'CB',
+    'S': 'S',
+    'LB1': 'LB',
+    'LB2': 'LB',
+  };
+  return mapping[rosterPos] || rosterPos;
+}
+
 export function useEventSystem(options: UseEventSystemOptions = {}): EventSystemHook {
   const { onPlayerStatusChange, onGameOver } = options;
 
   // Get persisted state from eventStore
   const eventStore = useEventStore();
   const effectsStore = useEffectsStore();
+  const { teams, userTeamId } = useGameStore();
 
   // Ephemeral state (doesn't need persistence)
   const [currentEvent, setCurrentEvent] = useState<GameEvent | null>(null);
@@ -314,11 +335,27 @@ export function useEventSystem(options: UseEventSystemOptions = {}): EventSystem
     [state]
   );
 
+  // Get the context player for the current event (if any)
+  const contextPlayer = useMemo((): Player | null => {
+    if (!currentEvent?.targetPosition || !userTeamId) return null;
+
+    const userTeam = teams.find(t => t.info.id === userTeamId);
+    if (!userTeam) return null;
+
+    // Map roster position to general position (WR1 -> WR)
+    const targetPosition = rosterPositionToPosition(currentEvent.targetPosition);
+
+    // Find a player matching this position in the roster
+    const player = userTeam.roster.find(p => p.position === targetPosition);
+    return player || null;
+  }, [currentEvent, teams, userTeamId]);
+
   return {
     state,
     owner,
     currentEvent,
     lastResult,
+    contextPlayer,
     isUnderInvestigation: underInvestigation,
     gameOver,
     startNewSeason,

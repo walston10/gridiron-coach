@@ -1137,6 +1137,12 @@ export class GameEngine {
       // Skip QB and ball carrier
       if (this.isQB(player.id) || player.id === this.state.ballCarrier) return;
 
+      // Skip tackles being handled by BlockingEngine (engaged in pass blocking)
+      if ((player.id === 'LT' || player.id === 'RT') &&
+          (player.engagementState === 'ENGAGED' || player.engagementState === 'WINNING')) {
+        return; // BlockingEngine handles their movement
+      }
+
       // FLEX player may have blocking assignment (when playing FB/TE)
       if (player.rosterPosition === 'FLEX' && player.route === 'BLOCK') {
         if (isRunPlay && ballCarrier) {
@@ -1312,6 +1318,11 @@ export class GameEngine {
     // Speed scale: 0.5 units/tick = 30 units/sec = 10 yards/sec (realistic NFL speed)
     // With simplified roster: only LBs can blitz, D-LINE is handled as a unit
     this.state.defensivePlayers.forEach(defender => {
+      // Skip players being handled by BlockingEngine (engaged edge rushers)
+      if (defender.engagementState === 'ENGAGED' || defender.engagementState === 'BEATEN') {
+        return; // BlockingEngine handles their movement
+      }
+
       const isBlitzer = defender.assignment === 'RUSH';
       const isCoverage = ['CB1', 'CB2', 'S', 'LB1', 'LB2'].includes(defender.rosterPosition);
 

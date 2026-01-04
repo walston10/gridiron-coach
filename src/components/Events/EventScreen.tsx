@@ -23,16 +23,25 @@ interface EventScreenProps {
 
 /**
  * Replace template placeholders in event text with actual player info
- * Supports: {{playerName}}, {{playerFirstName}}, {{playerLastName}}, {{playerPosition}}
+ * Supports both single and double curly brace formats:
+ * {playerName}, {{playerName}}, {playerFirstName}, {{playerFirstName}}, etc.
  */
 function interpolateEventText(text: string, player?: Player | null): string {
   if (!player) return text;
 
+  const fullName = `${player.firstName} ${player.lastName}`;
+
   return text
-    .replace(/\{\{playerName\}\}/g, `${player.firstName} ${player.lastName}`)
+    // Double curly brace format {{playerName}}
+    .replace(/\{\{playerName\}\}/g, fullName)
     .replace(/\{\{playerFirstName\}\}/g, player.firstName)
     .replace(/\{\{playerLastName\}\}/g, player.lastName)
-    .replace(/\{\{playerPosition\}\}/g, player.position);
+    .replace(/\{\{playerPosition\}\}/g, player.position)
+    // Single curly brace format {playerName}
+    .replace(/\{playerName\}/g, fullName)
+    .replace(/\{playerFirstName\}/g, player.firstName)
+    .replace(/\{playerLastName\}/g, player.lastName)
+    .replace(/\{playerPosition\}/g, player.position);
 }
 
 // Character portraits (simple emoji representations for now)
@@ -87,9 +96,26 @@ export const EventScreen: React.FC<EventScreenProps> = ({
   contextPlayer,
 }) => {
   const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
+  const [imageError, setImageError] = useState(false);
+  const [imageSrc, setImageSrc] = useState(event.imageUrl || '');
   const portrait = CHARACTER_PORTRAITS[event.character] || CHARACTER_PORTRAITS.PLAYER;
 
+  // Handle image loading errors with case-insensitive fallback
+  const handleImageError = () => {
+    if (imageSrc && imageSrc.endsWith('.png')) {
+      // Try uppercase extension
+      setImageSrc(imageSrc.replace('.png', '.PNG'));
+    } else if (imageSrc && imageSrc.endsWith('.PNG')) {
+      // Try lowercase extension
+      setImageSrc(imageSrc.replace('.PNG', '.png'));
+    } else {
+      // Both failed, fall back to emoji
+      setImageError(true);
+    }
+  };
+
   // Interpolate player info into event text
+  const displayTitle = interpolateEventText(event.title, contextPlayer);
   const displayDescription = interpolateEventText(event.description, contextPlayer);
 
   // Calculate actual costs and rates for display
@@ -179,9 +205,22 @@ export const EventScreen: React.FC<EventScreenProps> = ({
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-800 rounded-lg max-w-2xl w-full overflow-hidden">
         {/* Character Portrait Section */}
-        <div className={`${portrait.color} p-8 flex flex-col items-center`}>
-          <div className="text-6xl mb-4">{portrait.emoji}</div>
-          <div className="text-xs text-gray-400 uppercase tracking-wider">
+        <div className={`${portrait.color} p-8 flex flex-col items-center relative overflow-hidden`}>
+          {/* Event image if available */}
+          {imageSrc && !imageError ? (
+            <div className="absolute inset-0">
+              <img
+                src={imageSrc}
+                alt=""
+                className="w-full h-full object-cover opacity-80"
+                onError={handleImageError}
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+            </div>
+          ) : (
+            <div className="text-6xl mb-4">{portrait.emoji}</div>
+          )}
+          <div className="text-xs text-gray-400 uppercase tracking-wider relative z-10">
             {event.character.replace('_', ' ')}
           </div>
         </div>
@@ -189,7 +228,7 @@ export const EventScreen: React.FC<EventScreenProps> = ({
         {/* Content Section */}
         <div className="p-6 space-y-4">
           {/* Title */}
-          <h2 className="text-2xl font-bold text-white">{event.title}</h2>
+          <h2 className="text-2xl font-bold text-white">{displayTitle}</h2>
 
           {/* Description */}
           <p className="text-gray-300 leading-relaxed">{displayDescription}</p>
