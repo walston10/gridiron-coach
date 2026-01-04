@@ -45,6 +45,9 @@ function getJerseyNumber(playerId: string): number {
   if (id === 'LB2' || id === 'OLB') return 58;
   if (id === 'EDGE_L') return 91;
   if (id === 'EDGE_R') return 99;
+  if (id === 'DT_L') return 97;
+  if (id === 'DT_R') return 93;
+  if (id === 'NT') return 95;
 
   // Fallback
   let hash = 0;

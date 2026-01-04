@@ -243,22 +243,25 @@ export class GameEngine {
     ];
   }
 
-  // Create defensive players waiting in their area (5 skill + 2 edge rushers)
+  // Create defensive players waiting in their area (5 skill + 2 edge rushers + 2 interior D-line)
   private createDefensiveHuddle(yardLine: number): FieldPlayer[] {
     const los = this.yardLineToY(yardLine);
     const center = FIELD_WIDTH / 2;
     const waitY = los + 45; // 15 yards past LOS
 
-    // 5 skill players + 2 edge rushers
+    // 5 skill players + 2 edge rushers + 2 interior D-linemen
     return [
       this.createSkillPlayer('CB1', 'CB_LEFT', { x: 25, y: waitY + 15 }),
       this.createSkillPlayer('CB2', 'CB_RIGHT', { x: 135, y: waitY + 15 }),
       this.createSkillPlayer('S', 'FS', { x: center, y: waitY + 30 }),
       this.createSkillPlayer('LB1', 'MLB', { x: center - 30, y: waitY + 5 }),
       this.createSkillPlayer('LB2', 'LOLB', { x: center + 30, y: waitY + 5 }),
-      // Edge rushers
+      // Edge rushers (DEs)
       this.createEdgeRusher('EDGE_L', { x: 30, y: waitY }),
       this.createEdgeRusher('EDGE_R', { x: 130, y: waitY }),
+      // Interior D-linemen (DTs)
+      this.createInteriorDLineman('DT_L', { x: center - 15, y: waitY }),
+      this.createInteriorDLineman('DT_R', { x: center + 15, y: waitY }),
     ];
   }
 
@@ -303,6 +306,29 @@ export class GameEngine {
       awareness: randomStat(70, 20),
       passRush: randomStat(70, 25),     // Primary pass rush stat
       tackle: randomStat(70, 20),
+      assignment: 'RUSH',
+      engagementState: 'FREE',
+    };
+  }
+
+  // Create an interior D-lineman (DT/NT)
+  private createInteriorDLineman(id: 'DT_L' | 'DT_R' | 'NT', location: Vector2): FieldPlayer {
+    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
+    return {
+      id,
+      playerId: `player_${id}`,
+      rosterPosition: id as RosterPosition,
+      fieldRole: id as FieldRole,
+      location,
+      velocity: { x: 0, y: 0 },
+      speed: randomStat(60, 15),        // Slower than edge rushers
+      acceleration: randomStat(65, 15),
+      strength: randomStat(80, 15),     // Very strong
+      agility: randomStat(55, 20),
+      awareness: randomStat(70, 20),
+      passRush: randomStat(65, 25),     // Interior pass rush
+      tackle: randomStat(75, 20),       // Good at tackles
       assignment: 'RUSH',
       engagementState: 'FREE',
     };
