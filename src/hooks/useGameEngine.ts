@@ -142,6 +142,29 @@ export function useGameEngine(options: UseGameEngineOptions = {}) {
     engineRef.current.setAutoCPUDefense();
   }, []);
 
+  // User selects defensive play - CPU will run offense
+  const selectDefensivePlay = useCallback((play: import('../types/GameSim').DefensivePlay) => {
+    if (!engineRef.current || !cpuRef.current || !gameState) return;
+
+    // Set user's defensive play
+    engineRef.current.setDefensivePlay(play);
+
+    // CPU selects an offensive play
+    const cpuOffense = cpuRef.current.callOffensivePlay(
+      gameState.field,
+      gameState.score.away - gameState.score.home,
+      gameState.clock.minutes * 60 + gameState.clock.seconds
+    );
+    engineRef.current.setOffensivePlay(cpuOffense);
+  }, [gameState]);
+
+  // Snap when user is on defense (CPU controls ball carrier)
+  const snapDefense = useCallback(() => {
+    if (!engineRef.current) return;
+    engineRef.current.snap();
+    engineRef.current.enableCPUControl(true);
+  }, []);
+
   const snap = useCallback(() => {
     engineRef.current?.snap();
   }, []);
@@ -268,12 +291,14 @@ export function useGameEngine(options: UseGameEngineOptions = {}) {
     playbook: OFFENSIVE_PLAYBOOK,
     selectPlay,
     selectPlayWithAutoCPU,
+    selectDefensivePlay,
     snap,
+    snapDefense,
     moveBallCarrier,
     throwToSpot,
     handoff,
     nextPlay,
-    simulateCPUPlay, // For when user is on defense
+    simulateCPUPlay, // For when user is on defense (legacy)
     // Evasion moves
     juke,
     spin,

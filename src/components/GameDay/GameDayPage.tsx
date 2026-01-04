@@ -9,6 +9,7 @@ import { PixiGameCanvas } from './PixiGameCanvas';
 import { Scoreboard } from './Scoreboard';
 import { ControlDeck } from './ControlDeck';
 import { PlayCallModal } from './PlayCallModal';
+import { DefensePlayCallModal } from './DefensePlayCallModal';
 import { SubstitutionPanel } from './SubstitutionPanel';
 import { OrientationPrompt, TheCallButton } from '../gameplay';
 import type { Play } from '../../types';
@@ -197,11 +198,13 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const {
     gameState: engineState,
     selectPlay: engineSelectPlay,
+    selectDefensivePlay: engineSelectDefensivePlay,
     snap,
+    snapDefense,
     moveBallCarrier,
     throwToSpot,
     nextPlay,
-    simulateCPUPlay, // For when user is on defense
+    simulateCPUPlay, // For when user is on defense (legacy)
     // Evasion moves
     juke,
     spin,
@@ -226,7 +229,9 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const controls = useControls();
   const substitutions = useSubstitutions();
   const [showPlayCall, setShowPlayCall] = useState(false);
+  const [showDefensePlayCall, setShowDefensePlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
+  const [selectedDefensePlay, setSelectedDefensePlay] = useState<import('../../types/GameSim').DefensivePlay | null>(null);
   const [showSubPanel, setShowSubPanel] = useState(true);
   const [showCoverageOverlay, setShowCoverageOverlay] = useState(false);
   const [slushFundBalance] = useState(50000); // TODO: Wire to actual slush fund store
@@ -361,15 +366,28 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     setShowPlayCall(false);
   }, [engineSelectPlay]);
 
+  const handleDefensePlaySelect = useCallback((play: import('../../types/GameSim').DefensivePlay) => {
+    setSelectedDefensePlay(play);
+    engineSelectDefensivePlay(play);
+    setShowDefensePlayCall(false);
+  }, [engineSelectDefensivePlay]);
+
   const handleSnap = useCallback(() => {
     if (engineState?.phase === 'PRE_SNAP' && selectedPlay) {
       snap();
     }
   }, [engineState?.phase, selectedPlay, snap]);
 
+  const handleSnapDefense = useCallback(() => {
+    if (engineState?.phase === 'PRE_SNAP' && selectedDefensePlay) {
+      snapDefense();
+    }
+  }, [engineState?.phase, selectedDefensePlay, snapDefense]);
+
   const handleNextPlay = useCallback(() => {
     nextPlay();
     setSelectedPlay(null);
+    setSelectedDefensePlay(null);
   }, [nextPlay]);
 
   // Handle click on canvas to throw (isometric view)
@@ -739,7 +757,9 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
           distance: lastKickResult.distance,
         } : undefined}
         onCallPlay={() => setShowPlayCall(true)}
+        onCallDefense={() => setShowDefensePlayCall(true)}
         onSnap={handleSnap}
+        onSnapDefense={handleSnapDefense}
         onNextPlay={handleNextPlay}
         onPAT={handlePAT}
         onTwoPoint={handleTwoPoint}
@@ -751,14 +771,23 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
         onDive={dive}
         onSimulateCPU={simulateCPUPlay}
         ballCarrier={engineState.ballCarrier}
+        selectedDefensePlayName={selectedDefensePlay?.name}
       />
 
-      {/* Play Call Modal */}
+      {/* Play Call Modal - Offense */}
       {showPlayCall && (
         <PlayCallModal
           plays={playbook.plays}
           onSelectPlay={handlePlaySelect}
           onClose={() => setShowPlayCall(false)}
+        />
+      )}
+
+      {/* Play Call Modal - Defense */}
+      {showDefensePlayCall && (
+        <DefensePlayCallModal
+          onSelectPlay={handleDefensePlaySelect}
+          onClose={() => setShowDefensePlayCall(false)}
         />
       )}
       </div>
