@@ -57,6 +57,18 @@ export interface Vector2 {
 // FIELD PLAYER (during gameplay)
 // =============================================================================
 
+// =============================================================================
+// BLOCKING / ENGAGEMENT STATE
+// =============================================================================
+
+export type EngagementState = 'FREE' | 'ENGAGED' | 'BEATEN' | 'WINNING';
+
+export interface BlockEngagement {
+  engagedWith: string;                  // ID of the player we're engaged with
+  progress: number;                     // -100 (blocker dominating) to +100 (rusher winning)
+  startTime: number;                    // When engagement started
+}
+
 /**
  * A player on the field during a play.
  *
@@ -84,6 +96,10 @@ export interface FieldPlayer {
   assignment?: 'BLOCK' | 'RUSH' | 'ZONE' | 'MAN';
   targetId?: string;                    // For man coverage - who they're covering
   formationTarget?: Vector2;            // Target position for huddle-to-formation animation
+
+  // Blocking/Engagement state
+  engagementState?: EngagementState;
+  blockEngagement?: BlockEngagement;
 
   // Position-specific stats (copied from player)
   accuracy?: number;                    // QB

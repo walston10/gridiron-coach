@@ -165,7 +165,6 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
     const fieldContainer = fieldContainerRef.current;
     const dynamicContainer = dynamicContainerRef.current;
-    const animStates = animStatesRef.current;
 
     // Clear containers
     fieldContainer.removeChildren();

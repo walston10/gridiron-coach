@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import type { GameEvent, Choice, ChoiceResult, Meters } from '../../types/Events';
 import { getEscalatingCost, getDiminishedSuccessRate } from '../../engine/EventEngine';
 import type { ShadyActionType } from '../../types/Events';
+import type { Player } from '../../types/Player';
 
 interface EventScreenProps {
   event: GameEvent;
@@ -17,6 +18,21 @@ interface EventScreenProps {
   onChoiceSelect: (choice: Choice) => void;
   result?: ChoiceResult;
   onContinue?: () => void;
+  contextPlayer?: Player | null;  // The player this event is about
+}
+
+/**
+ * Replace template placeholders in event text with actual player info
+ * Supports: {{playerName}}, {{playerFirstName}}, {{playerLastName}}, {{playerPosition}}
+ */
+function interpolateEventText(text: string, player?: Player | null): string {
+  if (!player) return text;
+
+  return text
+    .replace(/\{\{playerName\}\}/g, `${player.firstName} ${player.lastName}`)
+    .replace(/\{\{playerFirstName\}\}/g, player.firstName)
+    .replace(/\{\{playerLastName\}\}/g, player.lastName)
+    .replace(/\{\{playerPosition\}\}/g, player.position);
 }
 
 // Character portraits (simple emoji representations for now)
@@ -68,9 +84,13 @@ export const EventScreen: React.FC<EventScreenProps> = ({
   onChoiceSelect,
   result,
   onContinue,
+  contextPlayer,
 }) => {
   const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
   const portrait = CHARACTER_PORTRAITS[event.character] || CHARACTER_PORTRAITS.PLAYER;
+
+  // Interpolate player info into event text
+  const displayDescription = interpolateEventText(event.description, contextPlayer);
 
   // Calculate actual costs and rates for display
   const getDisplayCost = (choice: Choice): number => {
@@ -112,7 +132,7 @@ export const EventScreen: React.FC<EventScreenProps> = ({
 
           {/* Flavor Text */}
           <div className="text-gray-300 text-center text-lg">
-            {result.flavorText}
+            {interpolateEventText(result.flavorText || '', contextPlayer)}
           </div>
 
           {/* Meter Changes */}
@@ -172,7 +192,7 @@ export const EventScreen: React.FC<EventScreenProps> = ({
           <h2 className="text-2xl font-bold text-white">{event.title}</h2>
 
           {/* Description */}
-          <p className="text-gray-300 leading-relaxed">{event.description}</p>
+          <p className="text-gray-300 leading-relaxed">{displayDescription}</p>
 
           {/* Slush Fund Display */}
           <div className="flex justify-between items-center py-2 border-t border-b border-gray-700">
@@ -199,7 +219,7 @@ export const EventScreen: React.FC<EventScreenProps> = ({
                   }`}
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-white font-medium">{choice.text}</span>
+                    <span className="text-white font-medium">{interpolateEventText(choice.text, contextPlayer)}</span>
                     {cost > 0 && (
                       <span className={`text-sm ${affordable ? 'text-yellow-400' : 'text-red-400'}`}>
                         {formatMoney(cost)}

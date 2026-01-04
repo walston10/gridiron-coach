@@ -7,6 +7,7 @@ interface ControlDeckProps {
   isPlayRunning: boolean;
   isPlayDead: boolean;
   selectedPlayName?: string;
+  selectedDefensePlayName?: string; // Defense play name when on defense
   isUserOffense: boolean; // Whether user's team has possession
 
   // Field position
@@ -41,7 +42,9 @@ interface ControlDeckProps {
 
   // Callbacks
   onCallPlay: () => void;
+  onCallDefense: () => void; // Open defense play selection
   onSnap: () => void;
+  onSnapDefense: () => void; // Snap when on defense (CPU runs offense)
   onNextPlay: () => void;
   onPAT: () => void;
   onTwoPoint: () => void;
@@ -51,7 +54,7 @@ interface ControlDeckProps {
   onJuke: () => void;
   onSpin: () => void;
   onDive: () => void;
-  onSimulateCPU?: () => void; // Simulate CPU offense play
+  onSimulateCPU?: () => void; // Simulate CPU offense play (legacy)
 
   // Ball carrier info
   ballCarrier?: string;
@@ -63,6 +66,7 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
   isPlayRunning,
   isPlayDead,
   selectedPlayName,
+  selectedDefensePlayName,
   isUserOffense,
   down,
   yardsToGo,
@@ -77,7 +81,9 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
   oppTeamName,
   lastKickResult,
   onCallPlay,
+  onCallDefense,
   onSnap,
+  onSnapDefense,
   onNextPlay,
   onPAT,
   onTwoPoint,
@@ -259,12 +265,30 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
                   <div className="text-red-300 text-sm">{oppTeamName} has the ball</div>
                 </div>
 
-                <button
-                  onClick={onSimulateCPU}
-                  className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-lg shadow-lg shadow-red-500/25 transition-all hover:scale-105"
-                >
-                  RUN CPU PLAY
-                </button>
+                {!selectedDefensePlayName ? (
+                  <button
+                    onClick={onCallDefense}
+                    className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-lg shadow-lg shadow-red-500/25 transition-all hover:scale-105"
+                  >
+                    CALL DEFENSE
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={onCallDefense}
+                      className="px-4 py-2 bg-red-800/50 hover:bg-red-700/50 text-red-200 rounded-lg border border-red-600/30 transition-colors"
+                    >
+                      <div className="text-xs text-red-400">DEFENSE</div>
+                      <div className="font-bold">{selectedDefensePlayName}</div>
+                    </button>
+                    <button
+                      onClick={onSnapDefense}
+                      className="px-8 py-3 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white font-bold rounded-lg shadow-lg shadow-red-500/25 transition-all hover:scale-105"
+                    >
+                      SNAP!
+                    </button>
+                  </>
+                )}
               </>
             )}
 

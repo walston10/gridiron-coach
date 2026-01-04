@@ -30,6 +30,7 @@ import type { KickResult, KickingRatings } from './KickingEngine';
 import { PenaltyEngine } from './PenaltyEngine';
 import type { Penalty, PlayContext } from './PenaltyEngine';
 import { FatigueEngine } from './FatigueEngine';
+import { blockingEngine } from './BlockingEngine';
 import type { Play } from '../types';
 
 const FIELD_WIDTH = 160;   // 53.3 yards * 3
@@ -166,37 +167,89 @@ export class GameEngine {
     return { id: type, location, stats };
   }
 
-  // Create offensive skill players in huddle formation (5 players, no linemen)
+  // Create offensive skill players in huddle formation (5 skill + 2 tackles)
   private createOffensiveHuddle(yardLine: number): FieldPlayer[] {
     const los = this.yardLineToY(yardLine);
     const center = FIELD_WIDTH / 2;
     const huddleY = los - 30; // 10 yards behind LOS
     const huddleSpacing = 10;
 
-    // 5 skill players clustered in a huddle circle
+    // 5 skill players clustered in a huddle circle + 2 tackles
     return [
       this.createSkillPlayer('QB', 'QB', { x: center, y: huddleY - 15 }),      // QB in front
       this.createSkillPlayer('RB', 'RB', { x: center - huddleSpacing, y: huddleY }),
       this.createSkillPlayer('WR1', 'WR_X', { x: center - huddleSpacing * 2, y: huddleY + huddleSpacing }),
       this.createSkillPlayer('WR2', 'WR_Z', { x: center + huddleSpacing * 2, y: huddleY + huddleSpacing }),
       this.createSkillPlayer('FLEX', 'TE', { x: center + huddleSpacing, y: huddleY }),
+      // Tackles at the edges of the huddle
+      this.createTackle('LT', { x: center - huddleSpacing * 3, y: huddleY }),
+      this.createTackle('RT', { x: center + huddleSpacing * 3, y: huddleY }),
     ];
   }
 
-  // Create defensive skill players waiting in their area (5 players, no linemen)
+  // Create defensive players waiting in their area (5 skill + 2 edge rushers)
   private createDefensiveHuddle(yardLine: number): FieldPlayer[] {
     const los = this.yardLineToY(yardLine);
     const center = FIELD_WIDTH / 2;
     const waitY = los + 45; // 15 yards past LOS
 
-    // 5 skill players in a loose cluster
+    // 5 skill players + 2 edge rushers
     return [
       this.createSkillPlayer('CB1', 'CB_LEFT', { x: 25, y: waitY + 15 }),
       this.createSkillPlayer('CB2', 'CB_RIGHT', { x: 135, y: waitY + 15 }),
       this.createSkillPlayer('S', 'FS', { x: center, y: waitY + 30 }),
       this.createSkillPlayer('LB1', 'MLB', { x: center - 30, y: waitY + 5 }),
       this.createSkillPlayer('LB2', 'LOLB', { x: center + 30, y: waitY + 5 }),
+      // Edge rushers
+      this.createEdgeRusher('EDGE_L', { x: 30, y: waitY }),
+      this.createEdgeRusher('EDGE_R', { x: 130, y: waitY }),
     ];
+  }
+
+  // Create an offensive tackle
+  private createTackle(id: 'LT' | 'RT', location: Vector2): FieldPlayer {
+    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
+    return {
+      id,
+      playerId: `player_${id}`,
+      rosterPosition: id as RosterPosition,
+      fieldRole: id as FieldRole,
+      location,
+      velocity: { x: 0, y: 0 },
+      speed: randomStat(55, 15),        // Tackles are slower
+      acceleration: randomStat(55, 15),
+      strength: randomStat(75, 20),     // Strong
+      agility: randomStat(55, 20),
+      awareness: randomStat(70, 20),
+      passBlock: randomStat(70, 25),    // Primary blocking stat
+      runBlock: randomStat(70, 25),
+      assignment: 'BLOCK',
+      engagementState: 'FREE',
+    };
+  }
+
+  // Create an edge rusher (DE/OLB)
+  private createEdgeRusher(id: 'EDGE_L' | 'EDGE_R', location: Vector2): FieldPlayer {
+    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
+    return {
+      id,
+      playerId: `player_${id}`,
+      rosterPosition: id as RosterPosition,
+      fieldRole: id as FieldRole,
+      location,
+      velocity: { x: 0, y: 0 },
+      speed: randomStat(75, 20),        // Fast off the edge
+      acceleration: randomStat(75, 20),
+      strength: randomStat(70, 20),
+      agility: randomStat(70, 20),
+      awareness: randomStat(70, 20),
+      passRush: randomStat(70, 25),     // Primary pass rush stat
+      tackle: randomStat(70, 20),
+      assignment: 'RUSH',
+      engagementState: 'FREE',
+    };
   }
 
   // PLAY SETUP - Supports both OffensivePlay and UI Play types
@@ -599,11 +652,19 @@ export class GameEngine {
 
     // Create 5 skill players
     const rosterPositions: OffenseRosterPosition[] = ['QB', 'RB', 'WR1', 'WR2', 'FLEX'];
-    return rosterPositions.map(rosterPos => {
+    const skillPlayers = rosterPositions.map(rosterPos => {
       const fieldRole = roleMapping[rosterPos];
       const route = play.routes[rosterPos];
       return this.createSkillPlayer(rosterPos, fieldRole, positions[rosterPos], route);
     });
+
+    // Add tackles at their formation positions
+    const tackles = [
+      this.createTackle('LT', { x: center - 24, y: los + 3 }),  // Left tackle
+      this.createTackle('RT', { x: center + 24, y: los + 3 }),  // Right tackle
+    ];
+
+    return [...skillPlayers, ...tackles];
   }
 
   /**
@@ -671,10 +732,18 @@ export class GameEngine {
 
     // Create 5 skill players
     const rosterPositions: DefenseRosterPosition[] = ['CB1', 'CB2', 'S', 'LB1', 'LB2'];
-    return rosterPositions.map(rosterPos => {
+    const skillPlayers = rosterPositions.map(rosterPos => {
       const fieldRole = roleMapping[rosterPos];
       return this.createSkillPlayer(rosterPos, fieldRole, positions[rosterPos]);
     });
+
+    // Add edge rushers at their formation positions
+    const edgeRushers = [
+      this.createEdgeRusher('EDGE_L', { x: center - 36, y: los + 9 }),  // Left edge
+      this.createEdgeRusher('EDGE_R', { x: center + 36, y: los + 9 }),  // Right edge
+    ];
+
+    return [...skillPlayers, ...edgeRushers];
   }
 
   /**
@@ -816,6 +885,9 @@ export class GameEngine {
     this.pendingHandoff = null;
     this.playStartTime = 0; // Track when play started for duration limit
 
+    // Reset blocking engagements for new play
+    blockingEngine.resetEngagements([...this.state.offensivePlayers, ...this.state.defensivePlayers]);
+
     // Find QB for ball position and pocket center (don't assume player[0])
     // Support both lowercase 'qb' (default formation) and uppercase 'QB' (Play Designer)
     const qb = this.state.offensivePlayers.find(p => p.id.toLowerCase() === 'qb' || p.rosterPosition === 'QB');
@@ -938,6 +1010,14 @@ export class GameEngine {
         this.state.ballCarrier || null,
         this.currentTime
       );
+
+      // Process blocking engagements between tackles and edge rushers
+      const tackles = this.state.offensivePlayers.filter(p => p.id === 'LT' || p.id === 'RT');
+      const edgeRushers = this.state.defensivePlayers.filter(p => p.id === 'EDGE_L' || p.id === 'EDGE_R');
+      if (tackles.length > 0 && edgeRushers.length > 0) {
+        blockingEngine.setCurrentTime(this.currentTime);
+        blockingEngine.processEngagements(tackles, edgeRushers, qb.location);
+      }
     }
 
     // Handle ball in flight

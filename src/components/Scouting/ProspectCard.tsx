@@ -12,7 +12,7 @@ export const ProspectCard: React.FC<ProspectCardProps> = ({ prospect, onClick, o
   const { player, scoutedStats, projectedRound, isFullyScouted, userInterest } = prospect;
 
   const revealedCount = Object.keys(scoutedStats).length;
-  const totalStats = 16;
+  const totalStats = 22; // All player stats including new mental/intangibles
 
   // Get position-relevant stats for sorting display
   const relevantStats = POSITION_RELEVANT_STATS[player.position] || [];

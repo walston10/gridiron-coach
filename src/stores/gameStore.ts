@@ -14,6 +14,57 @@ export type CustomFormation = {
   positions: PositionTemplate[];
 };
 
+// =============================================================================
+// GAME HISTORY
+// =============================================================================
+
+export interface GameResult {
+  id: string;
+  week: number;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeScore: number;
+  awayScore: number;
+  userTeamId: string;
+  userWon: boolean;
+  playedAt: number;
+  // Quarter-by-quarter scores
+  quarterScores: {
+    home: [number, number, number, number];
+    away: [number, number, number, number];
+  };
+  // Key stats (optional, can be expanded)
+  stats?: {
+    userPassingYards?: number;
+    userRushingYards?: number;
+    userTurnovers?: number;
+    opponentPassingYards?: number;
+    opponentRushingYards?: number;
+    opponentTurnovers?: number;
+  };
+}
+
+// =============================================================================
+// MID-GAME CHECKPOINT
+// =============================================================================
+
+export interface MidGameCheckpoint {
+  gameId: string;
+  quarter: 1 | 2 | 3 | 4;
+  timeRemaining: number;  // Seconds in quarter
+  homeScore: number;
+  awayScore: number;
+  homeTeamId: string;
+  awayTeamId: string;
+  possession: 'home' | 'away';
+  down: number;
+  yardsToGo: number;
+  ballPosition: number;  // Yard line
+  savedAt: number;
+  // Full game state snapshot for restoration
+  gameStateSnapshot?: unknown;  // Serialized game state
+}
+
 // Default folders
 const DEFAULT_FOLDERS: PlayFolder[] = [
   { id: 'red-zone', name: 'Red Zone', color: '#ef4444', icon: '🎯' },
@@ -42,6 +93,10 @@ interface GameStore {
   freeAgency: FreeAgencyPeriod | null;
   customFormations: CustomFormation[];
 
+  // Game history
+  gameHistory: GameResult[];
+  midGameCheckpoint: MidGameCheckpoint | null;
+
   // Intro flow actions
   setPhase: (phase: GamePhase) => void;
   setOwner: (owner: OwnerType) => void;
@@ -68,9 +123,26 @@ interface GameStore {
   addTagToPlay: (playId: string, tag: PlayTag) => void;
   removeTagFromPlay: (playId: string, tag: PlayTag) => void;
 
+  // Game history actions
+  recordGameResult: (result: Omit<GameResult, 'id' | 'playedAt'>) => void;
+  getGameHistory: () => GameResult[];
+  getTeamRecord: (teamId: string) => { wins: number; losses: number; ties: number };
+
+  // Mid-game checkpoint actions
+  saveCheckpoint: (checkpoint: Omit<MidGameCheckpoint, 'savedAt'>) => void;
+  loadCheckpoint: () => MidGameCheckpoint | null;
+  clearCheckpoint: () => void;
+  hasActiveCheckpoint: () => boolean;
+
+  // Season/Standings actions
+  updateStandings: (homeTeamId: string, awayTeamId: string, homeScore: number, awayScore: number) => void;
+
   advancePhase: () => void;
   addCustomFormation: (formation: CustomFormation) => void;
   removeCustomFormation: (formationId: string) => void;
+
+  // Reset
+  resetFranchise: () => void;
 }
 
 export const useGameStore = create<GameStore>()(
@@ -94,6 +166,10 @@ export const useGameStore = create<GameStore>()(
       draft: null,
       freeAgency: null,
       customFormations: [],
+
+      // Game history
+      gameHistory: [],
+      midGameCheckpoint: null,
 
       // Intro flow actions
       setPhase: (phase: GamePhase) => set({ gamePhase: phase }),
@@ -281,6 +357,122 @@ export const useGameStore = create<GameStore>()(
         }));
       },
 
+      // =============================================================================
+      // GAME HISTORY
+      // =============================================================================
+
+      recordGameResult: (result: Omit<GameResult, 'id' | 'playedAt'>) => {
+        const gameResult: GameResult = {
+          ...result,
+          id: crypto.randomUUID(),
+          playedAt: Date.now(),
+        };
+
+        set(state => ({
+          gameHistory: [...state.gameHistory, gameResult],
+        }));
+
+        // Also update standings
+        get().updateStandings(result.homeTeamId, result.awayTeamId, result.homeScore, result.awayScore);
+      },
+
+      getGameHistory: () => {
+        return get().gameHistory;
+      },
+
+      getTeamRecord: (teamId: string) => {
+        const history = get().gameHistory;
+        let wins = 0, losses = 0, ties = 0;
+
+        for (const game of history) {
+          const isHome = game.homeTeamId === teamId;
+          const isAway = game.awayTeamId === teamId;
+
+          if (!isHome && !isAway) continue;
+
+          const teamScore = isHome ? game.homeScore : game.awayScore;
+          const oppScore = isHome ? game.awayScore : game.homeScore;
+
+          if (teamScore > oppScore) wins++;
+          else if (teamScore < oppScore) losses++;
+          else ties++;
+        }
+
+        return { wins, losses, ties };
+      },
+
+      // =============================================================================
+      // MID-GAME CHECKPOINTS
+      // =============================================================================
+
+      saveCheckpoint: (checkpoint: Omit<MidGameCheckpoint, 'savedAt'>) => {
+        set({
+          midGameCheckpoint: {
+            ...checkpoint,
+            savedAt: Date.now(),
+          },
+        });
+      },
+
+      loadCheckpoint: () => {
+        return get().midGameCheckpoint;
+      },
+
+      clearCheckpoint: () => {
+        set({ midGameCheckpoint: null });
+      },
+
+      hasActiveCheckpoint: () => {
+        return get().midGameCheckpoint !== null;
+      },
+
+      // =============================================================================
+      // STANDINGS
+      // =============================================================================
+
+      updateStandings: (homeTeamId: string, awayTeamId: string, homeScore: number, awayScore: number) => {
+        set(state => {
+          if (!state.season) return state;
+
+          const standings = state.season.standings.map(standing => {
+            if (standing.teamId === homeTeamId) {
+              const won = homeScore > awayScore;
+              const lost = homeScore < awayScore;
+              const tied = homeScore === awayScore;
+              return {
+                ...standing,
+                wins: standing.wins + (won ? 1 : 0),
+                losses: standing.losses + (lost ? 1 : 0),
+                ties: standing.ties + (tied ? 1 : 0),
+                pointsFor: standing.pointsFor + homeScore,
+                pointsAgainst: standing.pointsAgainst + awayScore,
+              };
+            }
+            if (standing.teamId === awayTeamId) {
+              const won = awayScore > homeScore;
+              const lost = awayScore < homeScore;
+              const tied = homeScore === awayScore;
+              return {
+                ...standing,
+                wins: standing.wins + (won ? 1 : 0),
+                losses: standing.losses + (lost ? 1 : 0),
+                ties: standing.ties + (tied ? 1 : 0),
+                pointsFor: standing.pointsFor + awayScore,
+                pointsAgainst: standing.pointsAgainst + homeScore,
+              };
+            }
+            return standing;
+          });
+
+          return {
+            season: {
+              ...state.season,
+              standings,
+            },
+          };
+        });
+      },
+
       advancePhase: () => {
         // TODO: Implement phase transitions
       },
@@ -296,12 +488,43 @@ export const useGameStore = create<GameStore>()(
           customFormations: state.customFormations.filter(f => f.id !== formationId),
         }));
       },
+
+      // =============================================================================
+      // RESET
+      // =============================================================================
+
+      resetFranchise: () => {
+        set({
+          gamePhase: 'start',
+          ownerType: 'tex',
+          gmName: '',
+          userTeamId: null,
+          teams: [],
+          season: null,
+          draft: null,
+          freeAgency: null,
+          gameHistory: [],
+          midGameCheckpoint: null,
+        });
+      },
     }),
     {
       name: 'gridiron-coach-storage',
       partialize: (state) => ({
+        // Intro/franchise state
+        gamePhase: state.gamePhase,
+        ownerType: state.ownerType,
+        gmName: state.gmName,
+        // Core game state
+        userTeamId: state.userTeamId,
+        teams: state.teams,
+        season: state.season,
+        // Playbook (always persisted)
         playbook: state.playbook,
         customFormations: state.customFormations,
+        // Game history
+        gameHistory: state.gameHistory,
+        midGameCheckpoint: state.midGameCheckpoint,
       }),
       onRehydrateStorage: () => (state) => {
         // If playbook was loaded from storage but has no plays, add defaults
