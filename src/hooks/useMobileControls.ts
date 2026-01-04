@@ -169,6 +169,8 @@ export function useMobileControls({
   );
 
   // Initialize input handler when canvas is available
+  // IMPORTANT: Only recreate when canvas changes, not when callbacks change
+  // Otherwise, ongoing gestures are interrupted when phase/controlledPlayer updates
   useEffect(() => {
     if (!canvas) return;
 
@@ -184,7 +186,27 @@ export function useMobileControls({
       destroyInputHandler();
       inputHandlerRef.current = null;
     };
-  }, [canvas, handleGesture, handleInputState, screenToField, findPlayerAtPos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas]);
+
+  // Update callbacks dynamically without recreating the InputHandler
+  // This preserves gesture state (like isActive) during gameplay
+  useEffect(() => {
+    if (inputHandlerRef.current) {
+      inputHandlerRef.current.setOnGesture(handleGesture);
+      inputHandlerRef.current.setOnInputState(handleInputState);
+    }
+  }, [handleGesture, handleInputState]);
+
+  // Update coordinate converters dynamically
+  useEffect(() => {
+    if (inputHandlerRef.current) {
+      if (screenToField) {
+        inputHandlerRef.current.setScreenToField(screenToField);
+      }
+      inputHandlerRef.current.setFindPlayerAtPos(findPlayerAtPos);
+    }
+  }, [screenToField, findPlayerAtPos]);
 
   // Update phase based on game state
   useEffect(() => {
