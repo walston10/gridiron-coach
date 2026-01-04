@@ -161,14 +161,17 @@ export class BlockingEngine {
 
   /**
    * Calculate blocker's power for this tick
+   * Blockers have inherent advantage - they know the snap count and set the engagement
    */
   private calculateBlockerPower(blocker: FieldPlayer): number {
     const passBlock = blocker.passBlock ?? 70;
     const strength = blocker.strength ?? 70;
+    const awareness = blocker.awareness ?? 70;
     const randomFactor = randomBetween(0, RANDOMNESS);
 
-    // passBlock is primary, strength is secondary
-    return passBlock + (strength / 2) + randomFactor;
+    // passBlock is primary, strength and awareness are secondary
+    // Added awareness for reading blitzes, and base advantage (+15) for blockers
+    return passBlock + (strength / 2) + (awareness / 4) + randomFactor + 15;
   }
 
   /**
@@ -181,7 +184,8 @@ export class BlockingEngine {
     const randomFactor = randomBetween(0, RANDOMNESS);
 
     // passRush is primary, strength and speed are secondary
-    return passRush + (strength / 3) + (speed / 6) + randomFactor;
+    // Reduced speed factor - raw speed helps less in tight quarters
+    return passRush + (strength / 3) + (speed / 8) + randomFactor;
   }
 
   /**

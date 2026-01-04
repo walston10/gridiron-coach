@@ -325,22 +325,13 @@ export class DefenseControls {
   private moveSelectedDefender(direction: Point): boolean {
     if (!this.selectedDefenderId) return false;
 
-    const state = this.engine.getState();
-    const defender = state.defensivePlayers.find(
-      (p) => p.id === this.selectedDefenderId
-    );
+    // Sync with engine's controlled defender
+    if (this.engine.getControlledDefender() !== this.selectedDefenderId) {
+      this.engine.setControlledDefender(this.selectedDefenderId);
+    }
 
-    if (!defender) return false;
-
-    // Update defender's velocity/target position
-    // The engine's AI system handles the actual movement
-    const speed = defender.speed || 70;
-    const moveSpeed = (speed / 100) * 2; // Scale to reasonable movement
-
-    defender.velocity = {
-      x: direction.x * moveSpeed,
-      y: direction.y * moveSpeed,
-    };
+    // Use engine's moveDefender method - this properly bypasses AI control
+    this.engine.moveDefender({ x: direction.x, y: direction.y });
 
     return true;
   }

@@ -208,37 +208,54 @@ export function useMobileControls({
     };
   }, [canvas]);
 
+  // Track if we've auto-selected a defender this play
+  const autoSelectedRef = useRef(false);
+
   // Update phase based on game state
   useEffect(() => {
     if (!engine) return;
 
     const updatePhase = () => {
       const state = engine.getState();
+      let newPhase: ControlPhase = 'play-dead';
 
       switch (state.phase) {
         case 'HUDDLE':
         case 'BREAKING_HUDDLE':
         case 'PRE_SNAP':
-          setPhase(side === 'offense' ? 'pre-snap-offense' : 'pre-snap-defense');
+          newPhase = side === 'offense' ? 'pre-snap-offense' : 'pre-snap-defense';
+          autoSelectedRef.current = false; // Reset for next play
           break;
 
         case 'SNAP':
         case 'ACTIVE':
           if (state.passFlight) {
-            setPhase('ball-in-air');
+            newPhase = 'ball-in-air';
           } else {
-            setPhase(side === 'offense' ? 'live-offense' : 'live-defense');
+            newPhase = side === 'offense' ? 'live-offense' : 'live-defense';
+          }
+
+          // Auto-select defender when entering live-defense phase
+          if (side === 'defense' && !autoSelectedRef.current && !selectedDefender) {
+            const defenderId = engine.autoSelectDefender();
+            if (defenderId) {
+              setSelectedDefender(defenderId);
+              defenseControlsRef.current?.setSelectedDefender(defenderId);
+              autoSelectedRef.current = true;
+            }
           }
           break;
 
         case 'TACKLE':
         case 'WHISTLE':
-          setPhase('play-dead');
+          newPhase = 'play-dead';
           break;
 
         default:
-          setPhase('play-dead');
+          newPhase = 'play-dead';
       }
+
+      setPhase(newPhase);
     };
 
     // Update immediately
@@ -248,7 +265,7 @@ export function useMobileControls({
     const interval = setInterval(updatePhase, 50);
 
     return () => clearInterval(interval);
-  }, [engine, side]);
+  }, [engine, side, selectedDefender]);
 
   // Update controlled player based on game state
   useEffect(() => {

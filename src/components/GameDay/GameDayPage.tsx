@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 import { useEventStore } from '../../stores/eventStore';
 import { useGameEngine, type GameEndResult } from '../../hooks/useGameEngine';
@@ -228,6 +228,26 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   });
   const controls = useControls();
   const substitutions = useSubstitutions();
+
+  // Connect roster and lineup data to the game engine
+  useEffect(() => {
+    const engine = getEngine();
+    if (!engine) return;
+
+    // Get user's team roster
+    const userTeam = teams.find(t => t.info.id === userTeamId);
+    if (!userTeam?.roster) return;
+
+    // Only set roster data if we have lineup data
+    if (substitutions.offenseLineup.size > 0 || substitutions.defenseLineup.size > 0) {
+      engine.setRosterData(
+        userTeam.roster,
+        substitutions.offenseLineup,
+        substitutions.defenseLineup
+      );
+    }
+  }, [getEngine, teams, userTeamId, substitutions.offenseLineup, substitutions.defenseLineup]);
+
   const [showPlayCall, setShowPlayCall] = useState(false);
   const [showDefensePlayCall, setShowDefensePlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
@@ -243,6 +263,43 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
       setCanvasElement(node);
     }
   }, []);
+
+  // Responsive canvas sizing - fills available space on mobile
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 480 });
+
+  useLayoutEffect(() => {
+    const updateCanvasSize = () => {
+      // Get window dimensions
+      const screenW = window.innerWidth;
+      const screenH = window.innerHeight;
+
+      // Reserve space for UI (scoreboard ~80px top, control deck ~100px bottom, sidebars ~200px each side)
+      const sidebarWidth = showSubPanel ? 200 : 48; // Sub panel or just left controls
+      const availableWidth = screenW - sidebarWidth - 48; // Left sidebar always ~48px
+      const availableHeight = screenH - 180; // Top + bottom UI
+
+      // Maintain 5:3 aspect ratio (field-like)
+      const aspectRatio = 5 / 3;
+      let width = Math.min(availableWidth, 1200); // Cap at 1200px
+      let height = width / aspectRatio;
+
+      // If height exceeds available, scale down
+      if (height > availableHeight) {
+        height = availableHeight;
+        width = height * aspectRatio;
+      }
+
+      // Minimum sizes for playability
+      width = Math.max(width, 600);
+      height = Math.max(height, 360);
+
+      setCanvasSize({ width: Math.floor(width), height: Math.floor(height) });
+    };
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, [showSubPanel]);
 
   // Use refs to avoid stale closures and prevent effect recreation
   const controlsRef = useRef(controls);
@@ -296,7 +353,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     const depth = (fieldBottom - screenPos.y) / fieldHeight;
     const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
 
-    const perspectiveScale = 1 - depth * 0.6;
+    // Must match GameCanvas perspective: 1 - depth * 0.35 (was 0.6)
+    const perspectiveScale = 1 - depth * 0.35;
     const centerX = rect.width / 2;
     const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
     const normalizedX = (screenPos.x - centerX) / fieldWidthAtDepth + 0.5;
@@ -403,9 +461,13 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     setSelectedDefensePlay(null);
   }, [nextPlay]);
 
-  // Handle click on canvas to throw (isometric view)
+  // Handle click on canvas to throw (isometric view) - ONLY when user is on offense
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!engineState || engineState.phase !== 'SNAP') return;
+
+    // CRITICAL: Only allow throwing when user is on OFFENSE (home has possession)
+    if (engineState.field.possession !== 'home') return;
+
     // Check if QB has the ball (case-insensitive)
     if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 
@@ -441,7 +503,8 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     const engineY = clampedStartY + depth * (clampedEndY - clampedStartY);
 
     // Screen X -> engine X (accounting for perspective narrowing)
-    const perspectiveScale = 1 - depth * 0.6;
+    // Must match GameCanvas perspective: 1 - depth * 0.35
+    const perspectiveScale = 1 - depth * 0.35;
     const centerX = rect.width / 2;
     const fieldWidthAtDepth = (rect.width - fieldMarginX * 2) * perspectiveScale;
     const normalizedX = (clickX - centerX) / fieldWidthAtDepth + 0.5;
@@ -627,7 +690,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
             className="relative cursor-crosshair"
             onClick={handleCanvasClick}
           >
-            <PixiGameCanvas game={game} width={showSubPanel ? 700 : 860} height={showSubPanel ? 400 : 490} />
+            <PixiGameCanvas game={game} width={canvasSize.width} height={canvasSize.height} />
 
             {/* The Call button - bribe mechanic */}
             {isPlayRunning && (
