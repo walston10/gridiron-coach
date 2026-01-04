@@ -8,27 +8,64 @@ interface GameCanvasProps {
   height?: number;
 }
 
-// Team color palettes (will be extended to use actual team colors)
+// Team color palettes - ESPN Clean Vector style
 const TEAM_PALETTES = {
   home: {
-    helmet: '#1e3a8a',     // Navy blue
-    helmetHighlight: '#3b82f6',
-    jersey: '#2563eb',     // Royal blue
-    jerseySecondary: '#ffffff',
-    pants: '#f0f0f0',
-    skin: '#d4a574',
+    primary: '#2563eb',      // Royal blue (helmet/body)
+    secondary: '#ffffff',    // White (numbers/accents)
+    shadow: '#1e40af',       // Darker blue shadow
   },
   away: {
-    helmet: '#991b1b',     // Dark red
-    helmetHighlight: '#dc2626',
-    jersey: '#ef4444',     // Red
-    jerseySecondary: '#ffffff',
-    pants: '#374151',
-    skin: '#d4a574',
+    primary: '#dc2626',      // Red (helmet/body)
+    secondary: '#ffffff',    // White (numbers/accents)
+    shadow: '#991b1b',       // Darker red shadow
   },
 };
 
-const SHADOW_COLOR = 'rgba(0, 0, 0, 0.4)';
+// Note: Shadow colors now embedded directly in drawVectorPlayer for cleaner code
+
+// Generate jersey numbers from player position IDs
+// Standard NFL-style numbering by position
+function getJerseyNumber(playerId: string): number {
+  const id = playerId.toUpperCase();
+
+  // Offense
+  if (id === 'QB') return 12;
+  if (id === 'RB' || id === 'HB') return 28;
+  if (id === 'FB') return 44;
+  if (id === 'WR1') return 11;
+  if (id === 'WR2') return 84;
+  if (id === 'WR3') return 17;
+  if (id === 'TE') return 87;
+  if (id === 'LT') return 76;
+  if (id === 'LG') return 64;
+  if (id === 'C') return 52;
+  if (id === 'RG') return 66;
+  if (id === 'RT') return 71;
+
+  // Defense
+  if (id === 'DT' || id === 'NT') return 97;
+  if (id === 'DE' || id === 'EDGE_L') return 91;
+  if (id === 'EDGE_R') return 99;
+  if (id === 'MLB' || id === 'ILB') return 54;
+  if (id === 'OLB' || id === 'WILL') return 58;
+  if (id === 'SAM' || id === 'SLB') return 51;
+  if (id === 'CB1' || id === 'LCB') return 24;
+  if (id === 'CB2' || id === 'RCB') return 21;
+  if (id === 'FS') return 32;
+  if (id === 'SS') return 43;
+  if (id === 'NB' || id === 'SLOT') return 29;
+
+  // D-Line aggregate unit
+  if (id === 'D-LINE' || id === 'D_LINE') return 95;
+
+  // Fallback - hash the ID to get a number
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i);
+  }
+  return Math.abs(hash % 89) + 10; // 10-99
+}
 
 // Animation state tracking (persists between frames)
 interface PlayerAnimState {
@@ -46,7 +83,7 @@ interface TrailPoint {
   age: number;  // frames since created
 }
 
-// Draw a vector player with smooth anti-aliased shapes
+// Draw ESPN-style Clean Vector player - simplified pill shape with prominent number
 function drawVectorPlayer(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -57,142 +94,99 @@ function drawVectorPlayer(
   isBallCarrier: boolean = false,
   jerseyNumber?: number
 ) {
-  const baseSize = 14 * scale;
+  // Larger base size for visibility
+  const baseSize = 18 * scale;
 
-  // Animation values
-  const bobOffset = animState.isMoving ? Math.sin(animState.bobPhase) * 2 * scale : 0;
-  const legSwing = animState.isMoving ? Math.sin(animState.legPhase) * 0.35 : 0; // radians
+  // Subtle bob when moving
+  const bobOffset = animState.isMoving ? Math.sin(animState.bobPhase) * 1.5 * scale : 0;
 
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y - bobOffset);
 
-  // Ball carrier glow effect
+  // Ball carrier glow - golden highlight ring
   if (isBallCarrier) {
-    const gradient = ctx.createRadialGradient(0, -baseSize * 0.3, 0, 0, -baseSize * 0.3, baseSize * 2);
-    gradient.addColorStop(0, 'rgba(251, 191, 36, 0.6)');
-    gradient.addColorStop(0.5, 'rgba(251, 191, 36, 0.2)');
-    gradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
-    ctx.fillStyle = gradient;
+    ctx.shadowColor = '#fbbf24';
+    ctx.shadowBlur = 20 * scale;
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 3 * scale;
     ctx.beginPath();
-    ctx.arc(0, -baseSize * 0.3, baseSize * 2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.ellipse(0, 0, baseSize * 0.9, baseSize * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 
-  // Shadow on ground
-  ctx.fillStyle = SHADOW_COLOR;
+  // Ground shadow - oval underneath player
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
   ctx.beginPath();
-  ctx.ellipse(0, baseSize * 0.4, baseSize * 0.9, baseSize * 0.25, 0, 0, Math.PI * 2);
+  ctx.ellipse(3 * scale, baseSize * 0.35, baseSize * 0.7, baseSize * 0.2, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Legs (two rectangles that swing when moving)
-  const legWidth = baseSize * 0.22;
-  const legHeight = baseSize * 0.45;
-  const legSpacing = baseSize * 0.25;
-  const legY = baseSize * 0.1 - bobOffset;
+  // Main body - vertical pill/capsule shape
+  const pillWidth = baseSize * 0.8;
+  const pillHeight = baseSize * 1.4;
+  const pillRadius = pillWidth / 2;
+  const pillTop = -pillHeight / 2;
 
-  ctx.fillStyle = palette.pants;
-
-  // Left leg
-  ctx.save();
-  ctx.translate(-legSpacing, legY);
-  ctx.rotate(legSwing);
+  // Body shadow (offset slightly for 3D effect)
+  ctx.fillStyle = palette.shadow;
   ctx.beginPath();
-  ctx.roundRect(-legWidth / 2, 0, legWidth, legHeight, legWidth * 0.3);
-  ctx.fill();
-  ctx.restore();
-
-  // Right leg
-  ctx.save();
-  ctx.translate(legSpacing, legY);
-  ctx.rotate(-legSwing);
-  ctx.beginPath();
-  ctx.roundRect(-legWidth / 2, 0, legWidth, legHeight, legWidth * 0.3);
-  ctx.fill();
-  ctx.restore();
-
-  // Body (trapezoid with rounded corners) - shoulders wider than waist
-  const bodyTopWidth = baseSize * 0.9;
-  const bodyBottomWidth = baseSize * 0.7;
-  const bodyHeight = baseSize * 0.55;
-  const bodyY = -baseSize * 0.35 - bobOffset;
-
-  ctx.fillStyle = palette.jersey;
-  ctx.beginPath();
-  ctx.moveTo(-bodyBottomWidth / 2, bodyY + bodyHeight);
-  ctx.lineTo(-bodyTopWidth / 2, bodyY);
-  ctx.quadraticCurveTo(-bodyTopWidth / 2 - 2, bodyY - 2, -bodyTopWidth / 2 + 4, bodyY - 2);
-  ctx.lineTo(bodyTopWidth / 2 - 4, bodyY - 2);
-  ctx.quadraticCurveTo(bodyTopWidth / 2 + 2, bodyY - 2, bodyTopWidth / 2, bodyY);
-  ctx.lineTo(bodyBottomWidth / 2, bodyY + bodyHeight);
+  ctx.moveTo(-pillRadius + 2, pillTop + pillRadius);
+  ctx.lineTo(-pillRadius + 2, pillTop + pillHeight - pillRadius);
+  ctx.arc(2, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  ctx.lineTo(pillRadius + 2, pillTop + pillRadius);
+  ctx.arc(2, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
   ctx.closePath();
   ctx.fill();
 
-  // Shoulder pads (arc on top of body)
-  ctx.strokeStyle = palette.jerseySecondary;
-  ctx.lineWidth = Math.max(1.5, 2 * scale);
+  // Main body pill
+  ctx.fillStyle = palette.primary;
   ctx.beginPath();
-  ctx.arc(0, bodyY + 2, bodyTopWidth / 2, Math.PI * 1.1, Math.PI * 1.9);
-  ctx.stroke();
-
-  // Jersey number (if provided)
-  if (jerseyNumber !== undefined && scale > 0.5) {
-    ctx.fillStyle = palette.jerseySecondary;
-    ctx.font = `bold ${Math.max(8, Math.floor(10 * scale))}px Inter, system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(jerseyNumber.toString(), 0, bodyY + bodyHeight * 0.4);
-  }
-
-  // Helmet (smooth oval with highlight)
-  const helmetWidth = baseSize * 0.75;
-  const helmetHeight = baseSize * 0.65;
-  const helmetY = -baseSize * 0.85 - bobOffset;
-
-  // Main helmet shape
-  ctx.fillStyle = palette.helmet;
-  ctx.beginPath();
-  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.moveTo(-pillRadius, pillTop + pillRadius);
+  ctx.lineTo(-pillRadius, pillTop + pillHeight - pillRadius);
+  ctx.arc(0, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  ctx.lineTo(pillRadius, pillTop + pillRadius);
+  ctx.arc(0, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
+  ctx.closePath();
   ctx.fill();
 
-  // Helmet highlight (glossy effect)
+  // Subtle highlight on top-left of pill
   const highlightGradient = ctx.createRadialGradient(
-    -helmetWidth * 0.15, helmetY - helmetHeight * 0.2, 0,
-    -helmetWidth * 0.1, helmetY - helmetHeight * 0.1, helmetWidth * 0.4
+    -pillRadius * 0.3, pillTop + pillRadius * 0.5, 0,
+    -pillRadius * 0.3, pillTop + pillRadius * 0.5, pillRadius * 1.5
   );
-  highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+  highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
   highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = highlightGradient;
   ctx.beginPath();
-  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.arc(0, pillTop + pillRadius, pillRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  // Helmet stripe
-  ctx.strokeStyle = palette.jerseySecondary;
-  ctx.lineWidth = Math.max(1, 2 * scale);
-  ctx.beginPath();
-  ctx.moveTo(0, helmetY - helmetHeight / 2);
-  ctx.lineTo(0, helmetY + helmetHeight / 2 - 3 * scale);
-  ctx.stroke();
+  // Jersey number - large and prominent, centered on body
+  if (jerseyNumber !== undefined) {
+    const fontSize = Math.max(11, Math.floor(14 * scale));
+    ctx.font = `bold ${fontSize}px "Inter", system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-  // Facemask (gray grid)
-  ctx.strokeStyle = '#555555';
-  ctx.lineWidth = Math.max(1, 1.5 * scale);
-  const faceX = helmetWidth * 0.35;
-  const faceY = helmetY + helmetHeight * 0.1;
+    // Number shadow for readability
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.fillText(jerseyNumber.toString(), 1, 1);
 
-  // Horizontal bars
-  ctx.beginPath();
-  ctx.moveTo(faceX - 4 * scale, faceY - 3 * scale);
-  ctx.lineTo(faceX + 3 * scale, faceY - 3 * scale);
-  ctx.moveTo(faceX - 4 * scale, faceY + 2 * scale);
-  ctx.lineTo(faceX + 3 * scale, faceY + 2 * scale);
-  ctx.stroke();
+    // White number
+    ctx.fillStyle = palette.secondary;
+    ctx.fillText(jerseyNumber.toString(), 0, 0);
+  }
 
-  // Helmet outline
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  // Thin outline for definition
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.ellipse(0, helmetY, helmetWidth / 2, helmetHeight / 2, 0, 0, Math.PI * 2);
+  ctx.moveTo(-pillRadius, pillTop + pillRadius);
+  ctx.lineTo(-pillRadius, pillTop + pillHeight - pillRadius);
+  ctx.arc(0, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  ctx.lineTo(pillRadius, pillTop + pillRadius);
+  ctx.arc(0, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
+  ctx.closePath();
   ctx.stroke();
 
   ctx.restore();
@@ -356,8 +350,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Y position: near (depth=0) at bottom, far (depth=1) at top
       const screenY = fieldBottom - depth * fieldHeight;
 
-      // Perspective: things get narrower as they go into distance
-      const perspectiveScale = 1 - depth * 0.6; // Near = 1.0, far = 0.4
+      // Perspective: less aggressive for more top-down "helicopter" view
+      // ESPN-style: far objects are still ~70% size (was 40%)
+      const perspectiveScale = 1 - depth * 0.35; // Near = 1.0, far = 0.65
 
       // X position: center at width/2, spread based on perspective
       const centerX = width / 2;
@@ -686,7 +681,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         routeTrails.set(player.id, []);
       }
 
-      // Draw the vector player
+      // Draw the vector player with jersey number
       drawVectorPlayer(
         ctx,
         pos.x,
@@ -695,7 +690,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         palette,
         animState,
         false,
-        undefined // Jersey numbers could be added from player data
+        getJerseyNumber(player.id)
       );
     });
 
@@ -724,7 +719,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         animState.bobPhase += BOB_CYCLE_SPEED * 1.2;
       }
 
-      // Draw with ball carrier highlight
+      // Draw with ball carrier highlight and jersey number
       drawVectorPlayer(
         ctx,
         pos.x,
@@ -732,7 +727,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         pos.scale,
         palette,
         animState,
-        true // Ball carrier glow
+        true, // Ball carrier glow
+        getJerseyNumber(game.ballCarrier.playerId)
       );
     }
 
