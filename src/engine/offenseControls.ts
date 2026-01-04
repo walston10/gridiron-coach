@@ -51,6 +51,7 @@ export class OffenseControls {
 
   /**
    * Handle continuous input state (for movement)
+   * Uses "move toward" logic: carrier moves toward the touch/click position
    */
   handleInputState(
     state: InputState,
@@ -61,15 +62,47 @@ export class OffenseControls {
       return null;
     }
 
-    // Continuous movement while input is active
-    if (state.isActive && (state.direction.x !== 0 || state.direction.y !== 0)) {
-      // Normalize and apply sprint modifier
+    // Only process if input is active
+    if (!state.isActive) {
+      return null;
+    }
+
+    // Prefer "move toward" using field position (simpler and more intuitive)
+    if (state.fieldPosition) {
+      const gameState = this.engine.getState();
+      const carrier = gameState.offensivePlayers.find(p => p.id === gameState.ballCarrier);
+
+      if (carrier) {
+        // Calculate direction from carrier to touch/click point
+        const dx = state.fieldPosition.x - carrier.location.x;
+        const dy = state.fieldPosition.y - carrier.location.y;
+        const magnitude = Math.sqrt(dx * dx + dy * dy);
+
+        // Dead zone - don't move if already near the target (prevents jittery movement)
+        if (magnitude < 8) {
+          return null;
+        }
+
+        // Normalize and apply sprint modifier
+        const speed = state.sprinting ? 1.5 : 1.0;
+        return {
+          type: 'move',
+          direction: {
+            x: (dx / magnitude) * speed,
+            y: (dy / magnitude) * speed,
+          },
+        };
+      }
+    }
+
+    // Fallback to legacy direction-based movement (shouldn't normally be used)
+    if (state.direction.x !== 0 || state.direction.y !== 0) {
       const speed = state.sprinting ? 1.5 : 1.0;
       return {
         type: 'move',
         direction: {
           x: state.direction.x * speed,
-          y: -state.direction.y * speed, // Invert Y for field coordinates (same as createMoveAction)
+          y: -state.direction.y * speed,
         },
       };
     }
