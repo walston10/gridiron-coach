@@ -8,70 +8,125 @@ interface PixiGameCanvasProps {
   height?: number;
 }
 
-// Team color palettes (using hex numbers for Pixi) - Retro style
+// Team color palettes (using hex numbers for Pixi) - ESPN Clean Vector style
 const TEAM_PALETTES = {
   home: {
-    helmet: 0x1e3a8a,           // Navy blue
-    jersey: 0x2563eb,           // Royal blue
-    jerseyStripe: 0xffffff,     // White stripe
-    pants: 0xf0f0f0,
-    outline: 0x0f172a,          // Dark outline
+    primary: 0x2563eb,          // Royal blue
+    secondary: 0xffffff,        // White (for numbers)
+    shadow: 0x1e40af,           // Darker blue shadow
   },
   away: {
-    helmet: 0x991b1b,           // Dark red
-    jersey: 0xef4444,           // Red
-    jerseyStripe: 0xffffff,     // White stripe
-    pants: 0x374151,
-    outline: 0x450a0a,          // Dark outline
+    primary: 0xdc2626,          // Red
+    secondary: 0xffffff,        // White (for numbers)
+    shadow: 0x991b1b,           // Darker red shadow
   },
 };
 
-// Draw a retro-style player (blocky uniform, no legs animation)
-function drawRetroPlayer(
+// Generate jersey numbers from player position IDs (NFL-style)
+function getJerseyNumber(playerId: string): number {
+  const id = playerId.toUpperCase();
+
+  // Offense
+  if (id === 'QB') return 12;
+  if (id === 'RB' || id === 'HB') return 28;
+  if (id === 'FB') return 44;
+  if (id === 'WR1') return 11;
+  if (id === 'WR2') return 84;
+  if (id === 'FLEX') return 87;
+  if (id === 'TE') return 87;
+  if (id === 'LT') return 76;
+  if (id === 'RT') return 71;
+
+  // Defense
+  if (id === 'CB1') return 24;
+  if (id === 'CB2') return 21;
+  if (id === 'S' || id === 'FS' || id === 'SS') return 32;
+  if (id === 'LB1' || id === 'MLB') return 54;
+  if (id === 'LB2' || id === 'OLB') return 58;
+  if (id === 'EDGE_L') return 91;
+  if (id === 'EDGE_R') return 99;
+
+  // Fallback
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i);
+  }
+  return Math.abs(hash % 89) + 10;
+}
+
+// Draw ESPN-style Clean Vector player - pill shape with prominent jersey number
+function drawVectorPlayer(
   graphics: Graphics,
   x: number,
   y: number,
   scale: number,
   palette: typeof TEAM_PALETTES.home,
-  isBallCarrier: boolean = false
+  isBallCarrier: boolean = false,
+  container?: Container,
+  jerseyNumber?: number
 ) {
-  const size = 12 * scale;
+  // Larger base size for visibility
+  const baseSize = 18 * scale;
 
-  // Ball carrier glow effect
+  // Ball carrier glow effect - golden highlight ring
   if (isBallCarrier) {
-    graphics.circle(x, y, size * 1.8);
+    graphics.circle(x, y, baseSize * 1.2);
     graphics.fill({ color: 0xfbbf24, alpha: 0.4 });
-    graphics.circle(x, y, size * 1.4);
-    graphics.fill({ color: 0xfbbf24, alpha: 0.3 });
+    graphics.circle(x, y, baseSize * 0.95);
+    graphics.fill({ color: 0xfbbf24, alpha: 0.25 });
   }
 
-  // Shadow
-  graphics.ellipse(x + 2 * scale, y + size * 0.6, size * 0.8, size * 0.3);
+  // Ground shadow - oval underneath player
+  graphics.ellipse(x + 3 * scale, y + baseSize * 0.35, baseSize * 0.7, baseSize * 0.2);
   graphics.fill({ color: 0x000000, alpha: 0.35 });
 
-  // Body/Jersey (main rectangle)
-  const bodyWidth = size * 1.1;
-  const bodyHeight = size * 0.9;
-  graphics.roundRect(x - bodyWidth / 2, y - bodyHeight / 2, bodyWidth, bodyHeight, 2 * scale);
-  graphics.fill(palette.jersey);
-  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: palette.outline });
+  // Main body - vertical pill/capsule shape
+  const pillWidth = baseSize * 0.8;
+  const pillHeight = baseSize * 1.4;
+  const pillRadius = pillWidth / 2;
+  const pillTop = y - pillHeight / 2;
 
-  // Jersey stripe (horizontal)
-  graphics.rect(x - bodyWidth / 2, y - 1 * scale, bodyWidth, 2 * scale);
-  graphics.fill(palette.jerseyStripe);
+  // Body shadow (offset slightly for 3D effect)
+  graphics.moveTo(x - pillRadius + 2, pillTop + pillRadius);
+  graphics.lineTo(x - pillRadius + 2, pillTop + pillHeight - pillRadius);
+  graphics.arc(x + 2, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  graphics.lineTo(x + pillRadius + 2, pillTop + pillRadius);
+  graphics.arc(x + 2, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
+  graphics.closePath();
+  graphics.fill(palette.shadow);
 
-  // Helmet (circle on top)
-  const helmetRadius = size * 0.45;
-  const helmetY = y - bodyHeight / 2 - helmetRadius * 0.6;
-  graphics.circle(x, helmetY, helmetRadius);
-  graphics.fill(palette.helmet);
-  graphics.stroke({ width: Math.max(1, 1.5 * scale), color: palette.outline });
+  // Main body pill
+  graphics.moveTo(x - pillRadius, pillTop + pillRadius);
+  graphics.lineTo(x - pillRadius, pillTop + pillHeight - pillRadius);
+  graphics.arc(x, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  graphics.lineTo(x + pillRadius, pillTop + pillRadius);
+  graphics.arc(x, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
+  graphics.closePath();
+  graphics.fill(palette.primary);
 
-  // Facemask (small rectangle)
-  const faceWidth = size * 0.25;
-  const faceHeight = size * 0.2;
-  graphics.rect(x + helmetRadius * 0.3, helmetY - faceHeight / 2, faceWidth, faceHeight);
-  graphics.fill(0x666666);
+  // Thin outline for definition
+  graphics.moveTo(x - pillRadius, pillTop + pillRadius);
+  graphics.lineTo(x - pillRadius, pillTop + pillHeight - pillRadius);
+  graphics.arc(x, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
+  graphics.lineTo(x + pillRadius, pillTop + pillRadius);
+  graphics.arc(x, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
+  graphics.closePath();
+  graphics.stroke({ width: 1, color: 0x000000, alpha: 0.2 });
+
+  // Jersey number - add as Text to container if available
+  if (container && jerseyNumber !== undefined) {
+    const fontSize = Math.max(10, Math.floor(14 * scale));
+    const numberStyle = new TextStyle({
+      fontFamily: 'Inter, system-ui, sans-serif',
+      fontSize,
+      fontWeight: 'bold',
+      fill: palette.secondary,
+    });
+    const numberText = new Text({ text: jerseyNumber.toString(), style: numberStyle });
+    numberText.anchor.set(0.5);
+    numberText.position.set(x, y);
+    container.addChild(numberText);
+  }
 }
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
@@ -202,7 +257,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     const toScreen = (engineX: number, engineY: number) => {
       const depth = getDepth(engineY);
       const screenY = fieldBottom - depth * fieldHeight;
-      const perspectiveScale = 1 - depth * 0.6;
+      const perspectiveScale = 1 - depth * 0.35; // Reduced from 0.6 for better visibility
       const centerX = width / 2;
       const fieldWidthAtDepth = (width - fieldMarginX * 2) * perspectiveScale;
       const normalizedX = (engineX / ENGINE_WIDTH) - 0.5;
@@ -367,10 +422,10 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     // Sort players by depth (far first for proper layering)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
-    // Create a single Graphics object for all players (more efficient)
+    // Create Graphics object for all players
     const playerGraphics = new Graphics();
 
-    // Draw players using retro graphics
+    // Draw players using Clean Vector style with jersey numbers
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
@@ -380,9 +435,10 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
       const isOffense = player.role === 'offense';
       const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
+      const jerseyNum = getJerseyNumber(player.id);
 
-      // Draw the player with retro style
-      drawRetroPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, false);
+      // Draw the player with Clean Vector style
+      drawVectorPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, false, dynamicContainer, jerseyNum);
     });
 
     dynamicContainer.addChild(playerGraphics);
@@ -391,9 +447,10 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
       const palette = TEAM_PALETTES[offenseTeam];
+      const jerseyNum = getJerseyNumber(game.ballCarrier.playerId);
 
       const ballCarrierGraphics = new Graphics();
-      drawRetroPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, true);
+      drawVectorPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, true, dynamicContainer, jerseyNum);
       dynamicContainer.addChild(ballCarrierGraphics);
     }
 
