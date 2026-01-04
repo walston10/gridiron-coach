@@ -889,6 +889,14 @@ export class GameEngine {
     this.playerInput = { x: 0, y: 0 };
     this.lastInputTime = 0;
 
+    // Reset all player velocities to prevent carryover movement
+    this.state.offensivePlayers.forEach(p => {
+      p.velocity = { x: 0, y: 0 };
+    });
+    this.state.defensivePlayers.forEach(p => {
+      p.velocity = { x: 0, y: 0 };
+    });
+
     // Reset blocking engagements for new play
     blockingEngine.resetEngagements([...this.state.offensivePlayers, ...this.state.defensivePlayers]);
 
