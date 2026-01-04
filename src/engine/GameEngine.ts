@@ -1598,7 +1598,7 @@ export class GameEngine {
   }
 
   // Simple defender movement toward a target (for blitzing LBs)
-  // Blocking is implicitly handled by the line unit stats for sack calculations
+  // Now includes "pocket protection" - interior rushers are slowed by guards/center
   private moveDefenderTowardTarget(defender: FieldPlayer, target: Vector2): void {
     const dir = this.normalize({
       x: target.x - defender.location.x,
@@ -1608,8 +1608,38 @@ export class GameEngine {
     // Speed based on defender's stats
     const defSpeed = defender.speed ?? 70;
     const passRushRating = defender.passRush ?? 60;
-    // Blitzing LBs move at reasonable speed (slowed by line blocking implicitly)
-    const speedMult = (defSpeed / 100) * 0.4 * (0.5 + (passRushRating / 100) * 0.5);
+    let speedMult = (defSpeed / 100) * 0.4 * (0.5 + (passRushRating / 100) * 0.5);
+
+    // POCKET PROTECTION: Slow down rushers in the interior pocket zone
+    // This simulates guards and center blocking that aren't individual players
+    const los = this.yardLineToY(this.state.field.yardLine);
+    const center = FIELD_WIDTH / 2;
+    const pocketLeft = center - 35;   // ~12 yards from center
+    const pocketRight = center + 35;
+    const pocketBack = los - 25;      // QB depth area
+
+    // Check if defender is in the interior pocket zone (between tackles, behind LOS)
+    const inPocketX = defender.location.x > pocketLeft && defender.location.x < pocketRight;
+    const inPocketY = defender.location.y < los && defender.location.y > pocketBack;
+
+    if (inPocketX && inPocketY) {
+      // Interior pocket - significant slowdown from guards/center blocking
+      // Better offensive line stats = more slowdown
+      const oLineStrength = (this.state.offensiveLine?.stats.passBlock ?? 70) / 100;
+      const defenderRush = (defender.passRush ?? 60) / 100;
+
+      // Blocking effectiveness: O-line advantage in pocket
+      const blockingEffect = Math.max(0.15, oLineStrength - defenderRush * 0.5 + 0.3);
+      speedMult *= blockingEffect;
+
+      // Track engagement for potential breaks (simplified)
+      if (!defender.blockEngagement) {
+        defender.engagementState = 'ENGAGED';
+      }
+    } else if (defender.engagementState === 'ENGAGED' && !defender.blockEngagement) {
+      // Clear interior engagement state when leaving pocket
+      defender.engagementState = 'FREE';
+    }
 
     defender.location.x += dir.x * speedMult;
     defender.location.y += dir.y * speedMult;

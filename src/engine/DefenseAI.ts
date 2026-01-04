@@ -644,19 +644,20 @@ export class DefenseAI {
   }
 
   private blitzMovement(defender: FieldPlayer): Vector2 {
-    // All-out rush to QB
+    // Rush toward QB - but O-line provides resistance
     const toQB = this.normalize({
       x: this.qbLocation.x - defender.location.x,
       y: this.qbLocation.y - defender.location.y,
     });
 
-    // Blitz effectiveness based on speed and pass rush
+    // Blitz effectiveness based on pass rush and speed
     const passRushRating = defender.passRush ?? 70;
     const speedRating = defender.speed ?? 70;
-    const blitzSkill = (passRushRating * 0.4 + speedRating * 0.6) / 100; // Speed more important for blitz
+    const blitzSkill = (passRushRating * 0.5 + speedRating * 0.5) / 100;
 
-    // Blitz speed multiplier - blitzers move fast!
-    const blitzSpeedMult = 1.1 + blitzSkill * 0.4; // 1.17-1.5 based on skill
+    // Blitz speed multiplier - reduced from 1.1-1.5 to 0.8-1.1
+    // Blitzers must navigate through traffic, not a free run
+    const blitzSpeedMult = 0.8 + blitzSkill * 0.3; // 0.87-1.1 based on skill
 
     return { x: toQB.x * blitzSpeedMult, y: toQB.y * blitzSpeedMult };
   }
