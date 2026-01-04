@@ -102,6 +102,11 @@ export class GameEngine {
   private defenderInput: Vector2 = { x: 0, y: 0 };
   private defenderInputTime: number = 0;
 
+  // Catch protection - brief window after a catch where receiver can't be tackled
+  // Simulates time to secure the ball and get feet moving
+  private catchProtectionUntil: number = 0;
+  private static readonly CATCH_PROTECTION_TIME = 0.4; // 400ms to secure catch and start running
+
   // Clock accumulator for smooth timing
   private clockAccumulator: number = 0;
 
@@ -894,6 +899,9 @@ export class GameEngine {
     // Reset player input state to prevent carryover from previous play
     this.playerInput = { x: 0, y: 0 };
     this.lastInputTime = 0;
+
+    // Reset catch protection
+    this.catchProtectionUntil = 0;
 
     // Reset all player velocities to prevent carryover movement
     this.state.offensivePlayers.forEach(p => {
@@ -1774,6 +1782,20 @@ export class GameEngine {
     // Calculate carrier speed for tackle difficulty
     const carrierSpeed = Math.sqrt(carrier.velocity.x ** 2 + carrier.velocity.y ** 2);
 
+    // Check catch protection - receiver just caught ball, can't be tackled yet
+    if (this.currentTime < this.catchProtectionUntil) {
+      // Still in catch protection window - check for TD/safety/OOB but not tackles
+      const carrierYardLine = this.yToYardLine(carrier.location.y);
+      if (carrierYardLine >= 100) {
+        this.endPlay(true, false);
+      } else if (carrierYardLine <= 0) {
+        this.resolveSafety();
+      } else if (carrier.location.x < 0 || carrier.location.x > FIELD_WIDTH) {
+        this.endPlay(false, true);
+      }
+      return;
+    }
+
     // Check for tackles/sacks
     // Field scale: 3 units = 1 yard, so 5 units ≈ 1.7 yards (realistic tackle range)
     for (const defender of this.state.defensivePlayers) {
@@ -2469,26 +2491,39 @@ export class GameEngine {
     this.state.ballLocation = { ...receiver.location };
     this.state.passFlight = undefined;
 
-    // YAC (Yards After Catch) - preserve momentum based on receiver's route direction
-    // Better receivers (speed, agility) maintain more momentum through the catch
+    // Set catch protection - receiver can't be tackled for a brief moment
+    // This simulates the time to secure the ball and get feet moving
+    this.catchProtectionUntil = this.currentTime + GameEngine.CATCH_PROTECTION_TIME;
+
+    // YAC (Yards After Catch) - give receiver momentum burst after securing catch
+    // Better receivers (speed, agility) get more explosive starts
     const speedRating = receiver.speed ?? 70;
     const agilityRating = receiver.agility ?? 70;
     const yacAbility = (speedRating * 0.6 + agilityRating * 0.4) / 100;
 
-    // Base speed from route direction, scaled by YAC ability
-    const baseSpeed = 0.3 + yacAbility * 0.25; // 0.44-0.55 base momentum
+    // Improved base speed - receiver gets a burst to start YAC
+    const baseSpeed = 0.4 + yacAbility * 0.3; // 0.55-0.70 burst momentum (was 0.44-0.55)
 
     // Preserve route direction as initial velocity, modified by fatigue
     const routeVelocity = this.normalize(receiver.velocity);
     const effectiveSpeed = this.getEffectiveSpeed(receiver);
-    receiver.velocity = {
-      x: routeVelocity.x * baseSpeed * (effectiveSpeed / 70),
-      y: routeVelocity.y * baseSpeed * (effectiveSpeed / 70),
-    };
+
+    // If receiver had no velocity (stationary catch), give them upfield momentum
+    if (routeVelocity.x === 0 && routeVelocity.y === 0) {
+      receiver.velocity = {
+        x: 0,
+        y: baseSpeed * (effectiveSpeed / 70), // Default: run upfield
+      };
+    } else {
+      receiver.velocity = {
+        x: routeVelocity.x * baseSpeed * (effectiveSpeed / 70),
+        y: routeVelocity.y * baseSpeed * (effectiveSpeed / 70),
+      };
+    }
 
     // If receiver was moving upfield, boost that direction (natural catch and run)
     if (receiver.velocity.y > 0) {
-      receiver.velocity.y *= 1.2; // Boost upfield momentum
+      receiver.velocity.y *= 1.3; // Stronger boost upfield (was 1.2)
     }
   }
 
