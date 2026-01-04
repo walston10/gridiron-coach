@@ -757,6 +757,9 @@ export const STARTER_EVENTS: GameEvent[] = [
     rarity: 'RARE',
     character: 'PLAYER',
     targetPosition: 'WR1',
+    prerequisites: {
+      maxWeek: 1,  // Only fires in week 1 - before first game
+    },
     description:
       "TMZ has obtained Ring camera footage showing your star receiver in a physical altercation with his personal chef. Sources say the dispute began when she used American cheese instead of Velveeta on his grilled cheese. Her lawyer is already talking to ESPN.",
     texCall:
