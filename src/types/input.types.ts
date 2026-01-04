@@ -48,8 +48,10 @@ export const GESTURE_THRESHOLDS = {
 
 /** Normalized input state for continuous movement */
 export interface InputState {
-  /** Current movement direction (normalized) */
+  /** Current movement direction (normalized) - legacy, prefer using fieldPosition */
   direction: Point;
+  /** Current input position in field coordinates (for "move toward" controls) */
+  fieldPosition?: Point;
   /** Whether sprint/boost is active */
   sprinting: boolean;
   /** Currently selected player ID (for defense) */

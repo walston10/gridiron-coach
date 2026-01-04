@@ -56,6 +56,7 @@ export class InputHandler {
 
   private inputState: InputState = {
     direction: { x: 0, y: 0 },
+    fieldPosition: undefined,
     sprinting: false,
     isActive: false,
   };
@@ -231,6 +232,10 @@ export class InputHandler {
 
     // Update input state
     this.inputState.isActive = true;
+    // Set field position immediately on click/touch
+    if (this.screenToField) {
+      this.inputState.fieldPosition = this.screenToField(pos);
+    }
     this.emitInputState();
   }
 
@@ -239,7 +244,12 @@ export class InputHandler {
 
     this.gestureState.currentPos = { ...pos };
 
-    // Calculate direction for continuous movement
+    // Convert current position to field coordinates for "move toward" controls
+    if (this.screenToField) {
+      this.inputState.fieldPosition = this.screenToField(pos);
+    }
+
+    // Calculate direction for continuous movement (legacy - kept for compatibility)
     const delta = {
       x: pos.x - this.gestureState.startPos.x,
       y: pos.y - this.gestureState.startPos.y,
@@ -293,6 +303,7 @@ export class InputHandler {
 
     this.inputState.isActive = false;
     this.inputState.direction = { x: 0, y: 0 };
+    this.inputState.fieldPosition = undefined;
     this.emitInputState();
   }
 
