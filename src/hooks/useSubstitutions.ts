@@ -67,6 +67,59 @@ function isLineUnit(slot: string): boolean {
   return slot === 'HOGS' || slot === 'FRONT';
 }
 
+// =============================================================================
+// EMERGENCY BACKUP SYSTEM - "The McBums"
+// =============================================================================
+// Every position has a guaranteed backup who can never be injured or suspended.
+// These are mediocre players (65 overall) but ensure you always have a body.
+
+const MCBUM_FIRST_NAMES = [
+  'Arnold', 'Rusty', 'Dusty', 'Lefty', 'Bucky', 'Scooter', 'Bubba', 'Junior',
+  'Tater', 'Boomer', 'Denny', 'Lenny', 'Kenny'
+];
+
+const MCBUM_LAST_NAMES = [
+  'McBum', 'Scrubbs', 'Benchwarm', 'Tryhard', 'Lastpick', 'Warmseats',
+  'Clipboard', 'Tacklebox', 'Waterboy', 'Practisquad'
+];
+
+// Generate a consistent McBum name for a slot (deterministic based on slot)
+function getMcBumName(slot: string): { firstName: string; lastName: string } {
+  // Use slot string to pick names consistently
+  const hash = slot.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const firstName = MCBUM_FIRST_NAMES[hash % MCBUM_FIRST_NAMES.length];
+  const lastName = MCBUM_LAST_NAMES[(hash * 7) % MCBUM_LAST_NAMES.length];
+  return { firstName, lastName };
+}
+
+// Create an emergency backup player for a slot
+function createEmergencyBackup(slot: string): RosterPlayer {
+  const { firstName, lastName } = getMcBumName(slot);
+
+  // Map slot to a reasonable position for display
+  const slotToPosition: Record<string, string> = {
+    'QB': 'QB', 'RB': 'RB', 'WR1': 'WR', 'WR2': 'WR', 'FLEX': 'TE',
+    'CB1': 'CB', 'CB2': 'CB', 'S': 'FS', 'LB1': 'MLB', 'LB2': 'OLB',
+    'HOGS': 'LT', 'FRONT': 'DE',  // Line units get lineman positions
+  };
+
+  // Special names for line units
+  const displayName = slot === 'HOGS'
+    ? 'The Scrub Squad'
+    : slot === 'FRONT'
+      ? 'The Practice Dummies'
+      : `${firstName} ${lastName}`;
+
+  return {
+    id: `mcbum_${slot}`,
+    name: displayName,
+    position: (slotToPosition[slot] || 'RB') as Position,
+    isStarter: false,
+    overall: 65,
+    isEmergencyBackup: true,  // Special flag - can never be injured/suspended
+  };
+}
+
 // Convert game store Player to RosterPlayer for substitution system
 function convertToRosterPlayer(player: Player): RosterPlayer | null {
   // Skip players with positions not used in games (linemen, K, P)
@@ -84,10 +137,11 @@ function convertToRosterPlayer(player: Player): RosterPlayer | null {
 }
 
 // Build initial depth chart from roster
+// Returns both depth chart and McBum players that were created
 function buildInitialDepthChart(
   roster: RosterPlayer[],
   slots: PositionSlot[]
-): { slot: string; starters: string[] }[] {
+): { depthChart: { slot: string; starters: string[] }[]; mcBums: RosterPlayer[] } {
   // Group players by their legacy position
   const byPosition: Map<string, RosterPlayer[]> = new Map();
   roster.forEach(p => {
@@ -104,12 +158,17 @@ function buildInitialDepthChart(
   // Track used players to prevent duplicates across slots
   const usedPlayers = new Set<string>();
 
-  return slots.map(slot => {
-    // Line units (HOGS, FRONT) don't have individual players
+  // Collect McBum players that get created
+  const mcBums: RosterPlayer[] = [];
+
+  const depthChart = slots.map(slot => {
+    // Line units (HOGS, FRONT) - still create a McBum backup unit
     if (isLineUnit(slot.id)) {
+      const mcBum = createEmergencyBackup(slot.id);
+      mcBums.push(mcBum);
       return {
         slot: slot.id,
-        starters: [`unit_${slot.id.toLowerCase()}`],  // Placeholder ID for the unit
+        starters: [`unit_${slot.id.toLowerCase()}`, mcBum.id],  // Unit + McBum backup
       };
     }
 
@@ -137,11 +196,23 @@ function buildInitialDepthChart(
       }
     });
 
+    // Always ensure there's a McBum backup available
+    // McBum is the safety net - can't be injured or suspended
+    const mcBum = createEmergencyBackup(slot.id);
+    mcBums.push(mcBum);
+
+    // If we don't have 2 players, add McBum as backup
+    if (starters.length < 2) {
+      starters.push(mcBum.id);
+    }
+
     return {
       slot: slot.id,
       starters,
     };
   });
+
+  return { depthChart, mcBums };
 }
 
 interface UseSubstitutionsReturn {
@@ -167,20 +238,31 @@ export function useSubstitutions(): UseSubstitutionsReturn {
   const userTeam = teams.find(t => t.info.id === userTeamId);
 
   // Convert actual roster to RosterPlayer format
-  const roster = useMemo(() => {
+  const baseRoster = useMemo(() => {
     if (!userTeam?.roster) return [];
     return userTeam.roster
       .map(convertToRosterPlayer)
       .filter((p): p is RosterPlayer => p !== null);
   }, [userTeam?.roster]);
 
-  // Build initial depth charts
-  const offenseDepthChart = useMemo(() =>
-    buildInitialDepthChart(roster, OFFENSIVE_SLOTS), [roster]
+  // Build initial depth charts (includes creating McBum backups)
+  const { depthChart: offenseDepthChartRaw, mcBums: offenseMcBums } = useMemo(() =>
+    buildInitialDepthChart(baseRoster, OFFENSIVE_SLOTS), [baseRoster]
   );
-  const defenseDepthChart = useMemo(() =>
-    buildInitialDepthChart(roster, DEFENSIVE_SLOTS), [roster]
+  const { depthChart: defenseDepthChartRaw, mcBums: defenseMcBums } = useMemo(() =>
+    buildInitialDepthChart(baseRoster, DEFENSIVE_SLOTS), [baseRoster]
   );
+
+  // Combine real roster with McBum emergency backups
+  const roster = useMemo(() => [
+    ...baseRoster,
+    ...offenseMcBums,
+    ...defenseMcBums,
+  ], [baseRoster, offenseMcBums, defenseMcBums]);
+
+  // Use raw depth charts
+  const offenseDepthChart = offenseDepthChartRaw;
+  const defenseDepthChart = defenseDepthChartRaw;
 
   // Current lineups (who's actually on the field)
   const [offenseLineup, setOffenseLineup] = useState<Map<string, string>>(new Map());

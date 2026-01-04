@@ -146,6 +146,7 @@ export interface RosterPlayer {
   position: Position | RosterPosition;  // Full Position or simplified RosterPosition
   isStarter: boolean;
   overall: number;
+  isEmergencyBackup?: boolean;  // McBum players - can never be injured/suspended
 }
 
 /**
