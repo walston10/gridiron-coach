@@ -12,7 +12,6 @@ import { DefenseControls } from '../engine/defenseControls';
 import type { GameEngine } from '../engine/GameEngine';
 import type { GestureEvent, InputState, Point, GestureTarget } from '../types/input.types';
 import type { ControlPhase, ControlledPlayer, BlockShedPrompt, GameAction } from '../types/gameplay.types';
-import type { GameState, FieldPlayer } from '../types/GameSim';
 
 interface UseMobileControlsOptions {
   /** Game engine instance */
@@ -59,6 +58,13 @@ export function useMobileControls({
   const inputHandlerRef = useRef<InputHandler | null>(null);
   const offenseControlsRef = useRef<OffenseControls | null>(null);
   const defenseControlsRef = useRef<DefenseControls | null>(null);
+
+  // Use refs to hold the latest callback values - this avoids recreating InputHandler
+  // when callbacks change, while ensuring we always call the latest version
+  const gestureCallbackRef = useRef<((gesture: GestureEvent) => void) | null>(null);
+  const inputStateCallbackRef = useRef<((state: InputState) => void) | null>(null);
+  const screenToFieldRef = useRef<((pos: Point) => Point) | undefined>(screenToField);
+  const findPlayerAtPosRef = useRef<((pos: Point) => GestureTarget | undefined) | null>(null);
 
   // Initialize control systems when engine is available
   useEffect(() => {
@@ -116,7 +122,7 @@ export function useMobileControls({
     [engine]
   );
 
-  // Handle gesture events
+  // Handle gesture events - updates ref synchronously
   const handleGesture = useCallback(
     (gesture: GestureEvent) => {
       if (!engine) return;
@@ -147,7 +153,7 @@ export function useMobileControls({
     [engine, side, phase, controlledPlayer, onAction]
   );
 
-  // Handle continuous input state
+  // Handle continuous input state - updates ref synchronously
   const handleInputState = useCallback(
     (state: InputState) => {
       if (!engine) return;
@@ -168,45 +174,39 @@ export function useMobileControls({
     [engine, side, phase, controlledPlayer]
   );
 
+  // Keep refs updated with latest callbacks (synchronous, no timing issues)
+  gestureCallbackRef.current = handleGesture;
+  inputStateCallbackRef.current = handleInputState;
+  screenToFieldRef.current = screenToField;
+  findPlayerAtPosRef.current = findPlayerAtPos;
+
   // Initialize input handler when canvas is available
-  // IMPORTANT: Only recreate when canvas changes, not when callbacks change
-  // Otherwise, ongoing gestures are interrupted when phase/controlledPlayer updates
+  // Pass wrapper functions that call through refs - this ensures we always use
+  // the latest callbacks without recreating the InputHandler
   useEffect(() => {
     if (!canvas) return;
 
     inputHandlerRef.current = createInputHandler({
       canvas,
-      onGesture: handleGesture,
-      onInputState: handleInputState,
-      screenToField,
-      findPlayerAtPos,
+      onGesture: (gesture: GestureEvent) => {
+        gestureCallbackRef.current?.(gesture);
+      },
+      onInputState: (state: InputState) => {
+        inputStateCallbackRef.current?.(state);
+      },
+      screenToField: (pos: Point) => {
+        return screenToFieldRef.current?.(pos) ?? pos;
+      },
+      findPlayerAtPos: (pos: Point) => {
+        return findPlayerAtPosRef.current?.(pos);
+      },
     });
 
     return () => {
       destroyInputHandler();
       inputHandlerRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvas]);
-
-  // Update callbacks dynamically without recreating the InputHandler
-  // This preserves gesture state (like isActive) during gameplay
-  useEffect(() => {
-    if (inputHandlerRef.current) {
-      inputHandlerRef.current.setOnGesture(handleGesture);
-      inputHandlerRef.current.setOnInputState(handleInputState);
-    }
-  }, [handleGesture, handleInputState]);
-
-  // Update coordinate converters dynamically
-  useEffect(() => {
-    if (inputHandlerRef.current) {
-      if (screenToField) {
-        inputHandlerRef.current.setScreenToField(screenToField);
-      }
-      inputHandlerRef.current.setFindPlayerAtPos(findPlayerAtPos);
-    }
-  }, [screenToField, findPlayerAtPos]);
 
   // Update phase based on game state
   useEffect(() => {
