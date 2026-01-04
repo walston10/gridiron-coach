@@ -885,6 +885,10 @@ export class GameEngine {
     this.pendingHandoff = null;
     this.playStartTime = 0; // Track when play started for duration limit
 
+    // Reset player input state to prevent carryover from previous play
+    this.playerInput = { x: 0, y: 0 };
+    this.lastInputTime = 0;
+
     // Reset blocking engagements for new play
     blockingEngine.resetEngagements([...this.state.offensivePlayers, ...this.state.defensivePlayers]);
 
