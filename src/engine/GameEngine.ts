@@ -36,6 +36,7 @@ import type { Play } from '../types';
 const FIELD_WIDTH = 160;   // 53.3 yards * 3
 const FIELD_HEIGHT = 360;  // 120 yards * 3 (including endzones)
 const TICK_RATE = 60;      // Updates per second
+const GAME_SPEED = 0.6;    // Overall game speed multiplier (1.0 = normal, 0.6 = slower strategic pace)
 
 export class GameEngine {
   private state: GameState;
@@ -1315,7 +1316,7 @@ export class GameEngine {
       }
 
       // Get movement from RouteRunner for receivers
-      // Speed scale: 0.5 units/tick = 30 units/sec = 10 yards/sec (matches defenders)
+      // Speed scale: 0.3 units/tick base, scaled by GAME_SPEED for strategic pace
       if (player.route && player.route !== 'BLOCK') {
         const movement = this.routeRunner.getMovementVector(
           player,
@@ -1324,8 +1325,8 @@ export class GameEngine {
         );
         player.velocity = movement;
         const effectiveSpeed = this.getEffectiveSpeed(player);
-        // Use same speed scale as defenders: 0.5 multiplier for realistic speed
-        const speedMult = (effectiveSpeed / 100) * 0.5;
+        // Slower strategic pace - reduced from 0.5 to 0.35, plus GAME_SPEED multiplier
+        const speedMult = (effectiveSpeed / 100) * 0.35 * GAME_SPEED;
         player.location.x += movement.x * speedMult;
         player.location.y += movement.y * speedMult;
 
@@ -1357,7 +1358,8 @@ export class GameEngine {
           const normY = this.defenderInput.y / inputMag;
 
           const effectiveSpeed = this.getEffectiveSpeed(defender);
-          const speedMult = (effectiveSpeed / 100) * 0.6; // Sprint speed for user
+          // Sprint speed for user - faster than AI but still scaled for strategic pace
+          const speedMult = (effectiveSpeed / 100) * 0.45 * GAME_SPEED;
 
           defender.velocity = { x: normX, y: normY };
           defender.location.x += normX * speedMult;
@@ -1385,9 +1387,9 @@ export class GameEngine {
           this.currentTime
         );
         defender.velocity = movement;
-        // Realistic speed: ~10 yards/sec max, modified by fatigue
+        // Slower strategic pace - coverage mirrors route running speed
         const effectiveSpeed = this.getEffectiveSpeed(defender);
-        const speedMult = (effectiveSpeed / 100) * 0.5;
+        const speedMult = (effectiveSpeed / 100) * 0.35 * GAME_SPEED;
         defender.location.x += movement.x * speedMult;
         defender.location.y += movement.y * speedMult;
       } else if (this.state.ballCarrier && !this.isQB(this.state.ballCarrier)) {
@@ -1398,9 +1400,9 @@ export class GameEngine {
             x: carrier.location.x - defender.location.x,
             y: carrier.location.y - defender.location.y,
           });
-          // Pursuit speed - slightly faster than coverage (players sprint harder), modified by fatigue
+          // Pursuit speed - players sprint harder, but still scaled for strategic pace
           const effectiveSpeed = this.getEffectiveSpeed(defender);
-          const speedMult = (effectiveSpeed / 100) * 0.6;
+          const speedMult = (effectiveSpeed / 100) * 0.4 * GAME_SPEED;
           defender.location.x += dir.x * speedMult;
           defender.location.y += dir.y * speedMult;
         }
@@ -1540,11 +1542,11 @@ export class GameEngine {
   }
 
   private updateNormalMovement(carrier: FieldPlayer): void {
-    // Physics constants - matched to defender speed scale
-    // Defenders move at ~0.5 units/tick, ball carrier should be similar (slightly faster)
-    const baseMaxSpeed = 0.7; // ~12 yards/sec max (slightly faster than defenders)
+    // Physics constants - matched to defender speed scale, with GAME_SPEED for strategic pace
+    // Slower overall to give player time to read and react
+    const baseMaxSpeed = 0.5 * GAME_SPEED; // Reduced from 0.7 for slower pace
     const maxSpeed = (carrier.speed / 100) * baseMaxSpeed;
-    const baseAccel = 0.08; // Reasonable acceleration
+    const baseAccel = 0.06 * GAME_SPEED; // Reduced acceleration for strategic feel
     const accel = (carrier.acceleration / 100) * baseAccel;
 
     // Apply input to velocity with acceleration curve
@@ -1599,7 +1601,8 @@ export class GameEngine {
     }
 
     const progress = elapsed / this.evasionState.duration;
-    const evasionSpeed = (carrier.speed / 100) * 5; // Faster during evasion
+    // Evasion moves are quicker bursts, but still scaled for strategic pace
+    const evasionSpeed = (carrier.speed / 100) * 3 * GAME_SPEED;
 
     switch (this.evasionState.type) {
       case 'JUKE': {
@@ -1635,19 +1638,20 @@ export class GameEngine {
 
   // Simple defender movement toward a target (for blitzing LBs)
   // Now includes "pocket protection" - interior rushers are slowed by guards/center
+  // Creates realistic "held at the line" blocking with gradual breakdown
   private moveDefenderTowardTarget(defender: FieldPlayer, target: Vector2): void {
     const dir = this.normalize({
       x: target.x - defender.location.x,
       y: target.y - defender.location.y,
     });
 
-    // Speed based on defender's stats
+    // Speed based on defender's stats - reduced base speed for strategic pace
     const defSpeed = defender.speed ?? 70;
     const passRushRating = defender.passRush ?? 60;
-    let speedMult = (defSpeed / 100) * 0.4 * (0.5 + (passRushRating / 100) * 0.5);
+    // Base speed reduced for slower, more strategic gameplay
+    let speedMult = (defSpeed / 100) * 0.25 * (0.5 + (passRushRating / 100) * 0.5) * GAME_SPEED;
 
-    // POCKET PROTECTION: Slow down rushers in the interior pocket zone
-    // This simulates guards and center blocking that aren't individual players
+    // POCKET PROTECTION: Simulate O-line blocking with "held at line" phase
     const los = this.yardLineToY(this.state.field.yardLine);
     const center = FIELD_WIDTH / 2;
     const pocketLeft = center - 35;   // ~12 yards from center
@@ -1658,17 +1662,35 @@ export class GameEngine {
     const inPocketX = defender.location.x > pocketLeft && defender.location.x < pocketRight;
     const inPocketY = defender.location.y < los && defender.location.y > pocketBack;
 
+    // Time since snap affects blocking - line holds better early
+    const timeSinceSnap = this.currentTime;
+    const BLOCK_HOLD_TIME = 1.5;  // Seconds where line mostly holds
+    const BLOCK_FADE_TIME = 2.5;  // Seconds where blocking starts to break down
+
     if (inPocketX && inPocketY) {
-      // Interior pocket - significant slowdown from guards/center blocking
-      // Better offensive line stats = more slowdown
       const oLineStrength = (this.state.offensiveLine?.stats.passBlock ?? 70) / 100;
       const defenderRush = (defender.passRush ?? 60) / 100;
 
-      // Blocking effectiveness: O-line advantage in pocket
-      const blockingEffect = Math.max(0.15, oLineStrength - defenderRush * 0.5 + 0.3);
-      speedMult *= blockingEffect;
+      // Early in play: line holds well - minimal penetration
+      // Later in play: blocking breaks down progressively
+      let timeMultiplier: number;
+      if (timeSinceSnap < BLOCK_HOLD_TIME) {
+        // Strong hold phase - almost no movement
+        timeMultiplier = 0.1 + (timeSinceSnap / BLOCK_HOLD_TIME) * 0.2;
+      } else if (timeSinceSnap < BLOCK_FADE_TIME) {
+        // Fade phase - blocking breaking down
+        const fadeProgress = (timeSinceSnap - BLOCK_HOLD_TIME) / (BLOCK_FADE_TIME - BLOCK_HOLD_TIME);
+        timeMultiplier = 0.3 + fadeProgress * 0.5;
+      } else {
+        // Late in play - rusher breaking through
+        timeMultiplier = 0.8 + Math.min(0.2, (timeSinceSnap - BLOCK_FADE_TIME) * 0.1);
+      }
 
-      // Track engagement for potential breaks (simplified)
+      // O-line vs rusher skill battle
+      const blockingEffect = Math.max(0.1, oLineStrength - defenderRush * 0.4 + 0.25);
+      speedMult *= blockingEffect * timeMultiplier;
+
+      // Track engagement state
       if (!defender.blockEngagement) {
         defender.engagementState = 'ENGAGED';
       }
@@ -2344,9 +2366,9 @@ export class GameEngine {
         });
         const catchAbility = player.catch || 70;
         const effectiveSpeed = this.getEffectiveSpeed(player);
-        const adjustSpeed = (effectiveSpeed / 100) * (catchAbility / 100);
+        const adjustSpeed = (effectiveSpeed / 100) * (catchAbility / 100) * GAME_SPEED;
         // Target moves faster toward ball, nearby receivers slower
-        const speedMult = isTarget ? 1.5 : 0.6;
+        const speedMult = isTarget ? 1.0 : 0.5;
         player.location.x += dir.x * adjustSpeed * speedMult;
         player.location.y += dir.y * adjustSpeed * speedMult;
       } else {
@@ -2357,8 +2379,8 @@ export class GameEngine {
           this.state.defensivePlayers
         );
         const effectiveSpeed = this.getEffectiveSpeed(player);
-        player.location.x += movement.x * (effectiveSpeed / 100) * 0.5;
-        player.location.y += movement.y * (effectiveSpeed / 100) * 0.5;
+        player.location.x += movement.x * (effectiveSpeed / 100) * 0.35 * GAME_SPEED;
+        player.location.y += movement.y * (effectiveSpeed / 100) * 0.35 * GAME_SPEED;
       }
     });
 
@@ -2370,8 +2392,8 @@ export class GameEngine {
         this.currentTime
       );
       const effectiveSpeed = this.getEffectiveSpeed(defender);
-      defender.location.x += movement.x * (effectiveSpeed / 100) * 0.8;
-      defender.location.y += movement.y * (effectiveSpeed / 100) * 0.8;
+      defender.location.x += movement.x * (effectiveSpeed / 100) * 0.5 * GAME_SPEED;
+      defender.location.y += movement.y * (effectiveSpeed / 100) * 0.5 * GAME_SPEED;
     });
   }
 
