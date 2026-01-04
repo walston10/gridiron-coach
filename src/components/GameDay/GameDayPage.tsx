@@ -441,9 +441,13 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     setSelectedDefensePlay(null);
   }, [nextPlay]);
 
-  // Handle click on canvas to throw (isometric view)
+  // Handle click on canvas to throw (isometric view) - ONLY when user is on offense
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!engineState || engineState.phase !== 'SNAP') return;
+
+    // CRITICAL: Only allow throwing when user is on OFFENSE (home has possession)
+    if (engineState.field.possession !== 'home') return;
+
     // Check if QB has the ball (case-insensitive)
     if (engineState.ballCarrier?.toLowerCase() !== 'qb') return;
 

@@ -96,6 +96,11 @@ export class GameEngine {
   // CPU control state (for when user is on defense)
   private cpuControlEnabled: boolean = false;
 
+  // User-controlled defender state (for when user is on defense)
+  private userControlledDefender: string | null = null;
+  private defenderInput: Vector2 = { x: 0, y: 0 };
+  private defenderInputTime: number = 0;
+
   // Clock accumulator for smooth timing
   private clockAccumulator: number = 0;
 
@@ -1310,6 +1315,7 @@ export class GameEngine {
       }
 
       // Get movement from RouteRunner for receivers
+      // Speed scale: 0.5 units/tick = 30 units/sec = 10 yards/sec (matches defenders)
       if (player.route && player.route !== 'BLOCK') {
         const movement = this.routeRunner.getMovementVector(
           player,
@@ -1318,8 +1324,10 @@ export class GameEngine {
         );
         player.velocity = movement;
         const effectiveSpeed = this.getEffectiveSpeed(player);
-        player.location.x += movement.x * (effectiveSpeed / 100);
-        player.location.y += movement.y * (effectiveSpeed / 100);
+        // Use same speed scale as defenders: 0.5 multiplier for realistic speed
+        const speedMult = (effectiveSpeed / 100) * 0.5;
+        player.location.x += movement.x * speedMult;
+        player.location.y += movement.y * speedMult;
 
         // Keep in bounds
         player.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, player.location.x));
@@ -1333,6 +1341,34 @@ export class GameEngine {
       // Skip players being handled by BlockingEngine (engaged edge rushers)
       if (defender.engagementState === 'ENGAGED' || defender.engagementState === 'BEATEN') {
         return; // BlockingEngine handles their movement
+      }
+
+      // Check if this defender is user-controlled (only when user is on defense = cpuControlEnabled)
+      if (defender.id === this.userControlledDefender && this.cpuControlEnabled) {
+        // User controls this defender - use defenderInput
+        // Reset input if stale (> 0.3s)
+        if (this.currentTime - this.defenderInputTime > 0.3) {
+          this.defenderInput = { x: 0, y: 0 };
+        }
+
+        if (this.defenderInput.x !== 0 || this.defenderInput.y !== 0) {
+          const inputMag = Math.sqrt(this.defenderInput.x ** 2 + this.defenderInput.y ** 2);
+          const normX = this.defenderInput.x / inputMag;
+          const normY = this.defenderInput.y / inputMag;
+
+          const effectiveSpeed = this.getEffectiveSpeed(defender);
+          const speedMult = (effectiveSpeed / 100) * 0.6; // Sprint speed for user
+
+          defender.velocity = { x: normX, y: normY };
+          defender.location.x += normX * speedMult;
+          defender.location.y += normY * speedMult;
+        } else {
+          defender.velocity = { x: 0, y: 0 };
+        }
+
+        // Keep in bounds
+        defender.location.x = Math.max(5, Math.min(FIELD_WIDTH - 5, defender.location.x));
+        return; // Skip AI for this defender
       }
 
       const isBlitzer = defender.assignment === 'RUSH';
@@ -1998,6 +2034,72 @@ export class GameEngine {
   // Enable/disable CPU control of ball carrier (for defense mode)
   enableCPUControl(enabled: boolean): void {
     this.cpuControlEnabled = enabled;
+  }
+
+  // DEFENDER CONTROLS (when user is on defense)
+  setControlledDefender(defenderId: string | null): void {
+    this.userControlledDefender = defenderId;
+    this.defenderInput = { x: 0, y: 0 };
+  }
+
+  getControlledDefender(): string | null {
+    return this.userControlledDefender;
+  }
+
+  moveDefender(direction: Vector2): void {
+    if (this.state.phase !== 'SNAP' && this.state.phase !== 'ACTIVE') return;
+    if (!this.userControlledDefender) return;
+    // cpuControlEnabled = true means CPU controls offense, user is on defense
+    // This is exactly when we want to allow defender movement
+
+    this.defenderInput = direction;
+    this.defenderInputTime = this.currentTime;
+  }
+
+  // Auto-select best defender based on play situation
+  autoSelectDefender(): string | null {
+    const ballCarrier = this.getPlayer(this.state.ballCarrier || '');
+
+    if (!ballCarrier) {
+      // Pre-snap or ball in air - select a linebacker or safety
+      const goodDefenders = this.state.defensivePlayers.filter(
+        p => p.rosterPosition?.includes('LB') || p.rosterPosition?.includes('S') ||
+             p.id.includes('LB') || p.id.includes('S')
+      );
+
+      if (goodDefenders.length > 0) {
+        this.userControlledDefender = goodDefenders[0].id;
+        return this.userControlledDefender;
+      }
+    } else {
+      // Select closest defender to ball carrier
+      let closest: typeof this.state.defensivePlayers[0] | null = null;
+      let closestDist = Infinity;
+
+      for (const defender of this.state.defensivePlayers) {
+        const dx = ballCarrier.location.x - defender.location.x;
+        const dy = ballCarrier.location.y - defender.location.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = defender;
+        }
+      }
+
+      if (closest) {
+        this.userControlledDefender = closest.id;
+        return this.userControlledDefender;
+      }
+    }
+
+    // Fallback: first defender
+    if (this.state.defensivePlayers.length > 0) {
+      this.userControlledDefender = this.state.defensivePlayers[0].id;
+      return this.userControlledDefender;
+    }
+
+    return null;
   }
 
   // EVASION MOVES
