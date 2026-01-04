@@ -8,19 +8,135 @@ interface PixiGameCanvasProps {
   height?: number;
 }
 
-// Team color palettes (using hex numbers for Pixi) - ESPN Clean Vector style
+// Team color palettes - Retro Bowl style (brighter, more saturated)
 const TEAM_PALETTES = {
   home: {
-    primary: 0x2563eb,          // Royal blue
-    secondary: 0xffffff,        // White (for numbers)
-    shadow: 0x1e40af,           // Darker blue shadow
+    helmet: 0x1e40af,           // Dark blue helmet
+    jersey: 0x3b82f6,           // Bright blue jersey
+    pants: 0xf0f0f0,            // White pants
+    stripe: 0xffffff,           // White stripe
   },
   away: {
-    primary: 0xdc2626,          // Red
-    secondary: 0xffffff,        // White (for numbers)
-    shadow: 0x991b1b,           // Darker red shadow
+    helmet: 0xb91c1c,           // Dark red helmet
+    jersey: 0xef4444,           // Bright red jersey
+    pants: 0x374151,            // Gray pants
+    stripe: 0xffffff,           // White stripe
   },
 };
+
+// Pixel art sprite data - Retro Bowl style (10x14 pixels)
+// 0=transparent, 1=helmet, 2=jersey, 3=pants, 4=skin, 5=outline, 6=facemask, 7=stripe
+const SPRITE_STANDING: number[][] = [
+  [0, 0, 0, 5, 1, 1, 5, 0, 0, 0],  // Helmet top
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],  // Helmet
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],  // Helmet
+  [0, 0, 0, 5, 6, 6, 5, 0, 0, 0],  // Facemask
+  [0, 0, 0, 0, 4, 4, 0, 0, 0, 0],  // Neck
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],  // Jersey shoulders
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],  // Jersey with stripe
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],  // Jersey with stripe
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],  // Jersey bottom
+  [0, 0, 5, 3, 3, 3, 3, 5, 0, 0],  // Pants
+  [0, 0, 5, 3, 3, 3, 3, 5, 0, 0],  // Pants
+  [0, 0, 5, 3, 0, 0, 3, 5, 0, 0],  // Legs
+  [0, 0, 5, 5, 0, 0, 5, 5, 0, 0],  // Cleats
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],  // Empty row for shadow space
+];
+
+// Running animation frame 1 (legs apart)
+const SPRITE_RUNNING_1: number[][] = [
+  [0, 0, 0, 5, 1, 1, 5, 0, 0, 0],
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],
+  [0, 0, 0, 5, 6, 6, 5, 0, 0, 0],
+  [0, 0, 0, 0, 4, 4, 0, 0, 0, 0],
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],
+  [0, 0, 5, 3, 3, 3, 3, 5, 0, 0],
+  [0, 5, 3, 3, 0, 0, 3, 3, 5, 0],  // Legs spread
+  [0, 5, 5, 0, 0, 0, 0, 5, 5, 0],  // Cleats spread
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+];
+
+// Running animation frame 2 (legs together)
+const SPRITE_RUNNING_2: number[][] = [
+  [0, 0, 0, 5, 1, 1, 5, 0, 0, 0],
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],
+  [0, 0, 5, 1, 1, 1, 1, 5, 0, 0],
+  [0, 0, 0, 5, 6, 6, 5, 0, 0, 0],
+  [0, 0, 0, 0, 4, 4, 0, 0, 0, 0],
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],
+  [0, 5, 2, 2, 7, 7, 2, 2, 5, 0],
+  [0, 0, 5, 2, 2, 2, 2, 5, 0, 0],
+  [0, 0, 5, 3, 3, 3, 3, 5, 0, 0],
+  [0, 0, 0, 5, 3, 3, 5, 0, 0, 0],  // Legs together
+  [0, 0, 0, 5, 5, 5, 5, 0, 0, 0],  // Cleats together
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+];
+
+// Map color indices to actual colors for a team
+function getSpriteColors(palette: typeof TEAM_PALETTES.home): Record<number, number> {
+  return {
+    0: 0x000000,      // Transparent (will skip)
+    1: palette.helmet,
+    2: palette.jersey,
+    3: palette.pants,
+    4: 0xffdbac,      // Skin tone
+    5: 0x1a1a1a,      // Outline/black
+    6: 0x4a4a4a,      // Facemask gray
+    7: palette.stripe,
+  };
+}
+
+// Draw a pixel art sprite
+function drawPixelSprite(
+  graphics: Graphics,
+  x: number,
+  y: number,
+  scale: number,
+  sprite: number[][],
+  colors: Record<number, number>,
+  isBallCarrier: boolean = false
+) {
+  const pixelSize = Math.max(1, Math.floor(2 * scale)); // Each "pixel" is 2 screen pixels at scale 1
+  const spriteWidth = sprite[0].length;
+  const spriteHeight = sprite.length;
+
+  // Center the sprite on x, y
+  const startX = x - (spriteWidth * pixelSize) / 2;
+  const startY = y - (spriteHeight * pixelSize) / 2;
+
+  // Ball carrier glow
+  if (isBallCarrier) {
+    graphics.circle(x, y, spriteWidth * pixelSize * 0.8);
+    graphics.fill({ color: 0xfbbf24, alpha: 0.4 });
+  }
+
+  // Draw shadow
+  graphics.ellipse(x + 2 * scale, y + spriteHeight * pixelSize * 0.4,
+                   spriteWidth * pixelSize * 0.4, pixelSize * 2);
+  graphics.fill({ color: 0x000000, alpha: 0.3 });
+
+  // Draw each pixel
+  for (let row = 0; row < spriteHeight; row++) {
+    for (let col = 0; col < spriteWidth; col++) {
+      const colorIndex = sprite[row][col];
+      if (colorIndex === 0) continue; // Skip transparent
+
+      const color = colors[colorIndex];
+      const px = startX + col * pixelSize;
+      const py = startY + row * pixelSize;
+
+      graphics.rect(px, py, pixelSize, pixelSize);
+      graphics.fill(color);
+    }
+  }
+}
 
 // Generate jersey numbers from player position IDs (NFL-style)
 function getJerseyNumber(playerId: string): number {
@@ -45,6 +161,9 @@ function getJerseyNumber(playerId: string): number {
   if (id === 'LB2' || id === 'OLB') return 58;
   if (id === 'EDGE_L') return 91;
   if (id === 'EDGE_R') return 99;
+  if (id === 'DT_L') return 97;
+  if (id === 'DT_R') return 93;
+  if (id === 'NT') return 95;
 
   // Fallback
   let hash = 0;
@@ -52,81 +171,6 @@ function getJerseyNumber(playerId: string): number {
     hash = ((hash << 5) - hash) + id.charCodeAt(i);
   }
   return Math.abs(hash % 89) + 10;
-}
-
-// Draw ESPN-style Clean Vector player - pill shape with prominent jersey number
-function drawVectorPlayer(
-  graphics: Graphics,
-  x: number,
-  y: number,
-  scale: number,
-  palette: typeof TEAM_PALETTES.home,
-  isBallCarrier: boolean = false,
-  container?: Container,
-  jerseyNumber?: number
-) {
-  // Larger base size for visibility
-  const baseSize = 18 * scale;
-
-  // Ball carrier glow effect - golden highlight ring
-  if (isBallCarrier) {
-    graphics.circle(x, y, baseSize * 1.2);
-    graphics.fill({ color: 0xfbbf24, alpha: 0.4 });
-    graphics.circle(x, y, baseSize * 0.95);
-    graphics.fill({ color: 0xfbbf24, alpha: 0.25 });
-  }
-
-  // Ground shadow - oval underneath player
-  graphics.ellipse(x + 3 * scale, y + baseSize * 0.35, baseSize * 0.7, baseSize * 0.2);
-  graphics.fill({ color: 0x000000, alpha: 0.35 });
-
-  // Main body - vertical pill/capsule shape
-  const pillWidth = baseSize * 0.8;
-  const pillHeight = baseSize * 1.4;
-  const pillRadius = pillWidth / 2;
-  const pillTop = y - pillHeight / 2;
-
-  // Body shadow (offset slightly for 3D effect)
-  graphics.moveTo(x - pillRadius + 2, pillTop + pillRadius);
-  graphics.lineTo(x - pillRadius + 2, pillTop + pillHeight - pillRadius);
-  graphics.arc(x + 2, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
-  graphics.lineTo(x + pillRadius + 2, pillTop + pillRadius);
-  graphics.arc(x + 2, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
-  graphics.closePath();
-  graphics.fill(palette.shadow);
-
-  // Main body pill
-  graphics.moveTo(x - pillRadius, pillTop + pillRadius);
-  graphics.lineTo(x - pillRadius, pillTop + pillHeight - pillRadius);
-  graphics.arc(x, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
-  graphics.lineTo(x + pillRadius, pillTop + pillRadius);
-  graphics.arc(x, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
-  graphics.closePath();
-  graphics.fill(palette.primary);
-
-  // Thin outline for definition
-  graphics.moveTo(x - pillRadius, pillTop + pillRadius);
-  graphics.lineTo(x - pillRadius, pillTop + pillHeight - pillRadius);
-  graphics.arc(x, pillTop + pillHeight - pillRadius, pillRadius, Math.PI, 0, true);
-  graphics.lineTo(x + pillRadius, pillTop + pillRadius);
-  graphics.arc(x, pillTop + pillRadius, pillRadius, 0, Math.PI, true);
-  graphics.closePath();
-  graphics.stroke({ width: 1, color: 0x000000, alpha: 0.2 });
-
-  // Jersey number - add as Text to container if available
-  if (container && jerseyNumber !== undefined) {
-    const fontSize = Math.max(10, Math.floor(14 * scale));
-    const numberStyle = new TextStyle({
-      fontFamily: 'Inter, system-ui, sans-serif',
-      fontSize,
-      fontWeight: 'bold',
-      fill: palette.secondary,
-    });
-    const numberText = new Text({ text: jerseyNumber.toString(), style: numberStyle });
-    numberText.anchor.set(0.5);
-    numberText.position.set(x, y);
-    container.addChild(numberText);
-  }
 }
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
@@ -419,13 +463,17 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     const offenseTeam = game.possession || 'home';
     const defenseTeam = offenseTeam === 'home' ? 'away' : 'home';
 
+    // Animation frame based on time (for running animation)
+    const animFrame = Math.floor(Date.now() / 150) % 2; // Swap every 150ms
+    const isPlayActive = game.state === 'PLAY_RUNNING' || game.state === 'SNAP';
+
     // Sort players by depth (far first for proper layering)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
     // Create Graphics object for all players
     const playerGraphics = new Graphics();
 
-    // Draw players using Clean Vector style with jersey numbers
+    // Draw players using Retro Bowl pixel art style
     sortedPlayers.forEach(player => {
       const pos = toScreen(player.x, player.y);
       if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
@@ -435,10 +483,14 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
       const isOffense = player.role === 'offense';
       const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
-      const jerseyNum = getJerseyNumber(player.id);
+      const colors = getSpriteColors(palette);
 
-      // Draw the player with Clean Vector style
-      drawVectorPlayer(playerGraphics, pos.x, pos.y, pos.scale, palette, false, dynamicContainer, jerseyNum);
+      // Use running animation during active play, standing otherwise
+      const sprite = isPlayActive
+        ? (animFrame === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
+        : SPRITE_STANDING;
+
+      drawPixelSprite(playerGraphics, pos.x, pos.y, pos.scale, sprite, colors, false);
     });
 
     dynamicContainer.addChild(playerGraphics);
@@ -447,10 +499,15 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     if (game.ballCarrier) {
       const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
       const palette = TEAM_PALETTES[offenseTeam];
-      const jerseyNum = getJerseyNumber(game.ballCarrier.playerId);
+      const colors = getSpriteColors(palette);
+
+      // Ball carrier always uses running sprite when play is active
+      const sprite = isPlayActive
+        ? (animFrame === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
+        : SPRITE_STANDING;
 
       const ballCarrierGraphics = new Graphics();
-      drawVectorPlayer(ballCarrierGraphics, pos.x, pos.y, pos.scale, palette, true, dynamicContainer, jerseyNum);
+      drawPixelSprite(ballCarrierGraphics, pos.x, pos.y, pos.scale, sprite, colors, true);
       dynamicContainer.addChild(ballCarrierGraphics);
     }
 
