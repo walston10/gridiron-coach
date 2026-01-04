@@ -385,6 +385,16 @@ export class InputHandler {
   setFindPlayerAtPos(finder: (pos: Point) => GestureTarget | undefined): void {
     this.findPlayerAtPos = finder;
   }
+
+  /** Update gesture callback */
+  setOnGesture(callback: GestureCallback | undefined): void {
+    this.onGesture = callback;
+  }
+
+  /** Update input state callback */
+  setOnInputState(callback: InputStateCallback | undefined): void {
+    this.onInputState = callback;
+  }
 }
 
 /** Singleton factory for easy access */
