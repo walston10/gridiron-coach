@@ -247,6 +247,12 @@ export interface GameEvent {
 
   // Optional: specific player this event targets
   targetPosition?: RosterPosition;
+
+  // Optional: custom image for event tile
+  imageUrl?: string;
+
+  // Optional: Tex's phone call intro
+  texCall?: string;
 }
 
 // =============================================================================

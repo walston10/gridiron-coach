@@ -746,6 +746,90 @@ export const STARTER_EVENTS: GameEvent[] = [
       },
     ],
   },
+
+  // ==========================================================================
+  // TUESDAY - Player Scandal (RARE)
+  // ==========================================================================
+  {
+    id: 'velveeta_incident',
+    title: "{playerName}'s Personal Chef Files Police Report",
+    day: 'TUESDAY',
+    rarity: 'RARE',
+    character: 'PLAYER',
+    targetPosition: 'WR1',
+    description:
+      "TMZ has obtained Ring camera footage showing your star receiver in a physical altercation with his personal chef. Sources say the dispute began when she used American cheese instead of Velveeta on his grilled cheese. Her lawyer is already talking to ESPN.",
+    texCall:
+      "*laughing* Boy lost his damn mind over some Velveeta? Hell, I get it - you don't mess with a man's cheese. But her lawyer's making noise. Handle it.",
+    imageUrl: '/images/events/velveeta_incident.png',
+    cooldown: 0, // One-time event
+    choices: [
+      {
+        id: 'pay_off_nda',
+        text: 'Pay her off - NDA, make it go away',
+        flavorText:
+          "Tex's people draw up the paperwork. She signs, the footage disappears, and your receiver sends you a fruit basket.",
+        cost: 350000,
+        consequences: {
+          heat: 5,
+          playerTrust: 5,
+        },
+        tags: ['EXPENSIVE', 'SHADY'],
+      },
+      {
+        id: 'suspend_apologize',
+        text: 'Suspend him 2 games + public apology',
+        flavorText:
+          "He's furious, but the league office sends you a thank-you note. The story dies after one news cycle.",
+        consequences: {
+          playerTrust: -15,
+          image: 15,
+        },
+        playerEffect: {
+          type: 'SUSPEND',
+          duration: 2,
+          position: 'WR1',
+        },
+        tags: ['MORAL', 'SAFE'],
+      },
+      {
+        id: 'fine_game_check',
+        text: 'Fine him a game check',
+        flavorText:
+          "You take $180K from his paycheck. He's not happy, and the chef's lawyer is still circling.",
+        consequences: {
+          slushFund: 180000,
+          playerTrust: -10,
+          risk: 5,
+        },
+        delayed: {
+          type: 'LAWSUIT',
+          chance: 0.3,
+          minWeeks: 2,
+          maxWeeks: 5,
+        },
+        tags: ['RISKY'],
+      },
+      {
+        id: 'deny_discredit',
+        text: 'Deny everything, discredit her',
+        flavorText:
+          "You go on the offensive. Your PR team questions her credibility. Your receiver loves that you had his back.",
+        consequences: {
+          playerTrust: 10,
+          risk: 20,
+        },
+        successRate: 0.6,
+        failureConsequences: {
+          description: 'More footage drops. The internet has a field day. Sponsors start calling.',
+          image: -25,
+          heat: 15,
+          ownerPatience: -20,
+        },
+        tags: ['RISKY'],
+      },
+    ],
+  },
 ];
 
 // ==========================================================================
