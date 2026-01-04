@@ -23,6 +23,7 @@ import type {
 } from '../types/Events';
 import type { Owner } from '../types/Owner';
 import type { Player } from '../types/Player';
+import { canBeInEvent } from '../types/Player';
 import { OWNERS, OWNER_LIST } from '../types/Owner';
 import { useEventStore } from '../stores/eventStore';
 import { useEffectsStore } from '../stores/effectsStore';
@@ -346,7 +347,10 @@ export function useEventSystem(options: UseEventSystemOptions = {}): EventSystem
     const targetPosition = rosterPositionToPosition(currentEvent.targetPosition);
 
     // Find a player matching this position in the roster
-    const player = userTeam.roster.find(p => p.position === targetPosition);
+    // Exclude emergency backup players (McBums) - they can never be in events
+    const player = userTeam.roster.find(p =>
+      p.position === targetPosition && canBeInEvent(p)
+    );
     return player || null;
   }, [currentEvent, teams, userTeamId]);
 

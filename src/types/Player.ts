@@ -243,6 +243,7 @@ export type Player = {
   injuryStatus: InjuryStatus | null;
   teamId: string | null;
   isStarter?: boolean;           // Optional - true = starter, false = bench
+  isEmergencyBackup?: boolean;   // McBum players - can never be injured, traded, cut, or in events
 };
 
 // Line unit (O-LINE or D-LINE as a single entity)
@@ -382,4 +383,40 @@ function getPositionWeights(position: RosterPosition): Partial<Record<keyof Play
     default:
       return { speed: 1, strength: 1, awareness: 1, stamina: 1 };
   }
+}
+
+// =============================================================================
+// EMERGENCY BACKUP (McBum) HELPERS
+// =============================================================================
+
+/**
+ * Check if a player is an emergency backup (McBum)
+ * McBums can never be: injured, traded, cut, suspended, or triggered in events
+ */
+export function isEmergencyBackup(player: Player): boolean {
+  return player.isEmergencyBackup === true;
+}
+
+/**
+ * Check if a player can be traded
+ * Returns false for emergency backups
+ */
+export function canBeTradedOrCut(player: Player): boolean {
+  return !isEmergencyBackup(player);
+}
+
+/**
+ * Check if a player can be selected for an event
+ * Returns false for emergency backups
+ */
+export function canBeInEvent(player: Player): boolean {
+  return !isEmergencyBackup(player);
+}
+
+/**
+ * Check if a player can be injured
+ * Returns false for emergency backups
+ */
+export function canBeInjured(player: Player): boolean {
+  return !isEmergencyBackup(player);
 }
