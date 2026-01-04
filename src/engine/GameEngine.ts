@@ -1944,7 +1944,15 @@ export class GameEngine {
     const opponent = this.state.field.possession === 'home' ? 'away' : 'home';
     this.state.score[opponent] += 2;
 
+    // After safety: possession changes to the team that scored (was on defense)
+    // In NFL, they'd receive a free kick. Here, we give them the ball at their own 20.
+    this.state.field.possession = opponent;
+    this.state.field.yardLine = 20; // Start at own 20 after safety
+    this.state.field.down = 1;
+    this.state.field.yardsToGo = 10;
+
     this.state.clock.isRunning = false;
+    this.resetPenaltyTracking();
     this.emitState();
   }
 
