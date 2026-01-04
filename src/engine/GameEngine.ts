@@ -18,6 +18,8 @@ import type {
   OffenseFormation,
   DefenseFormation,
   LineUnitStats,
+  Player,
+  PlayerStats,
 } from '../types/Player';
 import {
   OFFENSE_FORMATION_ROLES,
@@ -118,6 +120,11 @@ export class GameEngine {
   private preSnapInterval: number | null = null;
   private preSnapClockAccumulator: number = 0;
 
+  // Roster integration - actual player data from team roster
+  private rosterPlayers: Map<string, Player> = new Map(); // playerId -> Player
+  private offenseLineup: Map<string, string> = new Map(); // slot (QB, RB, WR1...) -> playerId
+  private defenseLineup: Map<string, string> = new Map(); // slot (CB1, CB2, S...) -> playerId
+
   constructor(onStateChange: (state: GameState) => void) {
     this.onStateChange = onStateChange;
     this.state = this.createInitialState();
@@ -126,6 +133,44 @@ export class GameEngine {
     this.kickingEngine = new KickingEngine(true); // Auto-resolve returns
     this.penaltyEngine = new PenaltyEngine(1.0);  // Normal penalty frequency
     this.fatigueEngine = new FatigueEngine(true); // Enable fatigue system
+  }
+
+  /**
+   * Set roster and lineup data to use actual player stats in the game
+   * @param roster Array of players from the team roster
+   * @param offenseLineup Map of slot (QB, RB, WR1...) -> playerId
+   * @param defenseLineup Map of slot (CB1, CB2, S...) -> playerId
+   */
+  setRosterData(
+    roster: Player[],
+    offenseLineup: Map<string, string>,
+    defenseLineup: Map<string, string>
+  ): void {
+    // Store roster as a map for quick lookup
+    this.rosterPlayers.clear();
+    roster.forEach(player => {
+      this.rosterPlayers.set(player.id, player);
+    });
+
+    // Store lineup mappings
+    this.offenseLineup = new Map(offenseLineup);
+    this.defenseLineup = new Map(defenseLineup);
+
+    // Recreate huddle with actual player data
+    const yardLine = this.state.field.yardLine;
+    this.state.offensivePlayers = this.createOffensiveHuddle(yardLine);
+    this.state.defensivePlayers = this.createDefensiveHuddle(yardLine);
+    this.emitState();
+  }
+
+  /**
+   * Get actual player from roster for a given slot
+   */
+  private getPlayerForSlot(slot: string, isOffense: boolean): Player | null {
+    const lineup = isOffense ? this.offenseLineup : this.defenseLineup;
+    const playerId = lineup.get(slot);
+    if (!playerId) return null;
+    return this.rosterPlayers.get(playerId) || null;
   }
 
   private createInitialState(): GameState {
@@ -760,6 +805,7 @@ export class GameEngine {
   /**
    * Create a skill player for the field
    * Uses roster position (what they are) and field role (what they do in this play)
+   * Will use actual player stats from roster if available
    */
   private createSkillPlayer(
     rosterPosition: RosterPosition,
@@ -767,11 +813,50 @@ export class GameEngine {
     location: Vector2,
     route?: RouteType
   ): FieldPlayer {
+    // Check if we have an actual player for this slot
+    const isOffense = ['QB', 'RB', 'WR1', 'WR2', 'FLEX'].includes(rosterPosition);
+    const actualPlayer = this.getPlayerForSlot(rosterPosition, isOffense);
+
+    // Use actual stats if available, otherwise generate random
     const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
 
+    if (actualPlayer) {
+      // Use actual player stats from roster
+      const stats = actualPlayer.stats;
+      const base: FieldPlayer = {
+        id: rosterPosition,
+        playerId: actualPlayer.id,
+        rosterPosition,
+        fieldRole,
+        location,
+        velocity: { x: 0, y: 0 },
+        speed: stats.speed,
+        acceleration: stats.acceleration,
+        route,
+        strength: stats.strength,
+        agility: stats.agility,
+        awareness: stats.awareness,
+        // Position-specific stats from roster
+        catch: stats.catching,
+        carrying: stats.carrying,
+        routeRunning: stats.routeRunning,
+        elusiveness: stats.elusiveness,
+        passBlock: stats.passBlock,
+        runBlock: stats.runBlock,
+        tackle: stats.tackle,
+        coverage: stats.coverage,
+        passRush: stats.passRush,
+        // QB stats
+        accuracy: stats.throwAccuracy,
+        armStrength: stats.throwPower,
+      };
+      return base;
+    }
+
+    // Fallback to random stats if no roster player found
     const base: FieldPlayer = {
-      id: rosterPosition,                     // Field ID is the roster position
-      playerId: `player_${rosterPosition}`,   // Would be actual player ID from roster
+      id: rosterPosition,
+      playerId: `player_${rosterPosition}`,
       rosterPosition,
       fieldRole,
       location,
@@ -779,7 +864,6 @@ export class GameEngine {
       speed: randomStat(70),
       acceleration: randomStat(70),
       route,
-      // Universal physical attributes
       strength: randomStat(70),
       agility: randomStat(70),
       awareness: randomStat(65, 25),
@@ -799,7 +883,7 @@ export class GameEngine {
       base.routeRunning = randomStat(70, 25);
       base.elusiveness = randomStat(65, 30);
       base.carrying = randomStat(55, 25);
-      base.speed = randomStat(75, 20); // WRs are faster
+      base.speed = randomStat(75, 20);
     }
 
     // Running back
@@ -824,7 +908,7 @@ export class GameEngine {
       base.catch = randomStat(45, 35);
       base.coverage = randomStat(75, 20);
       base.tackle = randomStat(55, 30);
-      base.speed = randomStat(78, 18); // CBs are fast
+      base.speed = randomStat(78, 18);
     }
 
     // Safety

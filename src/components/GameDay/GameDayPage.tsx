@@ -228,6 +228,26 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   });
   const controls = useControls();
   const substitutions = useSubstitutions();
+
+  // Connect roster and lineup data to the game engine
+  useEffect(() => {
+    const engine = getEngine();
+    if (!engine) return;
+
+    // Get user's team roster
+    const userTeam = teams.find(t => t.info.id === userTeamId);
+    if (!userTeam?.roster) return;
+
+    // Only set roster data if we have lineup data
+    if (substitutions.offenseLineup.size > 0 || substitutions.defenseLineup.size > 0) {
+      engine.setRosterData(
+        userTeam.roster,
+        substitutions.offenseLineup,
+        substitutions.defenseLineup
+      );
+    }
+  }, [getEngine, teams, userTeamId, substitutions.offenseLineup, substitutions.defenseLineup]);
+
   const [showPlayCall, setShowPlayCall] = useState(false);
   const [showDefensePlayCall, setShowDefensePlayCall] = useState(false);
   const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);

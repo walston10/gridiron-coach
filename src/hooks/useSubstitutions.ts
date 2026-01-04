@@ -25,6 +25,36 @@ const VALID_POSITIONS: Position[] = [
   'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB'
 ];
 
+// Map legacy roster positions to simplified slot IDs
+// WR -> WR1, WR2; CB -> CB1, CB2; Safeties -> S; Linebackers -> LB1, LB2
+const POSITION_TO_SLOTS: Record<string, string[]> = {
+  'QB': ['QB'],
+  'RB': ['RB'],
+  'WR': ['WR1', 'WR2'],
+  'TE': ['FLEX'],
+  'FB': ['FLEX'],
+  'CB': ['CB1', 'CB2'],
+  'FS': ['S'],
+  'SS': ['S'],
+  'MLB': ['LB1', 'LB2'],
+  'OLB': ['LB1', 'LB2'],
+  'ILB': ['LB1', 'LB2'],
+};
+
+// Reverse mapping: slot ID -> which legacy positions can fill it
+const SLOT_TO_POSITIONS: Record<string, string[]> = {
+  'QB': ['QB'],
+  'RB': ['RB'],
+  'WR1': ['WR'],
+  'WR2': ['WR'],
+  'FLEX': ['TE', 'FB', 'WR'],  // FLEX can be TE, FB, or extra WR
+  'CB1': ['CB'],
+  'CB2': ['CB'],
+  'S': ['FS', 'SS'],
+  'LB1': ['MLB', 'ILB', 'OLB'],
+  'LB2': ['MLB', 'ILB', 'OLB'],
+};
+
 // Convert game store Player to RosterPlayer for substitution system
 function convertToRosterPlayer(player: Player): RosterPlayer | null {
   // Skip players with positions not used in games (linemen, K, P)
@@ -46,7 +76,7 @@ function buildInitialDepthChart(
   roster: RosterPlayer[],
   slots: PositionSlot[]
 ): { slot: string; starters: string[] }[] {
-  // Group players by position
+  // Group players by their legacy position
   const byPosition: Map<string, RosterPlayer[]> = new Map();
   roster.forEach(p => {
     const list = byPosition.get(p.position) || [];
@@ -54,25 +84,36 @@ function buildInitialDepthChart(
     byPosition.set(p.position, list);
   });
 
-  // Sort by overall
+  // Sort each position group by overall rating (best first)
   byPosition.forEach(list => {
     list.sort((a, b) => b.overall - a.overall);
   });
 
-  // Track used starters to prevent duplicates
-  const usedStarters = new Set<string>();
+  // Track used players to prevent duplicates across slots
+  const usedPlayers = new Set<string>();
 
   return slots.map(slot => {
-    const candidates = byPosition.get(slot.id) || [];
+    // Get the legacy positions that can fill this slot
+    const validPositions = SLOT_TO_POSITIONS[slot.id] || [];
 
-    // Find first unused player for starter, allow second for bench
+    // Collect all candidates from valid positions
+    const candidates: RosterPlayer[] = [];
+    validPositions.forEach(pos => {
+      const players = byPosition.get(pos) || [];
+      candidates.push(...players);
+    });
+
+    // Sort all candidates by overall
+    candidates.sort((a, b) => b.overall - a.overall);
+
+    // Find first unused player for starter, second for bench
     const starters: string[] = [];
     candidates.forEach(player => {
-      if (starters.length === 0 && !usedStarters.has(player.id)) {
+      if (starters.length < 2 && !usedPlayers.has(player.id)) {
         starters.push(player.id);
-        usedStarters.add(player.id);
-      } else if (starters.length === 1) {
-        starters.push(player.id); // Bench player
+        if (starters.length === 1) {
+          usedPlayers.add(player.id); // Only mark starter as used
+        }
       }
     });
 
