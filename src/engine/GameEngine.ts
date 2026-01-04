@@ -18,6 +18,7 @@ import type {
   OffenseFormation,
   DefenseFormation,
   LineUnitStats,
+  LineUnitEntity,
   Player,
   PlayerStats,
 } from '../types/Player';
@@ -125,6 +126,10 @@ export class GameEngine {
   private offenseLineup: Map<string, string> = new Map(); // slot (QB, RB, WR1...) -> playerId
   private defenseLineup: Map<string, string> = new Map(); // slot (CB1, CB2, S...) -> playerId
 
+  // Line units (HOGS = O-Line, FRONT = D-Line)
+  private hogsUnit: LineUnitEntity | null = null;   // Cloned into 5 O-linemen
+  private frontUnit: LineUnitEntity | null = null;  // Cloned into 4 D-linemen
+
   constructor(onStateChange: (state: GameState) => void) {
     this.onStateChange = onStateChange;
     this.state = this.createInitialState();
@@ -140,11 +145,15 @@ export class GameEngine {
    * @param roster Array of players from the team roster
    * @param offenseLineup Map of slot (QB, RB, WR1...) -> playerId
    * @param defenseLineup Map of slot (CB1, CB2, S...) -> playerId
+   * @param hogsUnit Optional HOGS unit entity (O-Line)
+   * @param frontUnit Optional FRONT unit entity (D-Line)
    */
   setRosterData(
     roster: Player[],
     offenseLineup: Map<string, string>,
-    defenseLineup: Map<string, string>
+    defenseLineup: Map<string, string>,
+    hogsUnit?: LineUnitEntity | null,
+    frontUnit?: LineUnitEntity | null
   ): void {
     // Store roster as a map for quick lookup
     this.rosterPlayers.clear();
@@ -155,6 +164,10 @@ export class GameEngine {
     // Store lineup mappings
     this.offenseLineup = new Map(offenseLineup);
     this.defenseLineup = new Map(defenseLineup);
+
+    // Store line units if provided
+    if (hogsUnit) this.hogsUnit = hogsUnit;
+    if (frontUnit) this.frontUnit = frontUnit;
 
     // Recreate huddle with actual player data
     const yardLine = this.state.field.yardLine;
@@ -223,112 +236,124 @@ export class GameEngine {
     return { id: type, location, stats };
   }
 
-  // Create offensive skill players in huddle formation (5 skill + 2 tackles)
+  // Create offensive skill players in huddle formation (5 skill + 5 O-linemen from HOGS unit)
   private createOffensiveHuddle(yardLine: number): FieldPlayer[] {
     const los = this.yardLineToY(yardLine);
     const center = FIELD_WIDTH / 2;
     const huddleY = los - 30; // 10 yards behind LOS
     const huddleSpacing = 10;
 
-    // 5 skill players clustered in a huddle circle + 2 tackles
-    return [
+    // 5 skill players clustered in a huddle circle
+    const skillPlayers = [
       this.createSkillPlayer('QB', 'QB', { x: center, y: huddleY - 15 }),      // QB in front
       this.createSkillPlayer('RB', 'RB', { x: center - huddleSpacing, y: huddleY }),
       this.createSkillPlayer('WR1', 'WR_X', { x: center - huddleSpacing * 2, y: huddleY + huddleSpacing }),
       this.createSkillPlayer('WR2', 'WR_Z', { x: center + huddleSpacing * 2, y: huddleY + huddleSpacing }),
       this.createSkillPlayer('FLEX', 'TE', { x: center + huddleSpacing, y: huddleY }),
-      // Tackles at the edges of the huddle
-      this.createTackle('LT', { x: center - huddleSpacing * 3, y: huddleY }),
-      this.createTackle('RT', { x: center + huddleSpacing * 3, y: huddleY }),
     ];
+
+    // 5 O-linemen cloned from HOGS unit (LT, LG, C, RG, RT)
+    const oLinemen = [
+      this.createOLineman('LT', { x: center - huddleSpacing * 4, y: huddleY }),
+      this.createOLineman('LG', { x: center - huddleSpacing * 3, y: huddleY + 5 }),
+      this.createOLineman('C', { x: center, y: huddleY + 8 }),
+      this.createOLineman('RG', { x: center + huddleSpacing * 3, y: huddleY + 5 }),
+      this.createOLineman('RT', { x: center + huddleSpacing * 4, y: huddleY }),
+    ];
+
+    return [...skillPlayers, ...oLinemen];
   }
 
-  // Create defensive players waiting in their area (5 skill + 2 edge rushers + 2 interior D-line)
+  // Create defensive players waiting in their area (5 skill + 4 D-linemen from FRONT unit)
   private createDefensiveHuddle(yardLine: number): FieldPlayer[] {
     const los = this.yardLineToY(yardLine);
     const center = FIELD_WIDTH / 2;
     const waitY = los + 45; // 15 yards past LOS
 
-    // 5 skill players + 2 edge rushers + 2 interior D-linemen
-    return [
+    // 5 skill players
+    const skillPlayers = [
       this.createSkillPlayer('CB1', 'CB_LEFT', { x: 25, y: waitY + 15 }),
       this.createSkillPlayer('CB2', 'CB_RIGHT', { x: 135, y: waitY + 15 }),
       this.createSkillPlayer('S', 'FS', { x: center, y: waitY + 30 }),
       this.createSkillPlayer('LB1', 'MLB', { x: center - 30, y: waitY + 5 }),
       this.createSkillPlayer('LB2', 'LOLB', { x: center + 30, y: waitY + 5 }),
-      // Edge rushers (DEs)
-      this.createEdgeRusher('EDGE_L', { x: 30, y: waitY }),
-      this.createEdgeRusher('EDGE_R', { x: 130, y: waitY }),
-      // Interior D-linemen (DTs)
-      this.createInteriorDLineman('DT_L', { x: center - 15, y: waitY }),
-      this.createInteriorDLineman('DT_R', { x: center + 15, y: waitY }),
     ];
+
+    // 4 D-linemen cloned from FRONT unit (DE_L, DT_L, DT_R, DE_R)
+    const dLinemen = [
+      this.createDLineman('DE_L', { x: 30, y: waitY }),
+      this.createDLineman('DT_L', { x: center - 15, y: waitY }),
+      this.createDLineman('DT_R', { x: center + 15, y: waitY }),
+      this.createDLineman('DE_R', { x: 130, y: waitY }),
+    ];
+
+    return [...skillPlayers, ...dLinemen];
   }
 
-  // Create an offensive tackle
-  private createTackle(id: 'LT' | 'RT', location: Vector2): FieldPlayer {
+  // Create an O-lineman from HOGS unit (all 5 share the unit's stats)
+  private createOLineman(id: 'LT' | 'LG' | 'C' | 'RG' | 'RT', location: Vector2): FieldPlayer {
+    // Use HOGS unit stats if available, otherwise generate random
+    const hogsStats = this.hogsUnit?.stats;
     const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
+    // Derive individual stats from unit rating with slight variance
+    const unitVariance = (base: number, variance: number = 5) =>
+      hogsStats ? Math.min(99, Math.max(40, base + (Math.random() - 0.5) * variance)) : randomStat(base - 5, variance * 2);
+
+    const passBlock = hogsStats ? unitVariance(hogsStats.passBlock, 8) : randomStat(70, 25);
+    const runBlock = hogsStats ? unitVariance(hogsStats.runBlock, 8) : randomStat(70, 25);
 
     return {
       id,
-      playerId: `player_${id}`,
-      rosterPosition: id as RosterPosition,
+      playerId: `hogs_${id}`,  // All share HOGS unit identity
+      rosterPosition: 'HOGS' as RosterPosition,  // They're all from HOGS unit
       fieldRole: id as FieldRole,
       location,
       velocity: { x: 0, y: 0 },
-      speed: randomStat(55, 15),        // Tackles are slower
-      acceleration: randomStat(55, 15),
-      strength: randomStat(75, 20),     // Strong
-      agility: randomStat(55, 20),
-      awareness: randomStat(70, 20),
-      passBlock: randomStat(70, 25),    // Primary blocking stat
-      runBlock: randomStat(70, 25),
+      speed: unitVariance(55, 10),        // Linemen are slower
+      acceleration: unitVariance(55, 10),
+      strength: unitVariance(80, 10),     // Strong
+      agility: unitVariance(55, 10),
+      awareness: unitVariance(70, 10),
+      passBlock,
+      runBlock,
       assignment: 'BLOCK',
       engagementState: 'FREE',
     };
   }
 
-  // Create an edge rusher (DE/OLB)
-  private createEdgeRusher(id: 'EDGE_L' | 'EDGE_R', location: Vector2): FieldPlayer {
+  // Create a D-lineman from FRONT unit (all 4 share the unit's stats)
+  // DE_L, DE_R = Edge rushers (faster, more agile)
+  // DT_L, DT_R = Interior linemen (stronger, better run stop)
+  private createDLineman(id: 'DE_L' | 'DE_R' | 'DT_L' | 'DT_R', location: Vector2): FieldPlayer {
+    // Use FRONT unit stats if available, otherwise generate random
+    const frontStats = this.frontUnit?.stats;
     const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
+
+    // Derive individual stats from unit rating with slight variance
+    const unitVariance = (base: number, variance: number = 5) =>
+      frontStats ? Math.min(99, Math.max(40, base + (Math.random() - 0.5) * variance)) : randomStat(base - 5, variance * 2);
+
+    const passRush = frontStats ? unitVariance(frontStats.passRush, 8) : randomStat(70, 25);
+    const runStop = frontStats ? unitVariance(frontStats.runStop, 8) : randomStat(70, 25);
+
+    // Edge rushers vs interior linemen have different physical profiles
+    const isEdge = id === 'DE_L' || id === 'DE_R';
 
     return {
       id,
-      playerId: `player_${id}`,
-      rosterPosition: id as RosterPosition,
+      playerId: `front_${id}`,  // All share FRONT unit identity
+      rosterPosition: 'FRONT' as RosterPosition,  // They're all from FRONT unit
       fieldRole: id as FieldRole,
       location,
       velocity: { x: 0, y: 0 },
-      speed: randomStat(75, 20),        // Fast off the edge
-      acceleration: randomStat(75, 20),
-      strength: randomStat(70, 20),
-      agility: randomStat(70, 20),
-      awareness: randomStat(70, 20),
-      passRush: randomStat(70, 25),     // Primary pass rush stat
-      tackle: randomStat(70, 20),
-      assignment: 'RUSH',
-      engagementState: 'FREE',
-    };
-  }
-
-  // Create an interior D-lineman (DT/NT)
-  private createInteriorDLineman(id: 'DT_L' | 'DT_R' | 'NT', location: Vector2): FieldPlayer {
-    const randomStat = (base: number, variance: number = 20) => base + Math.random() * variance;
-
-    return {
-      id,
-      playerId: `player_${id}`,
-      rosterPosition: id as RosterPosition,
-      fieldRole: id as FieldRole,
-      location,
-      velocity: { x: 0, y: 0 },
-      speed: randomStat(60, 15),        // Slower than edge rushers
-      acceleration: randomStat(65, 15),
-      strength: randomStat(80, 15),     // Very strong
-      agility: randomStat(55, 20),
-      awareness: randomStat(70, 20),
-      passRush: randomStat(65, 25),     // Interior pass rush
-      tackle: randomStat(75, 20),       // Good at tackles
+      speed: isEdge ? unitVariance(75, 10) : unitVariance(60, 10),
+      acceleration: isEdge ? unitVariance(75, 10) : unitVariance(65, 10),
+      strength: isEdge ? unitVariance(70, 10) : unitVariance(80, 10),
+      agility: isEdge ? unitVariance(70, 10) : unitVariance(55, 10),
+      awareness: unitVariance(70, 10),
+      passRush,
+      tackle: runStop,  // runStop contributes to tackling ability
       assignment: 'RUSH',
       engagementState: 'FREE',
     };
@@ -740,13 +765,16 @@ export class GameEngine {
       return this.createSkillPlayer(rosterPos, fieldRole, positions[rosterPos], route);
     });
 
-    // Add tackles at their formation positions
-    const tackles = [
-      this.createTackle('LT', { x: center - 24, y: los + 3 }),  // Left tackle
-      this.createTackle('RT', { x: center + 24, y: los + 3 }),  // Right tackle
+    // Add 5 O-linemen from HOGS unit at their formation positions
+    const oLinemen = [
+      this.createOLineman('LT', { x: center - 24, y: los + 3 }),   // Left tackle
+      this.createOLineman('LG', { x: center - 12, y: los + 3 }),   // Left guard
+      this.createOLineman('C', { x: center, y: los + 3 }),         // Center
+      this.createOLineman('RG', { x: center + 12, y: los + 3 }),   // Right guard
+      this.createOLineman('RT', { x: center + 24, y: los + 3 }),   // Right tackle
     ];
 
-    return [...skillPlayers, ...tackles];
+    return [...skillPlayers, ...oLinemen];
   }
 
   /**
@@ -819,13 +847,15 @@ export class GameEngine {
       return this.createSkillPlayer(rosterPos, fieldRole, positions[rosterPos]);
     });
 
-    // Add edge rushers at their formation positions
-    const edgeRushers = [
-      this.createEdgeRusher('EDGE_L', { x: center - 36, y: los + 9 }),  // Left edge
-      this.createEdgeRusher('EDGE_R', { x: center + 36, y: los + 9 }),  // Right edge
+    // Add 4 D-linemen from FRONT unit at their formation positions
+    const dLinemen = [
+      this.createDLineman('DE_L', { x: center - 36, y: los + 9 }),   // Left edge
+      this.createDLineman('DT_L', { x: center - 12, y: los + 9 }),   // Left interior
+      this.createDLineman('DT_R', { x: center + 12, y: los + 9 }),   // Right interior
+      this.createDLineman('DE_R', { x: center + 36, y: los + 9 }),   // Right edge
     ];
 
-    return [...skillPlayers, ...edgeRushers];
+    return [...skillPlayers, ...dLinemen];
   }
 
   /**
@@ -1147,12 +1177,16 @@ export class GameEngine {
         this.currentTime
       );
 
-      // Process blocking engagements between tackles and edge rushers
-      const tackles = this.state.offensivePlayers.filter(p => p.id === 'LT' || p.id === 'RT');
-      const edgeRushers = this.state.defensivePlayers.filter(p => p.id === 'EDGE_L' || p.id === 'EDGE_R');
-      if (tackles.length > 0 && edgeRushers.length > 0) {
+      // Process blocking engagements between O-linemen and D-linemen
+      const oLinemen = this.state.offensivePlayers.filter(p =>
+        ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.id)
+      );
+      const dLinemen = this.state.defensivePlayers.filter(p =>
+        ['DE_L', 'DT_L', 'DT_R', 'DE_R'].includes(p.id)
+      );
+      if (oLinemen.length > 0 && dLinemen.length > 0) {
         blockingEngine.setCurrentTime(this.currentTime);
-        blockingEngine.processEngagements(tackles, edgeRushers, qb.location);
+        blockingEngine.processEngagements(oLinemen, dLinemen, qb.location);
       }
     }
 

@@ -27,6 +27,7 @@ const VALID_POSITIONS: Position[] = [
 
 // Map legacy roster positions to simplified slot IDs
 // WR -> WR1, WR2; CB -> CB1, CB2; Safeties -> S; Linebackers -> LB1, LB2
+// Line positions map to unit slots (HOGS for O-line, FRONT for D-line)
 const POSITION_TO_SLOTS: Record<string, string[]> = {
   'QB': ['QB'],
   'RB': ['RB'],
@@ -39,6 +40,9 @@ const POSITION_TO_SLOTS: Record<string, string[]> = {
   'MLB': ['LB1', 'LB2'],
   'OLB': ['LB1', 'LB2'],
   'ILB': ['LB1', 'LB2'],
+  // Line positions (if they exist in roster, map to unit slots)
+  'LT': ['HOGS'], 'LG': ['HOGS'], 'C': ['HOGS'], 'RG': ['HOGS'], 'RT': ['HOGS'],
+  'DE': ['FRONT'], 'DT': ['FRONT'], 'NT': ['FRONT'],
 };
 
 // Reverse mapping: slot ID -> which legacy positions can fill it
@@ -53,7 +57,15 @@ const SLOT_TO_POSITIONS: Record<string, string[]> = {
   'S': ['FS', 'SS'],
   'LB1': ['MLB', 'ILB', 'OLB'],
   'LB2': ['MLB', 'ILB', 'OLB'],
+  // Line unit slots - these are units, not individual positions
+  'HOGS': [],  // Special unit - no individual subs
+  'FRONT': [], // Special unit - no individual subs
 };
+
+// Check if a slot is a line unit (no substitution allowed)
+function isLineUnit(slot: string): boolean {
+  return slot === 'HOGS' || slot === 'FRONT';
+}
 
 // Convert game store Player to RosterPlayer for substitution system
 function convertToRosterPlayer(player: Player): RosterPlayer | null {
@@ -93,6 +105,14 @@ function buildInitialDepthChart(
   const usedPlayers = new Set<string>();
 
   return slots.map(slot => {
+    // Line units (HOGS, FRONT) don't have individual players
+    if (isLineUnit(slot.id)) {
+      return {
+        slot: slot.id,
+        starters: [`unit_${slot.id.toLowerCase()}`],  // Placeholder ID for the unit
+      };
+    }
+
     // Get the legacy positions that can fill this slot
     const validPositions = SLOT_TO_POSITIONS[slot.id] || [];
 

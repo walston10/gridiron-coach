@@ -27,8 +27,10 @@ export type OffenseRosterPosition = 'QB' | 'RB' | 'WR1' | 'WR2' | 'FLEX';
 export type DefenseRosterPosition = 'CB1' | 'CB2' | 'S' | 'LB1' | 'LB2';
 export type RosterPosition = OffenseRosterPosition | DefenseRosterPosition;
 
-// Line units are special - they're not individual players
-export type LineUnit = 'OLINE' | 'DLINE';
+// Line units are special - they're not individual players, they're cloned
+// HOGS = Offensive Line unit (cloned into 5 O-linemen: LT, LG, C, RG, RT)
+// FRONT = Defensive Line unit (cloned into 4 D-linemen: DE_L, DT_L, DT_R, DE_R)
+export type LineUnit = 'HOGS' | 'FRONT';
 
 // All roster slots (for depth chart purposes)
 export type RosterSlot = RosterPosition | LineUnit;
@@ -275,10 +277,10 @@ export interface TeamRoster {
     LB2: { starter: Player; bench: Player };
   };
 
-  // Line units (no individual players, just aggregate stats)
+  // Line units (cloned into multiple field players during games)
   lineUnits: {
-    OLINE: LineUnitEntity;
-    DLINE: LineUnitEntity;
+    HOGS: LineUnitEntity;   // Cloned into 5 O-linemen
+    FRONT: LineUnitEntity;  // Cloned into 4 D-linemen
   };
 }
 

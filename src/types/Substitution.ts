@@ -178,6 +178,7 @@ export const OFFENSIVE_SLOTS: PositionSlot[] = [
   { id: 'WR1', name: 'Wide Receiver 1', abbreviation: 'WR1', side: 'offense' },
   { id: 'WR2', name: 'Wide Receiver 2', abbreviation: 'WR2', side: 'offense' },
   { id: 'FLEX', name: 'Flex (TE/FB/Slot)', abbreviation: 'FLEX', side: 'offense' },
+  { id: 'HOGS', name: 'Offensive Line (The Hogs)', abbreviation: 'HOGS', side: 'offense' },
 ];
 
 /**
@@ -189,6 +190,7 @@ export const DEFENSIVE_SLOTS: PositionSlot[] = [
   { id: 'S', name: 'Safety', abbreviation: 'S', side: 'defense' },
   { id: 'LB1', name: 'Linebacker 1 (MLB)', abbreviation: 'LB1', side: 'defense' },
   { id: 'LB2', name: 'Linebacker 2 (OLB)', abbreviation: 'LB2', side: 'defense' },
+  { id: 'FRONT', name: 'Defensive Line (The Front)', abbreviation: 'FRONT', side: 'defense' },
 ];
 
 /**
