@@ -54,29 +54,28 @@ export interface SpriteSheetConfig {
   rows: number;
 }
 
-// Default config for 8x6 grid animation sheets
+// Config for 8x5 grid animation sheets (880x550 → 110x110 frames)
 export const ANIMATED_SPRITE_CONFIG: SpriteSheetConfig = {
-  frameWidth: 32,   // Adjust based on actual asset
-  frameHeight: 32,  // Adjust based on actual asset
+  frameWidth: 110,
+  frameHeight: 110,
   columns: 8,
-  rows: 6,
+  rows: 5,
 };
 
-// Animation definitions for grid-based sprite sheets
-// Row 0: Idle (4 frames)
+// Animation definitions for 8x5 grid sprite sheets
+// Row 0: Idle/Standing (8 frames)
 // Row 1: Running (8 frames)
-// Row 2: Diving (6 frames)
-// Row 3: Getting up (6 frames)
-// Row 4: Blocking (4 frames)
-// Row 5: Throwing/extras (8 frames)
+// Row 2: Action 1 - diving/tackling (8 frames)
+// Row 3: Action 2 - blocking/catching (8 frames)
+// Row 4: Action 3 - throwing/celebrating (8 frames)
 export const ANIMATION_DEFINITIONS = {
-  idle: { row: 0, frameStart: 0, frameCount: 4, loop: true },
+  idle: { row: 0, frameStart: 0, frameCount: 8, loop: true },
   running: { row: 1, frameStart: 0, frameCount: 8, loop: true },
-  diving: { row: 2, frameStart: 0, frameCount: 6, loop: false },
-  gettingUp: { row: 3, frameStart: 0, frameCount: 6, loop: false },
-  blocking: { row: 4, frameStart: 0, frameCount: 4, loop: true },
-  throwing: { row: 5, frameStart: 0, frameCount: 4, loop: false },
-  celebrating: { row: 5, frameStart: 4, frameCount: 4, loop: true },
+  diving: { row: 2, frameStart: 0, frameCount: 8, loop: false },
+  gettingUp: { row: 2, frameStart: 4, frameCount: 4, loop: false },
+  blocking: { row: 3, frameStart: 0, frameCount: 8, loop: true },
+  throwing: { row: 4, frameStart: 0, frameCount: 4, loop: false },
+  celebrating: { row: 4, frameStart: 4, frameCount: 4, loop: true },
 } as const;
 
 export type AnimationName = keyof typeof ANIMATION_DEFINITIONS;
