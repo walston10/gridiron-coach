@@ -112,7 +112,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: 'NICKEL',
     coverage: 'COVER_1',
     blitz: 'SAFETY',
-    blitzers: ['S'],
+    blitzers: ['SECONDARY'],
     description: 'Strong safety blitzes, Cover 1 behind. Creates confusion.'
   },
 
@@ -123,7 +123,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: 'NICKEL',
     coverage: 'COVER_1',
     blitz: 'CB',
-    blitzers: ['CB1'],
+    blitzers: ['SECONDARY'],
     description: 'Corner blitz off the edge. Risky but disruptive.'
   },
 
@@ -134,7 +134,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '4_3',
     coverage: 'COVER_1',
     blitz: 'MLB',
-    blitzers: ['LB1'],
+    blitzers: ['LINEBACKERS'],
     description: 'Mike linebacker shoots the A gap.'
   },
 
@@ -144,7 +144,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '4_3',
     coverage: 'COVER_1',
     blitz: 'OLB',
-    blitzers: ['LB2'],
+    blitzers: ['LINEBACKERS'],
     description: 'Outside linebacker edge rush.'
   },
 
@@ -155,7 +155,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '4_3',
     coverage: 'COVER_0',
     blitz: 'MLB',
-    blitzers: ['LB1', 'LB2', 'S'],
+    blitzers: ['LINEBACKERS', 'SECONDARY'],
     description: 'Everyone comes. Pure man, no help. Boom or bust.'
   },
 
@@ -166,7 +166,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '3_4',
     coverage: 'COVER_3',
     blitz: 'ZONE',
-    blitzers: ['LB2'],
+    blitzers: ['LINEBACKERS'],
     description: 'OLB blitz, DE drops into coverage. Deceptive look.'
   },
 
@@ -177,7 +177,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '3_4',
     coverage: 'COVER_3',
     blitz: 'ZONE',
-    blitzers: ['LB1', 'S'],
+    blitzers: ['LINEBACKERS', 'SECONDARY'],
     description: 'ILB and safety blitz, 3 deep zones behind.'
   },
 
@@ -188,7 +188,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: '3_4',
     coverage: 'COVER_0',
     blitz: 'MLB',
-    blitzers: ['LB1', 'LB2'],
+    blitzers: ['LINEBACKERS'],
     description: 'Both linebackers through the A gaps. Chaos.'
   },
 
@@ -203,7 +203,7 @@ export const DEFENSIVE_PLAYBOOK: DefensivePlay[] = [
     formation: 'GOAL_LINE_D',
     coverage: 'COVER_0',
     blitz: 'MLB',
-    blitzers: ['LB1', 'LB2'],
+    blitzers: ['LINEBACKERS'],
     description: 'Heavy front, man coverage. Stuff the run.'
   },
 

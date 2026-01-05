@@ -194,6 +194,16 @@ export type DefenseUnitStats = {
   // Individual stats are derived from overall with position-specific weighting
 };
 
+// Generic line unit stats (for FieldLineUnit visualization in GameSim)
+// Used for both O-LINE and D-LINE visual representation
+export type LineUnitStats = {
+  passBlock: number;      // O-LINE uses this
+  runBlock: number;       // O-LINE uses this
+  passRush: number;       // D-LINE uses this
+  runStop: number;        // D-LINE uses this
+  overall: number;        // Combined rating
+};
+
 // =============================================================================
 // PLAYER TYPES
 // =============================================================================
