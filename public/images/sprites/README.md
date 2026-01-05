@@ -1,53 +1,70 @@
 # Sprite Assets
 
-Place your itch.io sprite sheets in this directory.
+This directory supports two sprite formats. Use whichever you have!
 
-## Required Files
+## Folder Structure
 
-### Player Sprites (8x6 grid, 48 frames per sheet)
+```
+sprites/
+├── simple/           # Simple single-sprite per team (SpawnCampGames free)
+│   ├── player_red.png
+│   ├── player_black.png
+│   ├── player_purple.png
+│   ├── player_yellow.png
+│   └── player_maroon.png
+│
+├── animated/         # Animation grid sprite sheets (8x6 grid)
+│   ├── player_blue.png
+│   ├── player_red.png
+│   ├── player_green.png
+│   ├── player_yellow.png
+│   ├── player_purple.png
+│   └── player_orange.png
+│
+├── field.png         # Field with branding
+├── field_clean.png   # Field without branding
+├── football.png      # Football sprite
+└── power_meter.png   # Power meter bar
+```
 
-| Filename | Description |
-|----------|-------------|
-| `player_blue.png` | Blue team player sprite sheet |
-| `player_red.png` | Red team player sprite sheet |
-| `player_green.png` | Green team player sprite sheet |
-| `player_yellow.png` | Yellow team player sprite sheet |
-| `player_purple.png` | Purple team player sprite sheet |
+## Format 1: Simple Sprites (SpawnCampGames)
 
-### Expected Sprite Sheet Layout (8 columns x 6 rows)
+Single circular player sprites, one per team color.
+Place in `sprites/simple/` folder.
 
-- **Row 0**: Idle animation (4-8 frames)
-- **Row 1**: Running animation (8 frames)
-- **Row 2**: Diving/tackling animation (6 frames)
-- **Row 3**: Getting up animation (6 frames)
-- **Row 4**: Blocking animation (4 frames)
-- **Row 5**: Throwing/celebrating (8 frames)
+Colors: `red`, `black`, `purple`, `yellow`, `maroon`
 
-### Other Sprites
+## Format 2: Animated Sprite Sheets
 
-| Filename | Description |
-|----------|-------------|
-| `field.png` | Football field background |
-| `football.png` | Football sprite |
-| `power_meter.png` | Power meter gradient bar |
+8 columns × 6 rows grid with animations:
+- Row 0: Idle (4 frames)
+- Row 1: Running (8 frames)
+- Row 2: Diving (6 frames)
+- Row 3: Getting up (6 frames)
+- Row 4: Blocking (4 frames)
+- Row 5: Throwing/celebrating (8 frames)
 
-## Configuration
+Place in `sprites/animated/` folder.
 
-If your sprite sheet dimensions differ, update the config in:
-`src/graphics/SpriteLoader.ts`
+Colors: `blue`, `red`, `green`, `yellow`, `purple`, `orange`
+
+## Configuring Frame Size
+
+If your sprite frames aren't 32×32, update in code:
 
 ```typescript
-export const PLAYER_SPRITE_CONFIG = {
-  frameWidth: 32,   // Width of each frame
-  frameHeight: 32,  // Height of each frame
-  columns: 8,       // Number of columns
-  rows: 6,          // Number of rows
-};
+import { updateSpriteConfig } from './graphics/SpriteLoader';
+
+// Call before loading sprites
+updateSpriteConfig({
+  frameWidth: 48,   // Your frame width
+  frameHeight: 48,  // Your frame height
+  columns: 8,       // Columns in sheet
+  rows: 6,          // Rows in sheet
+});
 ```
 
 ## Usage
-
-To enable sprite sheet mode, pass the `useSpriteSheets` prop:
 
 ```tsx
 <PixiGameCanvas
@@ -58,4 +75,4 @@ To enable sprite sheet mode, pass the `useSpriteSheets` prop:
 />
 ```
 
-The canvas will automatically fall back to pixel art if sprites fail to load.
+The system auto-detects which format is available and falls back gracefully.
