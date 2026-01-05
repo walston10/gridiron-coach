@@ -1,8 +1,8 @@
 /**
  * Substitution Types for Simplified Roster
  *
- * With only 5 skill players + 1 bench each per side,
- * substitutions are straightforward: swap starter for bench.
+ * Offense: 6 skill players + HOGS (O-Line unit)
+ * Defense: 3 captain + unit combos (no individual subs)
  */
 
 import type {
@@ -10,6 +10,7 @@ import type {
   DefenseRosterPosition,
   RosterPosition,
   Position,
+  RosterSlot,
 } from './Player';
 
 // =============================================================================
@@ -32,11 +33,12 @@ export interface PlayerFatigue {
 
 /**
  * Which players are currently on the field
- * For each position, either the starter or bench player
+ * For offense, swap between starter and McBum backup
+ * Defense doesn't have subs - captain + unit always plays
  */
 export interface LineupState {
-  offense: Record<OffenseRosterPosition, 'starter' | 'bench'>;
-  defense: Record<DefenseRosterPosition, 'starter' | 'bench'>;
+  offense: Record<OffenseRosterPosition, 'starter' | 'backup'>;
+  // Defense doesn't need lineup state - captain + unit always plays
 }
 
 /**
@@ -48,14 +50,8 @@ export const DEFAULT_LINEUP: LineupState = {
     RB: 'starter',
     WR1: 'starter',
     WR2: 'starter',
-    FLEX: 'starter',
-  },
-  defense: {
-    CB1: 'starter',
-    CB2: 'starter',
-    S: 'starter',
-    LB1: 'starter',
-    LB2: 'starter',
+    FB_TE: 'starter',
+    SLOT: 'starter',
   },
 };
 
@@ -64,9 +60,9 @@ export const DEFAULT_LINEUP: LineupState = {
 // =============================================================================
 
 export interface SubstitutionAction {
-  position: RosterPosition;
-  from: 'starter' | 'bench';
-  to: 'starter' | 'bench';
+  position: OffenseRosterPosition;  // Only offense has subs
+  from: 'starter' | 'backup';
+  to: 'starter' | 'backup';
   reason: 'MANUAL' | 'FATIGUE' | 'INJURY';
 }
 
@@ -109,22 +105,21 @@ export function getFatigueLevel(percentage: number): FatigueLevel {
 }
 
 /**
- * Get all offensive positions
+ * Get all offensive positions (skill players only, not HOGS)
  */
 export function getOffensePositions(): OffenseRosterPosition[] {
-  return ['QB', 'RB', 'WR1', 'WR2', 'FLEX'];
+  return ['QB', 'RB', 'WR1', 'WR2', 'FB_TE', 'SLOT'];
 }
 
 /**
- * Get all defensive positions
+ * Get all defensive positions (captain positions)
  */
 export function getDefensePositions(): DefenseRosterPosition[] {
-  return ['CB1', 'CB2', 'S', 'LB1', 'LB2'];
+  return ['D_LINE', 'LINEBACKERS', 'SECONDARY'];
 }
 
 // =============================================================================
-// LEGACY COMPATIBILITY TYPES
-// These are for SubstitutionEngine/SubstitutionPanel that use the old model
+// POSITION SLOT DEFINITIONS
 // =============================================================================
 
 /**
@@ -135,7 +130,42 @@ export interface PositionSlot {
   name: string;
   abbreviation: string;
   side: 'offense' | 'defense';
+  isUnit?: boolean;  // True for HOGS and defense captains
 }
+
+/**
+ * Offensive position slots
+ */
+export const OFFENSIVE_SLOTS: PositionSlot[] = [
+  { id: 'QB', name: 'Quarterback', abbreviation: 'QB', side: 'offense' },
+  { id: 'RB', name: 'Running Back', abbreviation: 'RB', side: 'offense' },
+  { id: 'WR1', name: 'Wide Receiver 1', abbreviation: 'WR1', side: 'offense' },
+  { id: 'WR2', name: 'Wide Receiver 2', abbreviation: 'WR2', side: 'offense' },
+  { id: 'FB_TE', name: 'FB/TE Hybrid', abbreviation: 'Y', side: 'offense' },
+  { id: 'SLOT', name: 'Slot Receiver', abbreviation: 'F', side: 'offense' },
+  { id: 'HOGS', name: 'Offensive Line', abbreviation: 'HOGS', side: 'offense', isUnit: true },
+];
+
+/**
+ * Defensive position slots (captain + unit combos)
+ */
+export const DEFENSIVE_SLOTS: PositionSlot[] = [
+  { id: 'D_LINE', name: 'Defensive Line', abbreviation: 'DL', side: 'defense', isUnit: true },
+  { id: 'LINEBACKERS', name: 'Linebackers', abbreviation: 'LB', side: 'defense', isUnit: true },
+  { id: 'SECONDARY', name: 'Secondary', abbreviation: 'DB', side: 'defense', isUnit: true },
+];
+
+/**
+ * All draft slots in order
+ */
+export const ALL_DRAFT_SLOTS: PositionSlot[] = [
+  ...OFFENSIVE_SLOTS,
+  ...DEFENSIVE_SLOTS,
+];
+
+// =============================================================================
+// ROSTER PLAYER FOR DISPLAY
+// =============================================================================
 
 /**
  * Roster player with position slot
@@ -143,10 +173,11 @@ export interface PositionSlot {
 export interface RosterPlayer {
   id: string;
   name: string;
-  position: Position | RosterPosition;  // Full Position or simplified RosterPosition
+  position: Position | RosterSlot;  // Full Position or simplified RosterSlot
   isStarter: boolean;
   overall: number;
   isEmergencyBackup?: boolean;  // McBum players - can never be injured/suspended
+  personality?: string;         // Flavor text
 }
 
 /**
@@ -170,48 +201,21 @@ export interface DepthChart {
   defense: DepthChartEntry[];
 }
 
-/**
- * Offensive position slots
- */
-export const OFFENSIVE_SLOTS: PositionSlot[] = [
-  { id: 'QB', name: 'Quarterback', abbreviation: 'QB', side: 'offense' },
-  { id: 'RB', name: 'Running Back', abbreviation: 'RB', side: 'offense' },
-  { id: 'WR1', name: 'Wide Receiver 1', abbreviation: 'WR1', side: 'offense' },
-  { id: 'WR2', name: 'Wide Receiver 2', abbreviation: 'WR2', side: 'offense' },
-  { id: 'FLEX', name: 'Flex (TE/FB/Slot)', abbreviation: 'FLEX', side: 'offense' },
-  { id: 'HOGS', name: 'Offensive Line (The Hogs)', abbreviation: 'HOGS', side: 'offense' },
-];
+// =============================================================================
+// VALIDATION
+// =============================================================================
 
 /**
- * Defensive position slots
+ * Check if a slot is a unit (HOGS or defense captain)
  */
-export const DEFENSIVE_SLOTS: PositionSlot[] = [
-  { id: 'CB1', name: 'Cornerback 1', abbreviation: 'CB1', side: 'defense' },
-  { id: 'CB2', name: 'Cornerback 2', abbreviation: 'CB2', side: 'defense' },
-  { id: 'S', name: 'Safety', abbreviation: 'S', side: 'defense' },
-  { id: 'LB1', name: 'Linebacker 1 (MLB)', abbreviation: 'LB1', side: 'defense' },
-  { id: 'LB2', name: 'Linebacker 2 (OLB)', abbreviation: 'LB2', side: 'defense' },
-  { id: 'FRONT', name: 'Defensive Line (The Front)', abbreviation: 'FRONT', side: 'defense' },
-];
-
-/**
- * Validate that a player can be assigned to a position
- */
-export function validateStarterAssignment(
-  playerPosition: RosterPosition,
-  slot: string
-): boolean {
-  // With simplified roster, players are assigned to their positions
-  return playerPosition === slot;
+export function isUnitSlot(slot: string): boolean {
+  return slot === 'HOGS' || slot === 'D_LINE' || slot === 'LINEBACKERS' || slot === 'SECONDARY';
 }
 
 /**
- * Check if a player can play a position (for subs)
+ * Check if a slot can have substitutions
+ * Only offense skill players can be subbed (not units)
  */
-export function canPlayPosition(
-  playerPosition: RosterPosition,
-  slot: string
-): boolean {
-  // With simplified roster, players are assigned to their positions
-  return playerPosition === slot;
+export function canBeSubstituted(slot: string): boolean {
+  return ['QB', 'RB', 'WR1', 'WR2', 'FB_TE', 'SLOT'].includes(slot);
 }
