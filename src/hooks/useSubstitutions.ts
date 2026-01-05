@@ -20,40 +20,119 @@ import { OFFENSIVE_SLOTS, DEFENSIVE_SLOTS } from '../types/Substitution';
 import type { Player, Position } from '../types/Player';
 
 // Valid positions for substitution system (game positions)
+// Note: Defense uses captain+unit system, so individual defense positions are less relevant
 const VALID_POSITIONS: Position[] = [
   'QB', 'RB', 'FB', 'WR', 'TE',
-  'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB'
+  'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB',
+  'DE', 'DT', 'NT'
 ];
 
 // Map legacy roster positions to simplified slot IDs
-// WR -> WR1, WR2; CB -> CB1, CB2; Safeties -> S; Linebackers -> LB1, LB2
+// Offense: QB, RB, WR1, WR2, FB_TE, SLOT
+// Defense: D_LINE, LINEBACKERS, SECONDARY (captain+unit system - no individual subs)
+// O-Line: HOGS (unit)
 const POSITION_TO_SLOTS: Record<string, string[]> = {
+  // Offense skill positions
   'QB': ['QB'],
   'RB': ['RB'],
-  'WR': ['WR1', 'WR2'],
-  'TE': ['FLEX'],
-  'FB': ['FLEX'],
-  'CB': ['CB1', 'CB2'],
-  'FS': ['S'],
-  'SS': ['S'],
-  'MLB': ['LB1', 'LB2'],
-  'OLB': ['LB1', 'LB2'],
-  'ILB': ['LB1', 'LB2'],
+  'WR': ['WR1', 'WR2', 'SLOT'],
+  'TE': ['FB_TE', 'SLOT'],
+  'FB': ['FB_TE'],
+  // Defense positions map to captain units (no individual subs allowed)
+  'CB': ['SECONDARY'],
+  'FS': ['SECONDARY'],
+  'SS': ['SECONDARY'],
+  'MLB': ['LINEBACKERS'],
+  'OLB': ['LINEBACKERS'],
+  'ILB': ['LINEBACKERS'],
+  'DE': ['D_LINE'],
+  'DT': ['D_LINE'],
+  'NT': ['D_LINE'],
+  // O-Line positions map to HOGS unit
+  'LT': ['HOGS'], 'LG': ['HOGS'], 'C': ['HOGS'], 'RG': ['HOGS'], 'RT': ['HOGS'],
 };
 
 // Reverse mapping: slot ID -> which legacy positions can fill it
 const SLOT_TO_POSITIONS: Record<string, string[]> = {
+  // Offense skill slots
   'QB': ['QB'],
   'RB': ['RB'],
   'WR1': ['WR'],
   'WR2': ['WR'],
-  'FLEX': ['TE', 'FB', 'WR'],  // FLEX can be TE, FB, or extra WR
-  'CB1': ['CB'],
-  'CB2': ['CB'],
-  'S': ['FS', 'SS'],
-  'LB1': ['MLB', 'ILB', 'OLB'],
-  'LB2': ['MLB', 'ILB', 'OLB'],
+  'FB_TE': ['TE', 'FB', 'WR'],  // FB_TE hybrid can be TE, FB, or extra WR
+  'SLOT': ['WR', 'TE'],          // SLOT can be WR or TE
+  // Defense slots are captain+unit - no individual substitutions
+  'D_LINE': [],      // Unit - no individual subs
+  'LINEBACKERS': [], // Unit - no individual subs
+  'SECONDARY': [],   // Unit - no individual subs
+  // O-Line unit slot
+  'HOGS': [],  // Unit - no individual subs
 };
+
+// Check if a slot is a unit (no individual substitution allowed)
+function isLineUnit(slot: string): boolean {
+  return slot === 'HOGS' || slot === 'D_LINE' || slot === 'LINEBACKERS' || slot === 'SECONDARY';
+}
+
+// =============================================================================
+// EMERGENCY BACKUP SYSTEM - "The McBums"
+// =============================================================================
+// Every position has a guaranteed backup who can never be injured or suspended.
+// These are mediocre players (65 overall) but ensure you always have a body.
+
+const MCBUM_FIRST_NAMES = [
+  'Arnold', 'Rusty', 'Dusty', 'Lefty', 'Bucky', 'Scooter', 'Bubba', 'Junior',
+  'Tater', 'Boomer', 'Denny', 'Lenny', 'Kenny'
+];
+
+const MCBUM_LAST_NAMES = [
+  'McBum', 'Scrubbs', 'Benchwarm', 'Tryhard', 'Lastpick', 'Warmseats',
+  'Clipboard', 'Tacklebox', 'Waterboy', 'Practisquad'
+];
+
+// Generate a consistent McBum name for a slot (deterministic based on slot)
+function getMcBumName(slot: string): { firstName: string; lastName: string } {
+  // Use slot string to pick names consistently
+  const hash = slot.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const firstName = MCBUM_FIRST_NAMES[hash % MCBUM_FIRST_NAMES.length];
+  const lastName = MCBUM_LAST_NAMES[(hash * 7) % MCBUM_LAST_NAMES.length];
+  return { firstName, lastName };
+}
+
+// Create an emergency backup player for a slot
+function createEmergencyBackup(slot: string): RosterPlayer {
+  const { firstName, lastName } = getMcBumName(slot);
+
+  // Map slot to a reasonable position for display
+  const slotToPosition: Record<string, string> = {
+    // Offense skill positions
+    'QB': 'QB', 'RB': 'RB', 'WR1': 'WR', 'WR2': 'WR',
+    'FB_TE': 'TE', 'SLOT': 'WR',
+    // Defense captain units
+    'D_LINE': 'DE', 'LINEBACKERS': 'MLB', 'SECONDARY': 'CB',
+    // O-Line unit
+    'HOGS': 'LT',
+  };
+
+  // Special names for unit slots
+  const unitNames: Record<string, string> = {
+    'HOGS': 'The Scrub Squad',
+    'D_LINE': 'The Practice Dummies',
+    'LINEBACKERS': 'The Tackling Dummies',
+    'SECONDARY': 'The Coverage Cones',
+  };
+
+  const displayName = unitNames[slot] || `${firstName} ${lastName}`;
+
+  return {
+    id: `mcbum_${slot}`,
+    name: displayName,
+    position: (slotToPosition[slot] || 'RB') as Position,
+    isStarter: false,
+    overall: 65,
+    isEmergencyBackup: true,  // Special flag - can never be injured/suspended
+  };
+}
 
 // Convert game store Player to RosterPlayer for substitution system
 function convertToRosterPlayer(player: Player): RosterPlayer | null {
@@ -72,10 +151,11 @@ function convertToRosterPlayer(player: Player): RosterPlayer | null {
 }
 
 // Build initial depth chart from roster
+// Returns both depth chart and McBum players that were created
 function buildInitialDepthChart(
   roster: RosterPlayer[],
   slots: PositionSlot[]
-): { slot: string; starters: string[] }[] {
+): { depthChart: { slot: string; starters: string[] }[]; mcBums: RosterPlayer[] } {
   // Group players by their legacy position
   const byPosition: Map<string, RosterPlayer[]> = new Map();
   roster.forEach(p => {
@@ -92,7 +172,20 @@ function buildInitialDepthChart(
   // Track used players to prevent duplicates across slots
   const usedPlayers = new Set<string>();
 
-  return slots.map(slot => {
+  // Collect McBum players that get created
+  const mcBums: RosterPlayer[] = [];
+
+  const depthChart = slots.map(slot => {
+    // Line units (HOGS, FRONT) - still create a McBum backup unit
+    if (isLineUnit(slot.id)) {
+      const mcBum = createEmergencyBackup(slot.id);
+      mcBums.push(mcBum);
+      return {
+        slot: slot.id,
+        starters: [`unit_${slot.id.toLowerCase()}`, mcBum.id],  // Unit + McBum backup
+      };
+    }
+
     // Get the legacy positions that can fill this slot
     const validPositions = SLOT_TO_POSITIONS[slot.id] || [];
 
@@ -117,11 +210,23 @@ function buildInitialDepthChart(
       }
     });
 
+    // Always ensure there's a McBum backup available
+    // McBum is the safety net - can't be injured or suspended
+    const mcBum = createEmergencyBackup(slot.id);
+    mcBums.push(mcBum);
+
+    // If we don't have 2 players, add McBum as backup
+    if (starters.length < 2) {
+      starters.push(mcBum.id);
+    }
+
     return {
       slot: slot.id,
       starters,
     };
   });
+
+  return { depthChart, mcBums };
 }
 
 interface UseSubstitutionsReturn {
@@ -147,20 +252,31 @@ export function useSubstitutions(): UseSubstitutionsReturn {
   const userTeam = teams.find(t => t.info.id === userTeamId);
 
   // Convert actual roster to RosterPlayer format
-  const roster = useMemo(() => {
+  const baseRoster = useMemo(() => {
     if (!userTeam?.roster) return [];
     return userTeam.roster
       .map(convertToRosterPlayer)
       .filter((p): p is RosterPlayer => p !== null);
   }, [userTeam?.roster]);
 
-  // Build initial depth charts
-  const offenseDepthChart = useMemo(() =>
-    buildInitialDepthChart(roster, OFFENSIVE_SLOTS), [roster]
+  // Build initial depth charts (includes creating McBum backups)
+  const { depthChart: offenseDepthChartRaw, mcBums: offenseMcBums } = useMemo(() =>
+    buildInitialDepthChart(baseRoster, OFFENSIVE_SLOTS), [baseRoster]
   );
-  const defenseDepthChart = useMemo(() =>
-    buildInitialDepthChart(roster, DEFENSIVE_SLOTS), [roster]
+  const { depthChart: defenseDepthChartRaw, mcBums: defenseMcBums } = useMemo(() =>
+    buildInitialDepthChart(baseRoster, DEFENSIVE_SLOTS), [baseRoster]
   );
+
+  // Combine real roster with McBum emergency backups
+  const roster = useMemo(() => [
+    ...baseRoster,
+    ...offenseMcBums,
+    ...defenseMcBums,
+  ], [baseRoster, offenseMcBums, defenseMcBums]);
+
+  // Use raw depth charts
+  const offenseDepthChart = offenseDepthChartRaw;
+  const defenseDepthChart = defenseDepthChartRaw;
 
   // Current lineups (who's actually on the field)
   const [offenseLineup, setOffenseLineup] = useState<Map<string, string>>(new Map());

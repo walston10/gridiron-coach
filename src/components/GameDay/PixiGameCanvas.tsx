@@ -1,11 +1,32 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { Application, Graphics, Container, Text, TextStyle, Sprite, Texture } from 'pixi.js';
 import type { LiveGame } from '../../types';
+import {
+  loadPlayerSpriteSheet,
+  loadFieldTexture,
+  loadFootballTexture,
+  ANIMATION_DEFINITIONS,
+  getAnimationFrames,
+  type TeamColor,
+} from '../../graphics/SpriteLoader';
 
 interface PixiGameCanvasProps {
   game: LiveGame;
   width?: number;
   height?: number;
+  /** Use sprite sheet mode instead of inline pixel art */
+  useSpriteSheets?: boolean;
+  /** Team colors for sprite sheets */
+  homeTeamColor?: TeamColor;
+  awayTeamColor?: TeamColor;
+}
+
+// Sprite sheet state
+interface LoadedSprites {
+  home: Texture[][] | null;
+  away: Texture[][] | null;
+  field: Texture | null;
+  football: Texture | null;
 }
 
 // Team color palettes - Retro Bowl style (brighter, more saturated)
@@ -177,12 +198,26 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   game,
   width = 900,
   height = 600,
+  useSpriteSheets = false,
+  homeTeamColor = 'blue',
+  awayTeamColor = 'red',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const fieldContainerRef = useRef<Container | null>(null);
   const dynamicContainerRef = useRef<Container | null>(null);
+  const spriteContainerRef = useRef<Container | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [loadedSprites, setLoadedSprites] = useState<LoadedSprites>({
+    home: null,
+    away: null,
+    field: null,
+    football: null,
+  });
+  const [spritesLoaded, setSpritesLoaded] = useState(false);
+
+  // Player sprite pool for sprite sheet mode
+  const playerSpritesRef = useRef<Map<string, Sprite>>(new Map());
 
   const ENGINE_WIDTH = 160;
   const VISIBLE_YARDS = 50;
@@ -192,6 +227,67 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   // Coordinate helpers
   const yardLineToEngineY = (yardLine: number) => (yardLine + 10) * 3;
   const engineYToYardLine = (y: number) => Math.floor(y / 3) - 10;
+
+  // Load sprite sheets when enabled
+  useEffect(() => {
+    if (!useSpriteSheets) return;
+
+    let cancelled = false;
+
+    const loadSprites = async () => {
+      try {
+        const [homeSprites, awaySprites] = await Promise.all([
+          loadPlayerSpriteSheet(homeTeamColor).catch(() => null),
+          loadPlayerSpriteSheet(awayTeamColor).catch(() => null),
+        ]);
+
+        // Also try to load field and football sprites
+        const [fieldTex, footballTex] = await Promise.all([
+          loadFieldTexture().catch(() => null),
+          loadFootballTexture().catch(() => null),
+        ]);
+
+        if (!cancelled) {
+          setLoadedSprites({
+            home: homeSprites,
+            away: awaySprites,
+            field: fieldTex,
+            football: footballTex,
+          });
+          setSpritesLoaded(true);
+          console.log('Sprite sheets loaded:', {
+            home: !!homeSprites,
+            away: !!awaySprites,
+            field: !!fieldTex,
+            football: !!footballTex,
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load sprite sheets, falling back to pixel art:', err);
+        if (!cancelled) {
+          setSpritesLoaded(false);
+        }
+      }
+    };
+
+    loadSprites();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [useSpriteSheets, homeTeamColor, awayTeamColor]);
+
+  // Helper to get sprite texture for current animation frame
+  const getSpriteTexture = useCallback((
+    sprites: Texture[][] | null,
+    animName: 'idle' | 'running',
+    frameIndex: number
+  ): Texture | null => {
+    if (!sprites) return null;
+    const frames = getAnimationFrames(sprites, animName);
+    if (frames.length === 0) return null;
+    return frames[frameIndex % frames.length];
+  }, []);
 
   // Initialize Pixi
   useEffect(() => {
@@ -229,12 +325,15 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
 
         // Containers for layering
         const fieldContainer = new Container();
+        const spriteContainer = new Container(); // For sprite sheet players
         const dynamicContainer = new Container();
 
         app.stage.addChild(fieldContainer);
+        app.stage.addChild(spriteContainer);
         app.stage.addChild(dynamicContainer);
 
         fieldContainerRef.current = fieldContainer;
+        spriteContainerRef.current = spriteContainer;
         dynamicContainerRef.current = dynamicContainer;
 
         app.render();
@@ -249,9 +348,12 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     return () => {
       cancelled = true;
       if (appRef.current) {
+        // Clear sprite pool
+        playerSpritesRef.current.clear();
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
         fieldContainerRef.current = null;
+        spriteContainerRef.current = null;
         dynamicContainerRef.current = null;
       }
       setIsReady(false);
@@ -464,51 +566,112 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
     const defenseTeam = offenseTeam === 'home' ? 'away' : 'home';
 
     // Animation frame based on time (for running animation)
-    const animFrame = Math.floor(Date.now() / 150) % 2; // Swap every 150ms
+    const animFrame = Math.floor(Date.now() / 100) % 8; // 8 frames, 100ms each
+    const animFrameSimple = Math.floor(Date.now() / 150) % 2; // Simple 2-frame for pixel art
     const isPlayActive = game.state === 'PLAY_RUNNING' || game.state === 'SNAP';
 
     // Sort players by depth (far first for proper layering)
     const sortedPlayers = [...game.playerPositions].sort((a, b) => b.y - a.y);
 
-    // Create Graphics object for all players
-    const playerGraphics = new Graphics();
+    // Check if we should use sprite sheets
+    const useSprites = useSpriteSheets && spritesLoaded && loadedSprites.home && loadedSprites.away;
+    const spriteContainer = spriteContainerRef.current;
 
-    // Draw players using Retro Bowl pixel art style
-    sortedPlayers.forEach(player => {
-      const pos = toScreen(player.x, player.y);
-      if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
+    if (useSprites && spriteContainer) {
+      // Clear sprite container
+      spriteContainer.removeChildren();
 
-      // Skip ball carrier (drawn on top separately)
-      if (game.ballCarrier && player.id === game.ballCarrier.playerId) return;
+      // Render players using loaded sprite sheets
+      sortedPlayers.forEach(player => {
+        const pos = toScreen(player.x, player.y);
+        if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
 
-      const isOffense = player.role === 'offense';
-      const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
-      const colors = getSpriteColors(palette);
+        const isBallCarrier = game.ballCarrier && player.id === game.ballCarrier.playerId;
+        const isOffense = player.role === 'offense';
+        const teamSprites = isOffense
+          ? (offenseTeam === 'home' ? loadedSprites.home : loadedSprites.away)
+          : (defenseTeam === 'home' ? loadedSprites.home : loadedSprites.away);
 
-      // Use running animation during active play, standing otherwise
-      const sprite = isPlayActive
-        ? (animFrame === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
-        : SPRITE_STANDING;
+        if (!teamSprites) return;
 
-      drawPixelSprite(playerGraphics, pos.x, pos.y, pos.scale, sprite, colors, false);
-    });
+        // Get the correct animation frame
+        const animName = isPlayActive ? 'running' : 'idle';
+        const texture = getSpriteTexture(teamSprites, animName, animFrame);
 
-    dynamicContainer.addChild(playerGraphics);
+        if (!texture) return;
 
-    // Draw ball carrier on top with glow
-    if (game.ballCarrier) {
-      const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
-      const palette = TEAM_PALETTES[offenseTeam];
-      const colors = getSpriteColors(palette);
+        // Create or reuse sprite
+        let sprite = playerSpritesRef.current.get(player.id);
+        if (!sprite) {
+          sprite = new Sprite();
+          sprite.anchor.set(0.5, 1); // Bottom center anchor
+          playerSpritesRef.current.set(player.id, sprite);
+        }
 
-      // Ball carrier always uses running sprite when play is active
-      const sprite = isPlayActive
-        ? (animFrame === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
-        : SPRITE_STANDING;
+        sprite.texture = texture;
+        sprite.x = pos.x;
+        sprite.y = pos.y;
+        sprite.scale.set(pos.scale * 2); // Scale up sprites
 
-      const ballCarrierGraphics = new Graphics();
-      drawPixelSprite(ballCarrierGraphics, pos.x, pos.y, pos.scale, sprite, colors, true);
-      dynamicContainer.addChild(ballCarrierGraphics);
+        // Ball carrier glow effect
+        if (isBallCarrier) {
+          sprite.tint = 0xffffaa; // Slight yellow tint
+        } else {
+          sprite.tint = 0xffffff; // Normal
+        }
+
+        spriteContainer.addChild(sprite);
+      });
+
+      // Draw ball carrier highlight ring
+      if (game.ballCarrier) {
+        const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
+        const glowGraphics = new Graphics();
+        glowGraphics.circle(pos.x, pos.y - 10 * pos.scale, 20 * pos.scale);
+        glowGraphics.fill({ color: 0xfbbf24, alpha: 0.3 });
+        dynamicContainer.addChild(glowGraphics);
+      }
+    } else {
+      // Fallback to pixel art rendering
+      const playerGraphics = new Graphics();
+
+      // Draw players using Retro Bowl pixel art style
+      sortedPlayers.forEach(player => {
+        const pos = toScreen(player.x, player.y);
+        if (pos.y < fieldTop - 20 || pos.y > fieldBottom + 20) return;
+
+        // Skip ball carrier (drawn on top separately)
+        if (game.ballCarrier && player.id === game.ballCarrier.playerId) return;
+
+        const isOffense = player.role === 'offense';
+        const palette = TEAM_PALETTES[isOffense ? offenseTeam : defenseTeam];
+        const colors = getSpriteColors(palette);
+
+        // Use running animation during active play, standing otherwise
+        const sprite = isPlayActive
+          ? (animFrameSimple === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
+          : SPRITE_STANDING;
+
+        drawPixelSprite(playerGraphics, pos.x, pos.y, pos.scale, sprite, colors, false);
+      });
+
+      dynamicContainer.addChild(playerGraphics);
+
+      // Draw ball carrier on top with glow
+      if (game.ballCarrier) {
+        const pos = toScreen(game.ballCarrier.x, game.ballCarrier.y);
+        const palette = TEAM_PALETTES[offenseTeam];
+        const colors = getSpriteColors(palette);
+
+        // Ball carrier always uses running sprite when play is active
+        const sprite = isPlayActive
+          ? (animFrameSimple === 0 ? SPRITE_RUNNING_1 : SPRITE_RUNNING_2)
+          : SPRITE_STANDING;
+
+        const ballCarrierGraphics = new Graphics();
+        drawPixelSprite(ballCarrierGraphics, pos.x, pos.y, pos.scale, sprite, colors, true);
+        dynamicContainer.addChild(ballCarrierGraphics);
+      }
     }
 
     // Draw ball in flight
@@ -517,25 +680,36 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       const arcHeight = Math.sin(game.ballInFlight.progress * Math.PI);
       const liftAmount = arcHeight * 60 * pos.scale;
 
+      // Shadow
       const ballGraphics = new Graphics();
-
       const shadowSize = (8 + arcHeight * 4) * pos.scale;
       ballGraphics.ellipse(pos.x, pos.y, shadowSize, shadowSize * 0.4);
       ballGraphics.fill({ color: 0x000000, alpha: 0.4 });
-
-      const ballWidth = 12 * pos.scale;
-      const ballHeight = 7 * pos.scale;
-      ballGraphics.ellipse(pos.x, pos.y - liftAmount, ballWidth, ballHeight);
-      ballGraphics.fill(0x92400e);
-
-      ballGraphics.ellipse(pos.x - 2, pos.y - liftAmount - 2, ballWidth * 0.5, ballHeight * 0.5);
-      ballGraphics.fill(0xb45309);
-
-      ballGraphics.moveTo(pos.x - 4 * pos.scale, pos.y - liftAmount);
-      ballGraphics.lineTo(pos.x + 4 * pos.scale, pos.y - liftAmount);
-      ballGraphics.stroke({ width: Math.max(1, 2 * pos.scale), color: 0xffffff });
-
       dynamicContainer.addChild(ballGraphics);
+
+      // Use football sprite if loaded, otherwise draw with graphics
+      if (useSpriteSheets && loadedSprites.football) {
+        const ballSprite = new Sprite(loadedSprites.football);
+        ballSprite.anchor.set(0.5);
+        ballSprite.x = pos.x;
+        ballSprite.y = pos.y - liftAmount;
+        ballSprite.scale.set(pos.scale * 1.5);
+        ballSprite.rotation = game.ballInFlight.progress * Math.PI * 4; // Spin
+        dynamicContainer.addChild(ballSprite);
+      } else {
+        // Fallback to drawn ball
+        const ballWidth = 12 * pos.scale;
+        const ballHeight = 7 * pos.scale;
+        ballGraphics.ellipse(pos.x, pos.y - liftAmount, ballWidth, ballHeight);
+        ballGraphics.fill(0x92400e);
+
+        ballGraphics.ellipse(pos.x - 2, pos.y - liftAmount - 2, ballWidth * 0.5, ballHeight * 0.5);
+        ballGraphics.fill(0xb45309);
+
+        ballGraphics.moveTo(pos.x - 4 * pos.scale, pos.y - liftAmount);
+        ballGraphics.lineTo(pos.x + 4 * pos.scale, pos.y - liftAmount);
+        ballGraphics.stroke({ width: Math.max(1, 2 * pos.scale), color: 0xffffff });
+      }
     }
 
     // Draw handoff effect with multiple rings
@@ -624,7 +798,7 @@ export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
       appRef.current.render();
     }
 
-  }, [game, width, height, isReady]);
+  }, [game, width, height, isReady, useSpriteSheets, spritesLoaded, loadedSprites, getSpriteTexture]);
 
   return (
     <div className="relative rounded-xl overflow-hidden shadow-2xl border border-white/10">

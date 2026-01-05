@@ -226,7 +226,7 @@ export class FatigueEngine {
 
     return {
       playerId,
-      position: 'FLEX', // Position is not tracked per player in simplified roster
+      position: 'FB_TE', // Position is not tracked per player in simplified roster
       level: this.getFatigueStatus(playerId),
       percentage: player.fatigue,
       shouldSub: this.shouldSubstitute(playerId),

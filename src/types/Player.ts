@@ -1,17 +1,20 @@
 /**
  * SIMPLIFIED ROSTER SYSTEM
  *
- * Roster has ~12 characters per team:
- * - 5 offensive skill players + 1 O-LINE unit
- * - 5 defensive skill players + 1 D-LINE unit
- * - Each position has 1 bench player (except line units)
+ * Offense (7 slots):
+ * - QB, RB, WR1, WR2, FB_TE, SLOT (6 skill players)
+ * - HOGS (O-Line unit, cloned into 5 linemen)
  *
- * Players have a ROSTER POSITION (what they are on the team)
- * Formations assign FIELD ROLES (where they line up on a play)
+ * Defense (3 captain + unit slots):
+ * - D_LINE: Captain + unit rating (clones to 4 DL)
+ * - LINEBACKERS: Captain + unit rating (clones to all LBs)
+ * - SECONDARY: Captain + unit rating (clones to CBs/Safeties)
+ *
+ * Total: 10 draft picks (6 offense + 1 HOGS + 3 defense captains)
  */
 
 // =============================================================================
-// LEGACY POSITION TYPE - For player generation/franchise mode
+// LEGACY POSITION TYPE - For player generation/display
 // =============================================================================
 
 export type OffensePosition = 'QB' | 'RB' | 'FB' | 'WR' | 'TE' | 'LT' | 'LG' | 'C' | 'RG' | 'RT';
@@ -23,14 +26,18 @@ export type Position = OffensePosition | DefensePosition | SpecialTeamsPosition;
 // ROSTER POSITIONS - What players ARE on the roster (simplified game view)
 // =============================================================================
 
-export type OffenseRosterPosition = 'QB' | 'RB' | 'WR1' | 'WR2' | 'FLEX';
-export type DefenseRosterPosition = 'CB1' | 'CB2' | 'S' | 'LB1' | 'LB2';
+// Offense skill positions
+export type OffenseRosterPosition = 'QB' | 'RB' | 'WR1' | 'WR2' | 'FB_TE' | 'SLOT';
+
+// Defense captain positions (each comes with a unit rating)
+export type DefenseRosterPosition = 'D_LINE' | 'LINEBACKERS' | 'SECONDARY';
+
 export type RosterPosition = OffenseRosterPosition | DefenseRosterPosition;
 
-// Line units are special - they're not individual players
-export type LineUnit = 'OLINE' | 'DLINE';
+// O-Line unit (HOGS) - cloned into 5 linemen
+export type LineUnit = 'HOGS';
 
-// All roster slots (for depth chart purposes)
+// All roster slots for depth chart
 export type RosterSlot = RosterPosition | LineUnit;
 
 // =============================================================================
@@ -41,120 +48,92 @@ export type RosterSlot = RosterPosition | LineUnit;
 export type OffenseFieldRole =
   | 'QB'           // Quarterback
   | 'RB'           // Running back
-  | 'FB'           // Fullback (FLEX in I-Form)
+  | 'FB'           // Fullback (FB_TE in power formations)
   | 'WR_X'         // Outside receiver left (WR1)
   | 'WR_Z'         // Outside receiver right (WR2)
-  | 'SLOT'         // Slot receiver (FLEX in spread)
-  | 'TE'           // Tight end (FLEX in base)
+  | 'WR_SLOT'      // Slot receiver (SLOT position)
+  | 'WR_4'         // 4th receiver (FB_TE in spread)
+  | 'TE_INLINE'    // Tight end on the line (FB_TE or SLOT)
+  | 'TE_FLEX'      // Flexed tight end (SLOT in 2-TE sets)
   | 'BLOCKER';     // Generic blocker (O-LINE)
 
-// Defensive field roles
+// Defensive field roles (all cloned from unit ratings)
 export type DefenseFieldRole =
-  | 'CB_LEFT'      // Left cornerback (CB1)
-  | 'CB_RIGHT'     // Right cornerback (CB2)
-  | 'NICKEL_CB'    // Nickel corner (CB1 bench or S in nickel)
-  | 'FS'           // Free safety (S)
-  | 'SS'           // Strong safety (S or LB in some formations)
-  | 'MLB'          // Middle linebacker (LB1)
-  | 'LOLB'         // Left outside linebacker (LB2)
-  | 'ROLB'         // Right outside linebacker (LB2)
-  | 'PASS_RUSHER'; // Generic pass rusher (D-LINE)
+  | 'DE_L'         // Left defensive end
+  | 'DE_R'         // Right defensive end
+  | 'DT_L'         // Left defensive tackle
+  | 'DT_R'         // Right defensive tackle
+  | 'MLB'          // Middle linebacker
+  | 'LOLB'         // Left outside linebacker
+  | 'ROLB'         // Right outside linebacker
+  | 'CB_L'         // Left cornerback
+  | 'CB_R'         // Right cornerback
+  | 'FS'           // Free safety
+  | 'SS';          // Strong safety
 
 export type FieldRole = OffenseFieldRole | DefenseFieldRole;
 
 // =============================================================================
-// FORMATION TO ROLE MAPPING
+// FORMATION TO ROLE MAPPING (Offense only - defense uses unit cloning)
 // =============================================================================
 
 export type OffenseFormation = 'I_FORM' | 'SHOTGUN' | 'SINGLEBACK' | 'PISTOL' | 'SPREAD' | 'GOAL_LINE';
 export type DefenseFormation = '4_3' | '3_4' | 'NICKEL' | 'DIME' | 'GOAL_LINE_D';
 export type Formation = OffenseFormation | DefenseFormation;
 
-// How each roster position maps to a field role in each formation
+// How each offensive roster position maps to a field role in each formation
 export type OffenseRoleMapping = Record<OffenseRosterPosition, OffenseFieldRole>;
-export type DefenseRoleMapping = Record<DefenseRosterPosition, DefenseFieldRole>;
 
-// Formation role mappings
+// Formation role mappings for offense
+// FB_TE = primary hybrid (FB/TE/WR4), SLOT = secondary flex (slot WR/TE2)
 export const OFFENSE_FORMATION_ROLES: Record<OffenseFormation, OffenseRoleMapping> = {
   I_FORM: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
     WR2: 'WR_Z',
-    FLEX: 'FB',      // FLEX plays fullback in I-Form
+    FB_TE: 'FB',         // Fullback in I-Form
+    SLOT: 'TE_INLINE',   // Tight end on the line
   },
   SHOTGUN: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
     WR2: 'WR_Z',
-    FLEX: 'TE',      // FLEX plays tight end in Shotgun
+    FB_TE: 'TE_INLINE',  // Tight end
+    SLOT: 'WR_SLOT',     // Slot receiver
   },
   SINGLEBACK: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
     WR2: 'WR_Z',
-    FLEX: 'TE',      // FLEX plays tight end
+    FB_TE: 'TE_INLINE',  // Tight end
+    SLOT: 'WR_SLOT',     // Slot receiver
   },
   PISTOL: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
     WR2: 'WR_Z',
-    FLEX: 'SLOT',    // FLEX plays slot in Pistol
+    FB_TE: 'TE_INLINE',  // Tight end
+    SLOT: 'WR_SLOT',     // Slot receiver
   },
   SPREAD: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
     WR2: 'WR_Z',
-    FLEX: 'SLOT',    // FLEX plays slot in Spread (4-wide)
+    FB_TE: 'WR_4',       // 4th receiver in spread
+    SLOT: 'WR_SLOT',     // Slot receiver (5-wide capable)
   },
   GOAL_LINE: {
     QB: 'QB',
     RB: 'RB',
     WR1: 'WR_X',
-    WR2: 'TE',       // WR2 becomes TE in goal line
-    FLEX: 'FB',      // FLEX plays fullback
-  },
-};
-
-export const DEFENSE_FORMATION_ROLES: Record<DefenseFormation, DefenseRoleMapping> = {
-  '4_3': {
-    CB1: 'CB_LEFT',
-    CB2: 'CB_RIGHT',
-    S: 'FS',
-    LB1: 'MLB',
-    LB2: 'LOLB',     // Could also be ROLB
-  },
-  '3_4': {
-    CB1: 'CB_LEFT',
-    CB2: 'CB_RIGHT',
-    S: 'FS',
-    LB1: 'MLB',
-    LB2: 'LOLB',
-  },
-  NICKEL: {
-    CB1: 'CB_LEFT',
-    CB2: 'CB_RIGHT',
-    S: 'NICKEL_CB',  // Safety plays nickel corner
-    LB1: 'MLB',
-    LB2: 'SS',       // LB2 drops to strong safety role
-  },
-  DIME: {
-    CB1: 'CB_LEFT',
-    CB2: 'CB_RIGHT',
-    S: 'FS',
-    LB1: 'NICKEL_CB', // LB1 becomes nickel corner
-    LB2: 'SS',        // LB2 stays in coverage
-  },
-  GOAL_LINE_D: {
-    CB1: 'CB_LEFT',
-    CB2: 'CB_RIGHT',
-    S: 'SS',
-    LB1: 'MLB',
-    LB2: 'ROLB',
+    WR2: 'TE_FLEX',      // WR2 as flexed TE in goal line
+    FB_TE: 'FB',         // Fullback for power
+    SLOT: 'TE_INLINE',   // Tight end blocking
   },
 };
 
@@ -187,26 +166,41 @@ export type PlayerStats = {
   throwAccuracy: number;  // QB only
   routeRunning: number;   // WR, TE
 
-  // Blocking (used for FLEX when playing FB/TE)
+  // Blocking (used for FB_TE, SLOT when blocking)
   passBlock: number;
   runBlock: number;
 
   // Defense
   tackle: number;         // All defense
-  coverage: number;       // CB, S
-  passRush: number;       // LB (when blitzing)
+  coverage: number;       // CB, S, some LBs
+  passRush: number;       // D-Line, LB (when blitzing)
   elusiveness: number;    // Ball carrier evasion
 };
 
 // =============================================================================
-// LINE UNIT STATS (aggregate for the whole unit)
+// UNIT STATS (aggregate for cloned players)
 // =============================================================================
 
+// O-Line unit stats (HOGS)
+export type OLineUnitStats = {
+  passBlock: number;      // Pass protection rating
+  runBlock: number;       // Run blocking rating
+  overall: number;        // Combined rating
+};
+
+// Defensive unit stats (each defensive position group)
+export type DefenseUnitStats = {
+  overall: number;        // Overall unit rating - cloned to all players in group
+  // Individual stats are derived from overall with position-specific weighting
+};
+
+// Generic line unit stats (for FieldLineUnit visualization in GameSim)
+// Used for both O-LINE and D-LINE visual representation
 export type LineUnitStats = {
-  passBlock: number;      // O-LINE: Pass protection rating
-  runBlock: number;       // O-LINE: Run blocking rating
-  passRush: number;       // D-LINE: Pass rush rating
-  runStop: number;        // D-LINE: Run defense rating
+  passBlock: number;      // O-LINE uses this
+  runBlock: number;       // O-LINE uses this
+  passRush: number;       // D-LINE uses this
+  runStop: number;        // D-LINE uses this
   overall: number;        // Combined rating
 };
 
@@ -231,7 +225,8 @@ export type Player = {
   id: string;
   firstName: string;
   lastName: string;
-  position: Position;            // Their position (QB, RB, WR, TE, etc.)
+  position: Position;            // Legacy position for display (QB, RB, WR, etc.)
+  rosterSlot?: RosterSlot;       // Which roster slot they fill (QB, WR1, FB_TE, D_LINE, etc.)
   age: number;
   experience: number;            // Years in league
   stats: PlayerStats;
@@ -240,16 +235,28 @@ export type Player = {
   contract: Contract | null;
   injuryStatus: InjuryStatus | null;
   teamId: string | null;
-  isStarter?: boolean;           // Optional - true = starter, false = bench
+  isStarter?: boolean;           // true = starter, false = bench
+  isEmergencyBackup?: boolean;   // McBum players - can never be injured, traded, cut, or in events
+  personality?: string;          // Flavor text for draft ("Ball hawk with attitude problem")
 };
 
-// Line unit (O-LINE or D-LINE as a single entity)
-export type LineUnitEntity = {
+// O-Line unit entity (HOGS)
+export type OLineEntity = {
   id: string;
-  type: LineUnit;
+  name: string;                  // "The Maulers", "The Wall", etc.
   teamId: string;
-  stats: LineUnitStats;
+  stats: OLineUnitStats;
   overall: number;
+  personality?: string;          // Flavor text for draft
+};
+
+// Defense captain with unit rating
+// The captain is the "face" of the unit for events, the unit rating affects all cloned players
+export type DefenseCaptainEntity = {
+  id: string;
+  captain: Player;               // The face of the unit (appears in events)
+  unitRating: number;            // Overall rating cloned to all players in this group
+  teamId: string;
 };
 
 // =============================================================================
@@ -257,64 +264,66 @@ export type LineUnitEntity = {
 // =============================================================================
 
 export interface TeamRoster {
-  // Offense skill players (5 starters + 5 bench = 10)
+  // Offense skill players (6 positions, each with starter + McBum backup)
   offense: {
-    QB: { starter: Player; bench: Player };
-    RB: { starter: Player; bench: Player };
-    WR1: { starter: Player; bench: Player };
-    WR2: { starter: Player; bench: Player };
-    FLEX: { starter: Player; bench: Player };
+    QB: Player;
+    RB: Player;
+    WR1: Player;
+    WR2: Player;
+    FB_TE: Player;    // Hybrid: FB, TE, or WR4 based on formation
+    SLOT: Player;     // Flex: Slot WR or TE2 based on formation
   };
 
-  // Defense skill players (5 starters + 5 bench = 10)
+  // O-Line unit (cloned into 5 linemen: LT, LG, C, RG, RT)
+  HOGS: OLineEntity;
+
+  // Defense (3 captain + unit combos)
   defense: {
-    CB1: { starter: Player; bench: Player };
-    CB2: { starter: Player; bench: Player };
-    S: { starter: Player; bench: Player };
-    LB1: { starter: Player; bench: Player };
-    LB2: { starter: Player; bench: Player };
-  };
-
-  // Line units (no individual players, just aggregate stats)
-  lineUnits: {
-    OLINE: LineUnitEntity;
-    DLINE: LineUnitEntity;
+    D_LINE: DefenseCaptainEntity;      // Clones to DE_L, DE_R, DT_L, DT_R
+    LINEBACKERS: DefenseCaptainEntity; // Clones to MLB, LOLB, ROLB
+    SECONDARY: DefenseCaptainEntity;   // Clones to CB_L, CB_R, FS, SS
   };
 }
+
+// =============================================================================
+// DRAFT TYPES
+// =============================================================================
+
+export type DraftSlot =
+  | 'QB' | 'RB' | 'WR1' | 'WR2' | 'FB_TE' | 'SLOT'  // Offense skill
+  | 'HOGS'                                           // O-Line unit
+  | 'D_LINE' | 'LINEBACKERS' | 'SECONDARY';          // Defense captains
+
+export type DraftPlayer = {
+  id: string;
+  name: string;
+  position: DraftSlot;
+  overall: number;
+  cost: number;           // Budget cost
+  personality: string;    // "Franchise cornerstone", "Diva with hands", etc.
+};
+
+export type DraftPool = Record<DraftSlot, DraftPlayer[]>;
 
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 
-// Get the field role for a roster position in a given formation
-export function getFieldRole(
+// Get the field role for an offensive roster position in a given formation
+export function getOffenseFieldRole(
   rosterPosition: OffenseRosterPosition,
   formation: OffenseFormation
-): OffenseFieldRole;
-export function getFieldRole(
-  rosterPosition: DefenseRosterPosition,
-  formation: DefenseFormation
-): DefenseFieldRole;
-export function getFieldRole(
-  rosterPosition: RosterPosition,
-  formation: Formation
-): FieldRole {
-  if (isOffensePosition(rosterPosition) && isOffenseFormation(formation)) {
-    return OFFENSE_FORMATION_ROLES[formation][rosterPosition];
-  }
-  if (isDefensePosition(rosterPosition) && isDefenseFormation(formation)) {
-    return DEFENSE_FORMATION_ROLES[formation][rosterPosition];
-  }
-  throw new Error(`Invalid position/formation combination: ${rosterPosition}/${formation}`);
+): OffenseFieldRole {
+  return OFFENSE_FORMATION_ROLES[formation][rosterPosition];
 }
 
 // Type guards
 export function isOffensePosition(pos: RosterPosition): pos is OffenseRosterPosition {
-  return ['QB', 'RB', 'WR1', 'WR2', 'FLEX'].includes(pos);
+  return ['QB', 'RB', 'WR1', 'WR2', 'FB_TE', 'SLOT'].includes(pos);
 }
 
 export function isDefensePosition(pos: RosterPosition): pos is DefenseRosterPosition {
-  return ['CB1', 'CB2', 'S', 'LB1', 'LB2'].includes(pos);
+  return ['D_LINE', 'LINEBACKERS', 'SECONDARY'].includes(pos);
 }
 
 export function isOffenseFormation(f: Formation): f is OffenseFormation {
@@ -325,28 +334,29 @@ export function isDefenseFormation(f: Formation): f is DefenseFormation {
   return ['4_3', '3_4', 'NICKEL', 'DIME', 'GOAL_LINE_D'].includes(f);
 }
 
-// Get all players from a roster as a flat array
+// Get all players from a roster as a flat array (for events, etc.)
 export function getAllPlayers(roster: TeamRoster): Player[] {
   const players: Player[] = [];
 
-  // Offense
-  for (const pos of ['QB', 'RB', 'WR1', 'WR2', 'FLEX'] as OffenseRosterPosition[]) {
-    players.push(roster.offense[pos].starter);
-    players.push(roster.offense[pos].bench);
-  }
+  // Offense skill players
+  players.push(roster.offense.QB);
+  players.push(roster.offense.RB);
+  players.push(roster.offense.WR1);
+  players.push(roster.offense.WR2);
+  players.push(roster.offense.FB_TE);
+  players.push(roster.offense.SLOT);
 
-  // Defense
-  for (const pos of ['CB1', 'CB2', 'S', 'LB1', 'LB2'] as DefenseRosterPosition[]) {
-    players.push(roster.defense[pos].starter);
-    players.push(roster.defense[pos].bench);
-  }
+  // Defense captains (these are the "faces" for events)
+  players.push(roster.defense.D_LINE.captain);
+  players.push(roster.defense.LINEBACKERS.captain);
+  players.push(roster.defense.SECONDARY.captain);
 
   return players;
 }
 
-// Calculate overall rating for a player based on position
-export function calculateOverall(stats: PlayerStats, position: RosterPosition): number {
-  const weights = getPositionWeights(position);
+// Calculate overall rating for a player based on their roster slot
+export function calculateOverall(stats: PlayerStats, slot: RosterSlot): number {
+  const weights = getPositionWeights(slot);
   let total = 0;
   let weightSum = 0;
 
@@ -358,8 +368,8 @@ export function calculateOverall(stats: PlayerStats, position: RosterPosition): 
   return Math.round(total / weightSum);
 }
 
-function getPositionWeights(position: RosterPosition): Partial<Record<keyof PlayerStats, number>> {
-  switch (position) {
+function getPositionWeights(slot: RosterSlot): Partial<Record<keyof PlayerStats, number>> {
+  switch (slot) {
     case 'QB':
       return { throwAccuracy: 3, throwPower: 2, awareness: 2, composure: 2, speed: 1, agility: 1 };
     case 'RB':
@@ -367,17 +377,55 @@ function getPositionWeights(position: RosterPosition): Partial<Record<keyof Play
     case 'WR1':
     case 'WR2':
       return { speed: 3, catching: 3, routeRunning: 2, agility: 1, discipline: 1 };
-    case 'FLEX':
-      return { catching: 2, runBlock: 2, speed: 2, strength: 2, toughness: 1, routeRunning: 1 };
-    case 'CB1':
-    case 'CB2':
-      return { speed: 3, coverage: 3, agility: 2, composure: 1, discipline: 1, awareness: 1 };
-    case 'S':
-      return { speed: 2, coverage: 2, tackle: 2, awareness: 2, composure: 1, strength: 1 };
-    case 'LB1':
-    case 'LB2':
+    case 'FB_TE':
+      return { catching: 2, runBlock: 2, strength: 2, speed: 1, toughness: 1, routeRunning: 1 };
+    case 'SLOT':
+      return { speed: 2, catching: 3, routeRunning: 3, agility: 2, elusiveness: 1 };
+    case 'D_LINE':
+      return { passRush: 3, strength: 3, tackle: 2, speed: 1, motor: 1 };
+    case 'LINEBACKERS':
       return { tackle: 3, speed: 2, strength: 2, coverage: 1, awareness: 1, motor: 1 };
+    case 'SECONDARY':
+      return { speed: 3, coverage: 3, agility: 2, tackle: 1, awareness: 1 };
+    case 'HOGS':
+      return { passBlock: 3, runBlock: 3, strength: 2, awareness: 1 };
     default:
       return { speed: 1, strength: 1, awareness: 1, stamina: 1 };
   }
+}
+
+// =============================================================================
+// EMERGENCY BACKUP (McBum) HELPERS
+// =============================================================================
+
+/**
+ * Check if a player is an emergency backup (McBum)
+ * McBums can never be: injured, traded, cut, suspended, or triggered in events
+ */
+export function isEmergencyBackup(player: Player): boolean {
+  return player.isEmergencyBackup === true;
+}
+
+/**
+ * Check if a player can be traded
+ * Returns false for emergency backups
+ */
+export function canBeTradedOrCut(player: Player): boolean {
+  return !isEmergencyBackup(player);
+}
+
+/**
+ * Check if a player can be selected for an event
+ * Returns false for emergency backups
+ */
+export function canBeInEvent(player: Player): boolean {
+  return !isEmergencyBackup(player);
+}
+
+/**
+ * Check if a player can be injured
+ * Returns false for emergency backups
+ */
+export function canBeInjured(player: Player): boolean {
+  return !isEmergencyBackup(player);
 }

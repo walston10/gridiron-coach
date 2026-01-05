@@ -227,11 +227,13 @@ export class DefenseAI {
     const scheme = COVERAGE_SCHEMES[play.coverage];
 
     // Categorize receivers for smart matching using roster positions
-    // WR1/WR2 = wide receivers, FLEX = TE/FB/Slot, RB = running back
+    // WR1/WR2 = wide receivers, FB_TE/SLOT = TE/FB/Slot hybrids, RB = running back
     const wideReceivers = offensivePlayers.filter(p =>
       p.rosterPosition === 'WR1' || p.rosterPosition === 'WR2'
     );
-    const flexPlayers = offensivePlayers.filter(p => p.rosterPosition === 'FLEX');
+    const hybridPlayers = offensivePlayers.filter(p =>
+      p.rosterPosition === 'FB_TE' || p.rosterPosition === 'SLOT'
+    );
     const runningBacks = offensivePlayers.filter(p => p.rosterPosition === 'RB');
 
     // Sort WRs by horizontal position (leftmost first)
@@ -273,27 +275,27 @@ export class DefenseAI {
       if (assignment.type === 'MAN') {
         let target: FieldPlayer | undefined;
 
-        if (defender.rosterPosition === 'CB1' || defender.rosterPosition === 'CB2') {
-          // CBs cover WRs - match by side of field
-          const isLeftCB = defender.location.x < 80;
+        if (defender.rosterPosition === 'SECONDARY') {
+          // Secondary (CBs/Safeties) cover WRs - match by side of field
+          const isLeftDefender = defender.location.x < 80;
           target = wideReceivers.find(wr => {
             if (assignedReceivers.has(wr.id)) return false;
             const isLeftWR = wr.location.x < 80;
-            return isLeftCB === isLeftWR;
+            return isLeftDefender === isLeftWR;
           });
           // Fallback to any unassigned WR
           if (!target) {
             target = wideReceivers.find(wr => !assignedReceivers.has(wr.id));
           }
-        } else if (defender.rosterPosition === 'LB1' || defender.rosterPosition === 'LB2') {
-          // Linebackers cover RB first, then FLEX
+        } else if (defender.rosterPosition === 'LINEBACKERS') {
+          // Linebackers cover RB first, then hybrid players
           target = runningBacks.find(rb => !assignedReceivers.has(rb.id));
           if (!target) {
-            target = flexPlayers.find(f => !assignedReceivers.has(f.id));
+            target = hybridPlayers.find(f => !assignedReceivers.has(f.id));
           }
         } else {
-          // Safety - cover nearest unassigned (FLEX first as TE threat)
-          target = flexPlayers.find(f => !assignedReceivers.has(f.id));
+          // D_LINE or fallback - cover nearest unassigned (hybrid first as TE threat)
+          target = hybridPlayers.find(f => !assignedReceivers.has(f.id));
           if (!target) {
             const allReceivers = [...wideReceivers, ...runningBacks]
               .filter(r => !assignedReceivers.has(r.id));
@@ -734,8 +736,8 @@ export class DefenseAI {
     // Only D-line pursues and linebackers spy/contain
 
     const qbBehindLOS = this.qbLocation.y < this.lineOfScrimmage;
-    const isSecondary = ['CB1', 'CB2', 'S'].includes(defender.rosterPosition);
-    const isLinebacker = ['LB1', 'LB2'].includes(defender.rosterPosition);
+    const isSecondary = defender.rosterPosition === 'SECONDARY';
+    const isLinebacker = defender.rosterPosition === 'LINEBACKERS';
 
     // CRITICAL: Secondary stays in coverage until ball crosses LOS
     // This prevents leaving receivers wide open
@@ -749,9 +751,10 @@ export class DefenseAI {
     }
 
     // Linebackers: contain the edges and spy, don't full-out chase
-    if (['LB1', 'LB2'].includes(defender.rosterPosition)) {
-      // LB2 (OLB role) contains the edge on their side
-      if (defender.rosterPosition === 'LB2') {
+    if (isLinebacker) {
+      // OLBs contain the edge on their side (check by field position)
+      const isOnEdge = Math.abs(defender.location.x - 80) > 30;
+      if (isOnEdge) {
         const onQbSide = (defender.location.x < 80) === (this.qbLocation.x < 80);
         if (onQbSide) {
           // Contain this edge
