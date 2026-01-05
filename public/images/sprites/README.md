@@ -34,15 +34,14 @@ Place in `sprites/simple/` folder.
 
 Colors: `red`, `black`, `purple`, `yellow`, `maroon`
 
-## Format 2: Animated Sprite Sheets
+## Format 2: Animated Sprite Sheets (880×550, 110×110 frames)
 
-8 columns × 6 rows grid with animations:
-- Row 0: Idle (4 frames)
+8 columns × 5 rows grid with animations:
+- Row 0: Idle/Standing (8 frames)
 - Row 1: Running (8 frames)
-- Row 2: Diving (6 frames)
-- Row 3: Getting up (6 frames)
-- Row 4: Blocking (4 frames)
-- Row 5: Throwing/celebrating (8 frames)
+- Row 2: Diving/Tackling (8 frames)
+- Row 3: Blocking/Catching (8 frames)
+- Row 4: Throwing/Celebrating (8 frames)
 
 Place in `sprites/animated/` folder.
 
@@ -50,7 +49,7 @@ Colors: `blue`, `red`, `green`, `yellow`, `purple`, `orange`
 
 ## Configuring Frame Size
 
-If your sprite frames aren't 32×32, update in code:
+If your sprite frames differ, update in code:
 
 ```typescript
 import { updateSpriteConfig } from './graphics/SpriteLoader';
