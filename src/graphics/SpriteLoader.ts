@@ -1,65 +1,17 @@
 /**
- * Sprite Sheet Loader
+ * Sprite Loader for itch.io SpawnCampGames assets
  *
- * Loads and slices sprite sheets from itch.io assets into individual frames.
- * Supports the 8x6 grid format (8 columns, 6 rows = 48 frames per sheet).
+ * Handles the circular player sprites and field background.
+ * These are simple single-frame sprites, not animation grids.
  */
 
-import { Assets, Texture, Rectangle, Spritesheet } from 'pixi.js';
-
-// Sprite sheet configuration
-export interface SpriteSheetConfig {
-  path: string;
-  frameWidth: number;
-  frameHeight: number;
-  columns: number;
-  rows: number;
-}
-
-// Default config for player sprite sheets (8x6 grid)
-export const PLAYER_SPRITE_CONFIG = {
-  frameWidth: 32,   // Assumed - adjust based on actual asset
-  frameHeight: 32,  // Assumed - adjust based on actual asset
-  columns: 8,
-  rows: 6,
-};
-
-// Animation frame definitions based on the sprite sheet layout
-// Row 0: Idle frames (8 frames)
-// Row 1: Running frames (8 frames)
-// Row 2: Diving frames (8 frames)
-// Row 3: Getting up frames (8 frames)
-// Row 4: Blocking frames (8 frames)
-// Row 5: Extras/throwing (8 frames)
-export const ANIMATION_DEFINITIONS = {
-  idle: { row: 0, frameStart: 0, frameCount: 4, loop: true },
-  running: { row: 1, frameStart: 0, frameCount: 8, loop: true },
-  diving: { row: 2, frameStart: 0, frameCount: 6, loop: false },
-  gettingUp: { row: 3, frameStart: 0, frameCount: 6, loop: false },
-  blocking: { row: 4, frameStart: 0, frameCount: 4, loop: true },
-  throwing: { row: 5, frameStart: 0, frameCount: 4, loop: false },
-  celebrating: { row: 5, frameStart: 4, frameCount: 4, loop: true },
-} as const;
-
-export type AnimationName = keyof typeof ANIMATION_DEFINITIONS;
-
-// Team color sprite sheet paths
-export const TEAM_SPRITE_PATHS = {
-  blue: '/images/sprites/player_blue.png',
-  red: '/images/sprites/player_red.png',
-  green: '/images/sprites/player_green.png',
-  yellow: '/images/sprites/player_yellow.png',
-  purple: '/images/sprites/player_purple.png',
-} as const;
-
-export type TeamColor = keyof typeof TEAM_SPRITE_PATHS;
+import { Assets, Texture } from 'pixi.js';
 
 // Loaded textures cache
 const textureCache: Map<string, Texture> = new Map();
-const frameCache: Map<string, Texture[][]> = new Map();
 
 /**
- * Load a texture from a path
+ * Load a texture from a path with caching
  */
 export async function loadTexture(path: string): Promise<Texture> {
   const cached = textureCache.get(path);
@@ -75,109 +27,36 @@ export async function loadTexture(path: string): Promise<Texture> {
   }
 }
 
-/**
- * Slice a sprite sheet into individual frame textures
- */
-export function sliceSpriteSheet(
-  baseTexture: Texture,
-  config: typeof PLAYER_SPRITE_CONFIG
-): Texture[][] {
-  const { frameWidth, frameHeight, columns, rows } = config;
-  const frames: Texture[][] = [];
+// Team color paths - simple single sprite per team
+export const TEAM_SPRITE_PATHS = {
+  red: '/images/sprites/player_red.png',
+  black: '/images/sprites/player_black.png',
+  purple: '/images/sprites/player_purple.png',
+  yellow: '/images/sprites/player_yellow.png',
+  maroon: '/images/sprites/player_maroon.png',
+} as const;
 
-  for (let row = 0; row < rows; row++) {
-    const rowFrames: Texture[] = [];
-    for (let col = 0; col < columns; col++) {
-      const frame = new Rectangle(
-        col * frameWidth,
-        row * frameHeight,
-        frameWidth,
-        frameHeight
-      );
-      const texture = new Texture({
-        source: baseTexture.source,
-        frame,
-      });
-      rowFrames.push(texture);
-    }
-    frames.push(rowFrames);
-  }
+export type TeamColor = keyof typeof TEAM_SPRITE_PATHS;
 
-  return frames;
-}
-
-/**
- * Load and slice a player sprite sheet by team color
- */
-export async function loadPlayerSpriteSheet(
-  teamColor: TeamColor,
-  config: typeof PLAYER_SPRITE_CONFIG = PLAYER_SPRITE_CONFIG
-): Promise<Texture[][]> {
-  const path = TEAM_SPRITE_PATHS[teamColor];
-  const cacheKey = `player_${teamColor}`;
-
-  const cached = frameCache.get(cacheKey);
-  if (cached) return cached;
-
-  const baseTexture = await loadTexture(path);
-  const frames = sliceSpriteSheet(baseTexture, config);
-  frameCache.set(cacheKey, frames);
-
-  return frames;
-}
-
-/**
- * Get animation frames for a specific animation
- */
-export function getAnimationFrames(
-  allFrames: Texture[][],
-  animationName: AnimationName
-): Texture[] {
-  const def = ANIMATION_DEFINITIONS[animationName];
-  const rowFrames = allFrames[def.row];
-
-  if (!rowFrames) {
-    console.warn(`No frames found for row ${def.row}`);
-    return [];
-  }
-
-  return rowFrames.slice(def.frameStart, def.frameStart + def.frameCount);
-}
-
-/**
- * Preload all team sprite sheets
- */
-export async function preloadAllSprites(): Promise<void> {
-  const colors: TeamColor[] = ['blue', 'red', 'green', 'yellow', 'purple'];
-
-  await Promise.all(
-    colors.map(color =>
-      loadPlayerSpriteSheet(color).catch(err => {
-        console.warn(`Failed to preload ${color} sprites:`, err);
-      })
-    )
-  );
-}
-
-/**
- * Clear the texture cache (for cleanup)
- */
-export function clearSpriteCache(): void {
-  textureCache.forEach(texture => texture.destroy());
-  textureCache.clear();
-  frameCache.clear();
-}
-
-// Field and other asset paths
+// Asset paths
 export const FIELD_SPRITE_PATH = '/images/sprites/field.png';
+export const FIELD_CLEAN_PATH = '/images/sprites/field_clean.png';
 export const FOOTBALL_SPRITE_PATH = '/images/sprites/football.png';
 export const POWER_METER_SPRITE_PATH = '/images/sprites/power_meter.png';
 
 /**
+ * Load a player sprite texture by team color
+ */
+export async function loadPlayerSprite(teamColor: TeamColor): Promise<Texture> {
+  const path = TEAM_SPRITE_PATHS[teamColor];
+  return loadTexture(path);
+}
+
+/**
  * Load the field background texture
  */
-export async function loadFieldTexture(): Promise<Texture> {
-  return loadTexture(FIELD_SPRITE_PATH);
+export async function loadFieldTexture(clean: boolean = false): Promise<Texture> {
+  return loadTexture(clean ? FIELD_CLEAN_PATH : FIELD_SPRITE_PATH);
 }
 
 /**
@@ -192,4 +71,80 @@ export async function loadFootballTexture(): Promise<Texture> {
  */
 export async function loadPowerMeterTexture(): Promise<Texture> {
   return loadTexture(POWER_METER_SPRITE_PATH);
+}
+
+/**
+ * Preload all assets
+ */
+export async function preloadAllSprites(): Promise<{
+  players: Map<TeamColor, Texture>;
+  field: Texture | null;
+  football: Texture | null;
+  powerMeter: Texture | null;
+}> {
+  const colors: TeamColor[] = ['red', 'black', 'purple', 'yellow', 'maroon'];
+  const players = new Map<TeamColor, Texture>();
+
+  // Load player sprites
+  await Promise.all(
+    colors.map(async (color) => {
+      try {
+        const tex = await loadPlayerSprite(color);
+        players.set(color, tex);
+      } catch (err) {
+        console.warn(`Failed to load ${color} player sprite`);
+      }
+    })
+  );
+
+  // Load other assets
+  const [field, football, powerMeter] = await Promise.all([
+    loadFieldTexture(true).catch(() => null),
+    loadFootballTexture().catch(() => null),
+    loadPowerMeterTexture().catch(() => null),
+  ]);
+
+  return { players, field, football, powerMeter };
+}
+
+/**
+ * Clear the texture cache (for cleanup)
+ */
+export function clearSpriteCache(): void {
+  textureCache.forEach(texture => texture.destroy());
+  textureCache.clear();
+}
+
+// Legacy exports for backwards compatibility with animation system
+export const ANIMATION_DEFINITIONS = {
+  idle: { row: 0, frameStart: 0, frameCount: 1, loop: true },
+  running: { row: 0, frameStart: 0, frameCount: 1, loop: true },
+} as const;
+
+export type AnimationName = keyof typeof ANIMATION_DEFINITIONS;
+
+/**
+ * Get animation frames - simplified for single-frame sprites
+ * Returns the same texture wrapped in an array for compatibility
+ */
+export function getAnimationFrames(
+  frames: Texture[][] | null,
+  _animationName: AnimationName
+): Texture[] {
+  if (!frames || frames.length === 0) return [];
+  // For single-frame sprites, just return the first frame
+  const firstRow = frames[0];
+  if (!firstRow || firstRow.length === 0) return [];
+  return [firstRow[0]];
+}
+
+/**
+ * Load player sprite and wrap in 2D array format for compatibility
+ */
+export async function loadPlayerSpriteSheet(
+  teamColor: TeamColor
+): Promise<Texture[][]> {
+  const texture = await loadPlayerSprite(teamColor);
+  // Wrap single texture in 2D array format for compatibility
+  return [[texture]];
 }
