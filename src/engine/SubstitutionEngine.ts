@@ -99,21 +99,15 @@ export class SubstitutionEngine {
 
   // Reset current lineup to depth chart starters
   resetLineupToStarters(): void {
-    // Reset to all starters
+    // Reset to all starters (offense only - defense uses captain+unit system)
     this.currentLineup = {
       offense: {
         QB: 'starter',
         RB: 'starter',
         WR1: 'starter',
         WR2: 'starter',
-        FLEX: 'starter',
-      },
-      defense: {
-        CB1: 'starter',
-        CB2: 'starter',
-        S: 'starter',
-        LB1: 'starter',
-        LB2: 'starter',
+        FB_TE: 'starter',
+        SLOT: 'starter',
       },
     };
   }

@@ -20,51 +20,58 @@ import { OFFENSIVE_SLOTS, DEFENSIVE_SLOTS } from '../types/Substitution';
 import type { Player, Position } from '../types/Player';
 
 // Valid positions for substitution system (game positions)
+// Note: Defense uses captain+unit system, so individual defense positions are less relevant
 const VALID_POSITIONS: Position[] = [
   'QB', 'RB', 'FB', 'WR', 'TE',
-  'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB'
+  'CB', 'FS', 'SS', 'OLB', 'MLB', 'ILB',
+  'DE', 'DT', 'NT'
 ];
 
 // Map legacy roster positions to simplified slot IDs
-// WR -> WR1, WR2; CB -> CB1, CB2; Safeties -> S; Linebackers -> LB1, LB2
-// Line positions map to unit slots (HOGS for O-line, FRONT for D-line)
+// Offense: QB, RB, WR1, WR2, FB_TE, SLOT
+// Defense: D_LINE, LINEBACKERS, SECONDARY (captain+unit system - no individual subs)
+// O-Line: HOGS (unit)
 const POSITION_TO_SLOTS: Record<string, string[]> = {
+  // Offense skill positions
   'QB': ['QB'],
   'RB': ['RB'],
-  'WR': ['WR1', 'WR2'],
-  'TE': ['FLEX'],
-  'FB': ['FLEX'],
-  'CB': ['CB1', 'CB2'],
-  'FS': ['S'],
-  'SS': ['S'],
-  'MLB': ['LB1', 'LB2'],
-  'OLB': ['LB1', 'LB2'],
-  'ILB': ['LB1', 'LB2'],
-  // Line positions (if they exist in roster, map to unit slots)
+  'WR': ['WR1', 'WR2', 'SLOT'],
+  'TE': ['FB_TE', 'SLOT'],
+  'FB': ['FB_TE'],
+  // Defense positions map to captain units (no individual subs allowed)
+  'CB': ['SECONDARY'],
+  'FS': ['SECONDARY'],
+  'SS': ['SECONDARY'],
+  'MLB': ['LINEBACKERS'],
+  'OLB': ['LINEBACKERS'],
+  'ILB': ['LINEBACKERS'],
+  'DE': ['D_LINE'],
+  'DT': ['D_LINE'],
+  'NT': ['D_LINE'],
+  // O-Line positions map to HOGS unit
   'LT': ['HOGS'], 'LG': ['HOGS'], 'C': ['HOGS'], 'RG': ['HOGS'], 'RT': ['HOGS'],
-  'DE': ['FRONT'], 'DT': ['FRONT'], 'NT': ['FRONT'],
 };
 
 // Reverse mapping: slot ID -> which legacy positions can fill it
 const SLOT_TO_POSITIONS: Record<string, string[]> = {
+  // Offense skill slots
   'QB': ['QB'],
   'RB': ['RB'],
   'WR1': ['WR'],
   'WR2': ['WR'],
-  'FLEX': ['TE', 'FB', 'WR'],  // FLEX can be TE, FB, or extra WR
-  'CB1': ['CB'],
-  'CB2': ['CB'],
-  'S': ['FS', 'SS'],
-  'LB1': ['MLB', 'ILB', 'OLB'],
-  'LB2': ['MLB', 'ILB', 'OLB'],
-  // Line unit slots - these are units, not individual positions
-  'HOGS': [],  // Special unit - no individual subs
-  'FRONT': [], // Special unit - no individual subs
+  'FB_TE': ['TE', 'FB', 'WR'],  // FB_TE hybrid can be TE, FB, or extra WR
+  'SLOT': ['WR', 'TE'],          // SLOT can be WR or TE
+  // Defense slots are captain+unit - no individual substitutions
+  'D_LINE': [],      // Unit - no individual subs
+  'LINEBACKERS': [], // Unit - no individual subs
+  'SECONDARY': [],   // Unit - no individual subs
+  // O-Line unit slot
+  'HOGS': [],  // Unit - no individual subs
 };
 
-// Check if a slot is a line unit (no substitution allowed)
+// Check if a slot is a unit (no individual substitution allowed)
 function isLineUnit(slot: string): boolean {
-  return slot === 'HOGS' || slot === 'FRONT';
+  return slot === 'HOGS' || slot === 'D_LINE' || slot === 'LINEBACKERS' || slot === 'SECONDARY';
 }
 
 // =============================================================================
@@ -98,17 +105,24 @@ function createEmergencyBackup(slot: string): RosterPlayer {
 
   // Map slot to a reasonable position for display
   const slotToPosition: Record<string, string> = {
-    'QB': 'QB', 'RB': 'RB', 'WR1': 'WR', 'WR2': 'WR', 'FLEX': 'TE',
-    'CB1': 'CB', 'CB2': 'CB', 'S': 'FS', 'LB1': 'MLB', 'LB2': 'OLB',
-    'HOGS': 'LT', 'FRONT': 'DE',  // Line units get lineman positions
+    // Offense skill positions
+    'QB': 'QB', 'RB': 'RB', 'WR1': 'WR', 'WR2': 'WR',
+    'FB_TE': 'TE', 'SLOT': 'WR',
+    // Defense captain units
+    'D_LINE': 'DE', 'LINEBACKERS': 'MLB', 'SECONDARY': 'CB',
+    // O-Line unit
+    'HOGS': 'LT',
   };
 
-  // Special names for line units
-  const displayName = slot === 'HOGS'
-    ? 'The Scrub Squad'
-    : slot === 'FRONT'
-      ? 'The Practice Dummies'
-      : `${firstName} ${lastName}`;
+  // Special names for unit slots
+  const unitNames: Record<string, string> = {
+    'HOGS': 'The Scrub Squad',
+    'D_LINE': 'The Practice Dummies',
+    'LINEBACKERS': 'The Tackling Dummies',
+    'SECONDARY': 'The Coverage Cones',
+  };
+
+  const displayName = unitNames[slot] || `${firstName} ${lastName}`;
 
   return {
     id: `mcbum_${slot}`,

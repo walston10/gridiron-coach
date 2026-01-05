@@ -417,13 +417,15 @@ export class DefenseControls {
 
     if (!ballCarrier) {
       // Pre-snap or ball in air - select someone near the action
-      // Default to a linebacker or safety
+      // Default to a linebacker or safety (secondary)
       const goodDefenders = state.defensivePlayers.filter(
         (p) =>
-          p.rosterPosition?.includes('LB') ||
-          p.rosterPosition?.includes('S') ||
+          p.rosterPosition === 'LINEBACKERS' ||
+          p.rosterPosition === 'SECONDARY' ||
           p.id.includes('LB') ||
-          p.id.includes('S')
+          p.id.includes('CB') ||
+          p.id.includes('FS') ||
+          p.id.includes('SS')
       );
 
       if (goodDefenders.length > 0) {
