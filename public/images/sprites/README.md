@@ -1,46 +1,78 @@
-# SpawnCampGames Sprite Assets
+# Sprite Assets
 
-Place your itch.io football assets in this directory.
+This directory supports two sprite formats. Use whichever you have!
 
-## Required Files
+## Folder Structure
 
-### Player Sprites (single circular sprites per team color)
+```
+sprites/
+├── simple/           # Simple single-sprite per team (SpawnCampGames free)
+│   ├── player_red.png
+│   ├── player_black.png
+│   ├── player_purple.png
+│   ├── player_yellow.png
+│   └── player_maroon.png
+│
+├── animated/         # Animation grid sprite sheets (8x6 grid)
+│   ├── player_blue.png
+│   ├── player_red.png
+│   ├── player_green.png
+│   ├── player_yellow.png
+│   ├── player_purple.png
+│   └── player_orange.png
+│
+├── field.png         # Field with branding
+├── field_clean.png   # Field without branding
+├── football.png      # Football sprite
+└── power_meter.png   # Power meter bar
+```
 
-| Filename | Description |
-|----------|-------------|
-| `player_red.png` | Red team player |
-| `player_black.png` | Black/gray team player |
-| `player_purple.png` | Purple team player |
-| `player_yellow.png` | Yellow/gold team player |
-| `player_maroon.png` | Maroon/dark red team player |
+## Format 1: Simple Sprites (SpawnCampGames)
 
-### Field Background
+Single circular player sprites, one per team color.
+Place in `sprites/simple/` folder.
 
-| Filename | Description |
-|----------|-------------|
-| `field.png` | Field with SPAWNCAMPGAMES branding |
-| `field_clean.png` | Field without branding |
+Colors: `red`, `black`, `purple`, `yellow`, `maroon`
 
-### Other Sprites
+## Format 2: Animated Sprite Sheets
 
-| Filename | Description |
-|----------|-------------|
-| `football.png` | Football sprite |
-| `power_meter.png` | Power meter gradient bar |
+8 columns × 6 rows grid with animations:
+- Row 0: Idle (4 frames)
+- Row 1: Running (8 frames)
+- Row 2: Diving (6 frames)
+- Row 3: Getting up (6 frames)
+- Row 4: Blocking (4 frames)
+- Row 5: Throwing/celebrating (8 frames)
+
+Place in `sprites/animated/` folder.
+
+Colors: `blue`, `red`, `green`, `yellow`, `purple`, `orange`
+
+## Configuring Frame Size
+
+If your sprite frames aren't 32×32, update in code:
+
+```typescript
+import { updateSpriteConfig } from './graphics/SpriteLoader';
+
+// Call before loading sprites
+updateSpriteConfig({
+  frameWidth: 48,   // Your frame width
+  frameHeight: 48,  // Your frame height
+  columns: 8,       // Columns in sheet
+  rows: 6,          // Rows in sheet
+});
+```
 
 ## Usage
-
-Enable sprite mode in your game component:
 
 ```tsx
 <PixiGameCanvas
   game={gameState}
   useSpriteSheets={true}
-  homeTeamColor="purple"
+  homeTeamColor="blue"
   awayTeamColor="red"
 />
 ```
 
-Available team colors: `red`, `black`, `purple`, `yellow`, `maroon`
-
-The canvas will fall back to built-in pixel art if sprites aren't found.
+The system auto-detects which format is available and falls back gracefully.
