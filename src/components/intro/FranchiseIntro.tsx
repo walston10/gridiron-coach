@@ -3,6 +3,7 @@
  *
  * Ken Burns style slideshow with owner monologue.
  * 6 beats with crossfade transitions and typewriter subtitles.
+ * Assets are fully preloaded before playback begins.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -62,9 +63,63 @@ const TEX_BEATS: IntroBeat[] = [
   },
 ];
 
-// Get image URL for each beat (case-insensitive - use lowercase)
+// Get image URL for each beat
 const getImageUrl = (imageName: string): string => {
   return `/images/${imageName}.png`;
+};
+
+// Preload a single image
+const preloadImage = (src: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      // Try alternate case
+      if (src.endsWith('.png')) {
+        const altSrc = src.replace('.png', '.PNG');
+        const altImg = new Image();
+        altImg.onload = () => resolve(altImg);
+        altImg.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+        altImg.src = altSrc;
+      } else {
+        reject(new Error(`Failed to load image: ${src}`));
+      }
+    };
+    img.src = src;
+  });
+};
+
+// Preload a single audio file with timeout
+const preloadAudio = (src: string, timeoutMs: number = 10000): Promise<HTMLAudioElement> => {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    let resolved = false;
+
+    const done = () => {
+      if (!resolved) {
+        resolved = true;
+        resolve(audio);
+      }
+    };
+
+    // Timeout - resolve with whatever we have
+    const timeout = setTimeout(done, timeoutMs);
+
+    audio.addEventListener('canplaythrough', () => {
+      clearTimeout(timeout);
+      done();
+    }, { once: true });
+
+    audio.addEventListener('error', () => {
+      console.warn(`Failed to load audio: ${src}`);
+      clearTimeout(timeout);
+      done();
+    }, { once: true });
+
+    audio.preload = 'auto';
+    audio.src = src;
+    audio.load();
+  });
 };
 
 // Typewriter hook
@@ -97,40 +152,70 @@ export const FranchiseIntro: React.FC = () => {
   const { setPhase, ownerType } = useGameStore();
   const [currentBeat, setCurrentBeat] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [audioLoaded, setAudioLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
 
-  // Preloaded audio refs
+  // Preloaded assets
   const audioRefs = useRef<HTMLAudioElement[]>([]);
+  const imageRefs = useRef<HTMLImageElement[]>([]);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const beat = TEX_BEATS[currentBeat];
   const { displayed: subtitleText } = useTypewriter(beat?.text || '', 35);
 
-  // Preload all audio files on mount
+  // Preload ALL assets before starting
   useEffect(() => {
-    const loadAudio = async () => {
-      const audioPromises = TEX_BEATS.map((b) => {
-        return new Promise<HTMLAudioElement>((resolve) => {
-          const audio = new Audio(`/audio/${ownerType}_beat_${b.id}.wav`);
-          audio.preload = 'auto';
-          audio.addEventListener('canplaythrough', () => resolve(audio), { once: true });
-          audio.addEventListener('error', () => {
-            console.warn(`Failed to load audio: ${ownerType}_beat_${b.id}.wav`);
-            resolve(audio); // Resolve anyway so we don't block
-          }, { once: true });
-          audio.load();
-        });
+    let cancelled = false;
+
+    const preloadAllAssets = async () => {
+      const totalAssets = TEX_BEATS.length * 2; // images + audio
+      let loaded = 0;
+
+      const updateProgress = () => {
+        loaded++;
+        if (!cancelled) {
+          setLoadingProgress(Math.round((loaded / totalAssets) * 100));
+        }
+      };
+
+      // Preload images
+      const imagePromises = TEX_BEATS.map(async (b) => {
+        try {
+          const img = await preloadImage(getImageUrl(b.image));
+          updateProgress();
+          return img;
+        } catch (err) {
+          console.warn(`Image load failed for beat ${b.id}:`, err);
+          updateProgress();
+          return null;
+        }
       });
 
-      const loadedAudio = await Promise.all(audioPromises);
-      audioRefs.current = loadedAudio;
-      setAudioLoaded(true);
+      // Preload audio
+      const audioPromises = TEX_BEATS.map(async (b) => {
+        const audio = await preloadAudio(`/audio/${ownerType}_beat_${b.id}.wav`);
+        updateProgress();
+        return audio;
+      });
+
+      // Wait for all assets
+      const [images, audios] = await Promise.all([
+        Promise.all(imagePromises),
+        Promise.all(audioPromises),
+      ]);
+
+      if (!cancelled) {
+        imageRefs.current = images.filter((img): img is HTMLImageElement => img !== null);
+        audioRefs.current = audios;
+        setIsLoading(false);
+      }
     };
 
-    loadAudio();
+    preloadAllAssets();
 
-    // Cleanup on unmount
     return () => {
+      cancelled = true;
+      // Cleanup audio on unmount
       audioRefs.current.forEach(audio => {
         audio.pause();
         audio.src = '';
@@ -165,11 +250,11 @@ export const FranchiseIntro: React.FC = () => {
 
   // Play audio and auto-advance timer
   useEffect(() => {
-    if (!beat || !audioLoaded) return;
+    if (!beat || isLoading) return;
 
     // Play the audio for this beat
     const audio = audioRefs.current[currentBeat];
-    if (audio) {
+    if (audio && audio.src) {
       currentAudioRef.current = audio;
       audio.currentTime = 0;
       audio.play().catch(err => {
@@ -185,13 +270,35 @@ export const FranchiseIntro: React.FC = () => {
     return () => {
       clearTimeout(timer);
     };
-  }, [beat, currentBeat, audioLoaded, advanceBeat]);
+  }, [beat, currentBeat, isLoading, advanceBeat]);
 
   // Skip intro
   const handleSkip = () => {
     stopAllAudio();
     setPhase('nameInput');
   };
+
+  // Loading screen
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
+        <div className="text-amber-500 text-2xl font-bold mb-4">LOADING</div>
+        <div className="w-64 h-2 bg-stone-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-amber-500 transition-all duration-300"
+            style={{ width: `${loadingProgress}%` }}
+          />
+        </div>
+        <div className="text-stone-500 text-sm mt-2">{loadingProgress}%</div>
+        <button
+          onClick={handleSkip}
+          className="mt-8 text-stone-600 hover:text-stone-400 text-sm transition-colors"
+        >
+          Skip Intro
+        </button>
+      </div>
+    );
+  }
 
   if (!beat) return null;
 
@@ -251,21 +358,11 @@ export const FranchiseIntro: React.FC = () => {
           ...getEffectStyle(beat.effect),
         }}
       >
-        {/* Actual image */}
+        {/* Actual image - already preloaded */}
         <img
           src={getImageUrl(beat.image)}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
-          onError={(e) => {
-            const img = e.target as HTMLImageElement;
-            // Try alternate case extension before giving up
-            if (img.src.endsWith('.png')) {
-              img.src = img.src.replace('.png', '.PNG');
-            } else if (img.src.endsWith('.PNG')) {
-              // Both cases failed, hide image
-              img.style.display = 'none';
-            }
-          }}
         />
 
         {/* Dark overlay for text readability */}
