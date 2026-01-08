@@ -10,7 +10,6 @@ import type {
   PlayerEffect,
   EffectApplication,
   EffectDuration,
-  StatModifiers,
   DayOfWeek
 } from '../types/Events';
 import type { Player, PlayerStats } from '../types/Player';

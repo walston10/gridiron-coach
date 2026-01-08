@@ -1,10 +1,12 @@
 import React from 'react';
-import type { OffensivePlay } from '../../types/GameSim';
+import type { OffensivePlay, DefensivePlay } from '../../types/GameSim';
+
+type Play = OffensivePlay | DefensivePlay;
 
 interface PlaySelectorProps {
-  plays: OffensivePlay[];
-  selectedPlay: OffensivePlay | null;
-  onSelectPlay: (play: OffensivePlay) => void;
+  plays: Play[];
+  selectedPlay: Play | null;
+  onSelectPlay: (play: Play) => void;
   onSnap: () => void;
   disabled?: boolean;
 }
@@ -16,13 +18,19 @@ export const PlaySelector: React.FC<PlaySelectorProps> = ({
   onSnap,
   disabled = false,
 }) => {
-  // Group plays by type
-  const runPlays = plays.filter(p => p.type === 'RUN');
-  const passPlays = plays.filter(p => p.type === 'PASS');
-  const screenPlays = plays.filter(p => p.type === 'SCREEN');
-  const paPlays = plays.filter(p => p.type === 'PLAY_ACTION');
+  // Helper to check if play is offensive
+  const isOffensivePlay = (play: Play): play is OffensivePlay => 'type' in play;
 
-  const PlayButton: React.FC<{ play: OffensivePlay }> = ({ play }) => {
+  // Group plays by type (offensive) or show all (defensive)
+  const offensivePlays = plays.filter(isOffensivePlay);
+  const defensivePlays = plays.filter(p => !isOffensivePlay(p));
+
+  const runPlays = offensivePlays.filter(p => p.type === 'RUN');
+  const passPlays = offensivePlays.filter(p => p.type === 'PASS');
+  const screenPlays = offensivePlays.filter(p => p.type === 'SCREEN');
+  const paPlays = offensivePlays.filter(p => p.type === 'PLAY_ACTION');
+
+  const PlayButton: React.FC<{ play: Play }> = ({ play }) => {
     const isSelected = selectedPlay?.id === play.id;
 
     return (
@@ -43,7 +51,7 @@ export const PlaySelector: React.FC<PlaySelectorProps> = ({
     );
   };
 
-  const PlayCategory: React.FC<{ title: string; plays: OffensivePlay[]; color: string }> = ({
+  const PlayCategory: React.FC<{ title: string; plays: Play[]; color: string }> = ({
     title,
     plays: categoryPlays,
     color,
@@ -73,6 +81,7 @@ export const PlaySelector: React.FC<PlaySelectorProps> = ({
         <PlayCategory title="Pass Plays" plays={passPlays} color="text-blue-400" />
         <PlayCategory title="Screens" plays={screenPlays} color="text-yellow-400" />
         <PlayCategory title="Play Action" plays={paPlays} color="text-purple-400" />
+        <PlayCategory title="Defensive Plays" plays={defensivePlays} color="text-red-400" />
       </div>
 
       {/* Selected play details */}
@@ -81,14 +90,20 @@ export const PlaySelector: React.FC<PlaySelectorProps> = ({
           <div className="text-white font-bold">{selectedPlay.name}</div>
           <div className="text-gray-400 text-sm mt-1">{selectedPlay.description}</div>
           <div className="flex gap-2 mt-2">
-            <span className={`text-xs px-2 py-1 rounded ${
-              selectedPlay.type === 'RUN' ? 'bg-green-900 text-green-300' :
-              selectedPlay.type === 'PASS' ? 'bg-blue-900 text-blue-300' :
-              selectedPlay.type === 'SCREEN' ? 'bg-yellow-900 text-yellow-300' :
-              'bg-purple-900 text-purple-300'
-            }`}>
-              {selectedPlay.type}
-            </span>
+            {isOffensivePlay(selectedPlay) ? (
+              <span className={`text-xs px-2 py-1 rounded ${
+                selectedPlay.type === 'RUN' ? 'bg-green-900 text-green-300' :
+                selectedPlay.type === 'PASS' ? 'bg-blue-900 text-blue-300' :
+                selectedPlay.type === 'SCREEN' ? 'bg-yellow-900 text-yellow-300' :
+                'bg-purple-900 text-purple-300'
+              }`}>
+                {selectedPlay.type}
+              </span>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded bg-red-900 text-red-300">
+                DEFENSE
+              </span>
+            )}
             <span className="text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">
               {selectedPlay.formation}
             </span>

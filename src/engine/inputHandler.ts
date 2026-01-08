@@ -18,7 +18,6 @@ import type {
   GestureCallback,
   InputStateCallback,
   GestureTarget,
-  GESTURE_THRESHOLDS,
 } from '../types/input.types';
 
 const THRESHOLDS = {
@@ -180,7 +179,7 @@ export class InputHandler {
     this.updateGesture(pos);
   }
 
-  private handleMouseUp(e: MouseEvent): void {
+  private handleMouseUp(_e: MouseEvent): void {
     if (!this.gestureState.isActive) return;
     this.endGesture();
   }

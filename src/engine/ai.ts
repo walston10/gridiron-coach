@@ -1,4 +1,4 @@
-import type { CPUTeamPersonality, GMArchetype, DraftProspect, Player, FreeAgent, ContractOffer } from '../types';
+import type { CPUTeamPersonality, DraftProspect, FreeAgent, ContractOffer } from '../types';
 
 export const evaluateProspect = (
   prospect: DraftProspect,

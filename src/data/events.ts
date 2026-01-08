@@ -844,7 +844,7 @@ export const STARTER_EVENTS: GameEvent[] = [
  */
 export function getDelayedEventContent(
   type: string,
-  sourceEventId: string
+  _sourceEventId: string
 ): GameEvent {
   switch (type) {
     case 'MORE_ACCUSERS':

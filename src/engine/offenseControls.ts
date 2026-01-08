@@ -8,7 +8,6 @@
 import type { GestureEvent, InputState, Point } from '../types/input.types';
 import type { OffenseAction, ControlPhase, ControlledPlayer } from '../types/gameplay.types';
 import type { GameEngine } from './GameEngine';
-import type { FieldPlayer } from '../types/GameSim';
 
 /** Threshold for detecting quick reverse swipe (juke) */
 const JUKE_DIRECTION_CHANGE_THRESHOLD = 0.8; // cos(~37 degrees)

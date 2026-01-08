@@ -291,8 +291,6 @@ export class DefenseControls {
    * Execute a defense action on the game engine
    */
   executeAction(action: DefenseAction): boolean {
-    const state = this.engine.getState();
-
     switch (action.type) {
       case 'select-defender':
         this.selectedDefenderId = action.playerId;

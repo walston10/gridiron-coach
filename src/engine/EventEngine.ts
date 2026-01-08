@@ -6,8 +6,6 @@
  */
 
 import type {
-  GameEvent,
-  Choice,
   EventSystemState,
   Meters,
   HiddenState,
@@ -15,11 +13,12 @@ import type {
   ChoiceResult,
   DayOfWeek,
   ShadyActionType,
-  PlayerStatus,
   PlayerStatusUpdate,
   Consequences,
   EffectApplication,
   PlayerEffect,
+  GameEvent,
+  Choice,
 } from '../types/Events';
 import {
   DAYS_IN_ORDER,
@@ -29,7 +28,6 @@ import {
   HEAT_THRESHOLDS,
 } from '../types/Events';
 import type { Owner } from '../types/Owner';
-import { getOwnerMood } from '../types/Owner';
 
 // =============================================================================
 // UTILITY FUNCTIONS

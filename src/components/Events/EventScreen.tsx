@@ -95,7 +95,7 @@ export const EventScreen: React.FC<EventScreenProps> = ({
   onContinue,
   contextPlayer,
 }) => {
-  const [selectedChoice, setSelectedChoice] = useState<Choice | null>(null);
+  const [, setSelectedChoice] = useState<Choice | null>(null);
   const [imageError, setImageError] = useState(false);
   const [imageSrc, setImageSrc] = useState(event.imageUrl || '');
   const portrait = CHARACTER_PORTRAITS[event.character] || CHARACTER_PORTRAITS.PLAYER;

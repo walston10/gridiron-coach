@@ -226,13 +226,20 @@ export interface Choice {
 
   // Tags for UI
   tags?: ('SHADY' | 'EXPENSIVE' | 'RISKY' | 'SAFE' | 'MORAL')[];
+
+  // Direct player effect (suspensions, etc.)
+  playerEffect?: {
+    type: 'SUSPEND' | 'INJURY' | 'BOOST';
+    duration: number;
+    position?: string;
+  };
 }
 
 // =============================================================================
 // EVENT
 // =============================================================================
 
-export type EventRarity = 'COMMON' | 'UNCOMMON' | 'RARE';
+export type EventRarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'GUARANTEED';
 
 export interface GameEvent {
   id: string;

@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import type { LiveGame, GameState, Play, Down } from '../types';
+import type { LiveGame, Play, Down } from '../types';
 
 type PlayerPosition = { id: string; x: number; y: number; role: 'offense' | 'defense' };
 
 // Default defense positions (4-3 formation)
-const createDefensePositions = (losYardLine: number): PlayerPosition[] => {
+const createDefensePositions = (_losYardLine: number): PlayerPosition[] => {
   // Convert yard line to canvas X (0-100 scale where 50 is midfield)
   // Defense lines up across from offense
   const defenseDepth = 45; // Just past the LOS (which is at 50 in formation coords)

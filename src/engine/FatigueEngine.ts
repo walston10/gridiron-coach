@@ -71,7 +71,7 @@ export class FatigueEngine {
   }
 
   // Initialize fatigue tracking for a player
-  initPlayer(playerId: string, position: string, isStarter: boolean = true): void {
+  initPlayer(playerId: string, _position: string, isStarter: boolean = true): void {
     if (!this.playerFatigue.has(playerId)) {
       this.playerFatigue.set(playerId, {
         playerId,
@@ -250,7 +250,7 @@ export class FatigueEngine {
   // Get all players who need rest
   getPlayerNeedingRest(): string[] {
     const needRest: string[] = [];
-    this.playerFatigue.forEach((player, id) => {
+    this.playerFatigue.forEach((_player, id) => {
       if (this.shouldSubstitute(id)) {
         needRest.push(id);
       }

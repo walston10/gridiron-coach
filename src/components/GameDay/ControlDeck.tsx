@@ -93,7 +93,7 @@ export const ControlDeck: React.FC<ControlDeckProps> = ({
   onJuke,
   onSpin,
   onDive,
-  onSimulateCPU,
+  onSimulateCPU: _onSimulateCPU,
   ballCarrier,
 }) => {
   const getDownSuffix = (d: number) => {

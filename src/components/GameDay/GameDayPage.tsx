@@ -140,7 +140,7 @@ function adaptGameStateToLiveGame(
 }
 
 export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd }) => {
-  const { playbook, teams, userTeamId, recordGameResult, saveCheckpoint, season } = useGameStore();
+  const { playbook, teams, userTeamId, recordGameResult, saveCheckpoint, season: _season } = useGameStore();
   const eventStore = useEventStore();
 
   // Get current week from event store
@@ -220,7 +220,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
     isInFieldGoalRange,
     lastKickResult,
     getCoverageOverlay,
-    isGameOver,
+    isGameOver: _isGameOver,
     getEngine,
   } = useGameEngine({
     onGameEnd: handleGameEnd,
@@ -370,7 +370,7 @@ export const GameDayPage: React.FC<GameDayPageProps> = ({ onNavigate, onGameEnd 
   const isUserOffenseForControls = engineState?.field.possession === 'home';
 
   // Wire up mobile touch/drag controls
-  const mobileControls = useMobileControls({
+  useMobileControls({
     engine: getEngine(),
     canvas: canvasElement, // Use state variable, not ref.current (ref would be null on first render)
     side: isUserOffenseForControls ? 'offense' : 'defense',

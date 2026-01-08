@@ -1,4 +1,4 @@
-import type { Play, PlayerAssignment, PlayerStats } from '../types';
+import type { Play, PlayerStats } from '../types';
 
 export type SimulationResult = {
   success: boolean;
@@ -127,8 +127,7 @@ const simulatePassPlay = (
   if (receiverAssignments.length === 0) {
     return { success: false, yardsGained: 0, turnover: false, touchdown: false, events };
   }
-  
-  const targetAssignment = receiverAssignments[Math.floor(Math.random() * receiverAssignments.length)];
+
   const yardsGained = 5 + Math.floor(Math.random() * 15);
   
   events.push({

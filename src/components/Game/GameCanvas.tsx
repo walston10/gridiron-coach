@@ -195,7 +195,7 @@ export const GameCanvas = forwardRef<HTMLCanvasElement, GameCanvasProps>(({
     startY: number,
     endX: number,
     endY: number,
-    progress: number
+    _progress: number
   ) => {
     // Draw arc from start to landing spot
     ctx.beginPath();

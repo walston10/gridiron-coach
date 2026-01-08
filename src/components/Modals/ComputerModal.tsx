@@ -22,13 +22,6 @@ function getStarterAtPosition(roster: Player[], position: string): Player | unde
   return candidates.sort((a, b) => b.overall - a.overall)[0];
 }
 
-// Helper to get backups at a position
-function getBackupsAtPosition(roster: Player[], position: string, limit: number = 2): Player[] {
-  const candidates = roster.filter(p => p.position === position);
-  if (candidates.length <= 1) return [];
-  // Sort by overall, skip starter, return backups
-  return candidates.sort((a, b) => b.overall - a.overall).slice(1, limit + 1);
-}
 
 export const ComputerModal: React.FC<ComputerModalProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>('roster');

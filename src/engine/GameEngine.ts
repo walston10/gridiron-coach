@@ -12,15 +12,10 @@ import type {
   RosterPosition,
   OffenseRosterPosition,
   FieldRole,
-  OffenseFieldRole,
-  DefenseFieldRole,
-  OffenseFormation,
-  DefenseFormation,
-  OLineUnitStats,
+  LineUnitStats,
   OLineEntity,
   DefenseCaptainEntity,
   Player,
-  PlayerStats,
 } from '../types/Player';
 import {
   OFFENSE_FORMATION_ROLES,
@@ -30,7 +25,7 @@ import { DefenseAI } from './DefenseAI';
 import { KickingEngine } from './KickingEngine';
 import type { KickResult, KickingRatings } from './KickingEngine';
 import { PenaltyEngine } from './PenaltyEngine';
-import type { Penalty, PlayContext } from './PenaltyEngine';
+import type { PlayContext } from './PenaltyEngine';
 import { FatigueEngine } from './FatigueEngine';
 import { blockingEngine } from './BlockingEngine';
 import type { Play } from '../types';
@@ -53,7 +48,6 @@ export class GameEngine {
   private fatigueEngine: FatigueEngine;
 
   // Penalty tracking
-  private pendingPenalty: Penalty | null = null;
   private qbWasSacked: boolean = false;
   private qbWasScrambling: boolean = false;
   private passWasThrown: boolean = false;
@@ -512,37 +506,6 @@ export class GameEngine {
     this.state.phase = 'BREAKING_HUDDLE';
     this.startHuddleBreakAnimation();
     this.emitState();
-  }
-
-  // Set formation targets for huddle break animation
-  private setFormationTargets(currentPlayers: FieldPlayer[], formationPlayers: FieldPlayer[]): void {
-    // Track which formation players have been assigned
-    const assignedFormation = new Set<string>();
-
-    // Match players by roster position type
-    currentPlayers.forEach(player => {
-      // First try exact ID match (case-insensitive)
-      let formationPlayer = formationPlayers.find(fp =>
-        !assignedFormation.has(fp.id) &&
-        fp.id.toLowerCase() === player.id.toLowerCase()
-      );
-
-      // Then try matching by roster position
-      if (!formationPlayer) {
-        formationPlayer = formationPlayers.find(fp =>
-          !assignedFormation.has(fp.id) &&
-          fp.rosterPosition === player.rosterPosition
-        );
-      }
-
-      if (formationPlayer) {
-        assignedFormation.add(formationPlayer.id);
-        player.formationTarget = { ...formationPlayer.location };
-        player.route = formationPlayer.route;
-        // Update player ID to match formation for consistency
-        player.id = formationPlayer.id;
-      }
-    });
   }
 
   // Animation interval for huddle break
@@ -1975,67 +1938,6 @@ export class GameEngine {
     defender.location.y += dir.y * speedMult;
   }
 
-  private moveDefenderWithBlocking(defender: FieldPlayer, target: Vector2, blockers: FieldPlayer[]): void {
-    // Find nearest blocker
-    const nearestBlocker = this.findNearestPlayer(defender.location, blockers);
-    const minDist = nearestBlocker ? this.distance(defender.location, nearestBlocker.location) : Infinity;
-
-    const dir = this.normalize({
-      x: target.x - defender.location.x,
-      y: target.y - defender.location.y,
-    });
-
-    // Defender's pass rush ability
-    const passRushRating = defender.passRush ?? 70;
-    const defStrength = defender.strength ?? 70;
-    const defSpeed = defender.speed ?? 70;
-    // Pass rush combines technique, power, and speed
-    const rushSkill = (passRushRating * 0.5 + defStrength * 0.25 + defSpeed * 0.25) / 100;
-
-    // Base speed scaled by defender's speed rating
-    let speedMult = (defSpeed / 100) * 0.5;
-
-    // If blocker is engaged (within 8 units = ~2.7 yards), they're blocking
-    if (nearestBlocker && minDist < 8) {
-      // Get blocker's pass blocking skill
-      const blockerPassBlock = nearestBlocker.passBlock ?? 70;
-      const blockerStrength = nearestBlocker.strength ?? 70;
-      const blockSkill = (blockerPassBlock * 0.6 + blockerStrength * 0.4) / 100;
-
-      // Win rate determines how stuck the defender is
-      const winMargin = rushSkill - blockSkill;
-
-      // Base is 90% reduction when blocked, but elite rushers can shed blocks faster
-      const blockReduction = Math.max(0.05, 0.1 + winMargin * 0.3); // 5-25% speed when blocked
-      speedMult *= blockReduction;
-
-      // Push battle - winner moves the other player
-      const pushDir = this.normalize({
-        x: defender.location.x - nearestBlocker.location.x,
-        y: defender.location.y - nearestBlocker.location.y,
-      });
-
-      if (winMargin > 0) {
-        // Rusher winning - push blocker back
-        nearestBlocker.location.x -= pushDir.x * winMargin * 0.1;
-        nearestBlocker.location.y -= pushDir.y * winMargin * 0.1;
-      } else {
-        // Blocker winning - rusher gets pushed
-        defender.location.x += pushDir.x * Math.abs(winMargin) * 0.05;
-        defender.location.y += pushDir.y * Math.abs(winMargin) * 0.05;
-      }
-    } else if (nearestBlocker && minDist < 15) {
-      // Approaching blocker - slow down as they engage
-      // Better rushers maintain more speed approaching
-      const engageFactor = (minDist - 8) / 7; // 0 at dist 8, 1 at dist 15
-      const baseSlowdown = 0.1 + rushSkill * 0.15; // 0.17-0.25 at engagement based on rush skill
-      speedMult *= baseSlowdown + engageFactor * (0.5 - baseSlowdown);
-    }
-
-    defender.location.x += dir.x * speedMult;
-    defender.location.y += dir.y * speedMult;
-  }
-
   private checkCollisions(): void {
     const carrier = this.getPlayer(this.state.ballCarrier || '');
     if (!carrier) return;
@@ -3025,7 +2927,6 @@ export class GameEngine {
   }
 
   private resetPenaltyTracking(): void {
-    this.pendingPenalty = null;
     this.qbWasSacked = false;
     this.qbWasScrambling = false;
     this.passWasThrown = false;

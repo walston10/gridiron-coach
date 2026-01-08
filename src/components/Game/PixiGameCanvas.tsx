@@ -359,7 +359,7 @@ export const PixiGameCanvas = forwardRef<HTMLDivElement, PixiGameCanvasProps>(({
     container: Container,
     start: Vector2,
     end: Vector2,
-    progress: number
+    _progress: number
   ) => {
     const arc = new Graphics();
 

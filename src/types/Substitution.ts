@@ -37,8 +37,10 @@ export interface PlayerFatigue {
  * Defense doesn't have subs - captain + unit always plays
  */
 export interface LineupState {
-  offense: Record<OffenseRosterPosition, 'starter' | 'backup'>;
+  offense: Record<OffenseRosterPosition, 'starter' | 'bench'>;
   // Defense doesn't need lineup state - captain + unit always plays
+  // But we keep it optional for code that may reference it
+  defense?: Record<DefenseRosterPosition, 'starter' | 'bench'>;
 }
 
 /**
@@ -61,8 +63,8 @@ export const DEFAULT_LINEUP: LineupState = {
 
 export interface SubstitutionAction {
   position: OffenseRosterPosition;  // Only offense has subs
-  from: 'starter' | 'backup';
-  to: 'starter' | 'backup';
+  from: 'starter' | 'bench';
+  to: 'starter' | 'bench';
   reason: 'MANUAL' | 'FATIGUE' | 'INJURY';
 }
 

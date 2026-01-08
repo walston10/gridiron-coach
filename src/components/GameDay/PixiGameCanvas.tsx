@@ -5,7 +5,6 @@ import {
   loadPlayerSpriteSheet,
   loadFieldTexture,
   loadFootballTexture,
-  ANIMATION_DEFINITIONS,
   getAnimationFrames,
   type TeamColor,
 } from '../../graphics/SpriteLoader';
@@ -159,40 +158,6 @@ function drawPixelSprite(
   }
 }
 
-// Generate jersey numbers from player position IDs (NFL-style)
-function getJerseyNumber(playerId: string): number {
-  const id = playerId.toUpperCase();
-
-  // Offense
-  if (id === 'QB') return 12;
-  if (id === 'RB' || id === 'HB') return 28;
-  if (id === 'FB') return 44;
-  if (id === 'WR1') return 11;
-  if (id === 'WR2') return 84;
-  if (id === 'FLEX') return 87;
-  if (id === 'TE') return 87;
-  if (id === 'LT') return 76;
-  if (id === 'RT') return 71;
-
-  // Defense
-  if (id === 'CB1') return 24;
-  if (id === 'CB2') return 21;
-  if (id === 'S' || id === 'FS' || id === 'SS') return 32;
-  if (id === 'LB1' || id === 'MLB') return 54;
-  if (id === 'LB2' || id === 'OLB') return 58;
-  if (id === 'EDGE_L') return 91;
-  if (id === 'EDGE_R') return 99;
-  if (id === 'DT_L') return 97;
-  if (id === 'DT_R') return 93;
-  if (id === 'NT') return 95;
-
-  // Fallback
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = ((hash << 5) - hash) + id.charCodeAt(i);
-  }
-  return Math.abs(hash % 89) + 10;
-}
 
 export const PixiGameCanvas: React.FC<PixiGameCanvasProps> = ({
   game,
