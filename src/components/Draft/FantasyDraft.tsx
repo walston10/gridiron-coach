@@ -8,7 +8,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
   useDraftStore,
-  DRAFT_BUDGET,
   POSITION_REQUIREMENTS,
   type PositionStatus,
   type DraftSelection,
@@ -49,7 +48,7 @@ const STATUS_COLORS: Record<PositionStatus, { bg: string; text: string; indicato
 // COMPONENT
 // =============================================================================
 
-export const FantasyDraft: React.FC<FantasyDraftProps> = ({ onComplete, onCancel }) => {
+export const FantasyDraft: React.FC<FantasyDraftProps> = ({ onComplete, onCancel: _onCancel }) => {
   const {
     playerPool,
     selections,
@@ -248,7 +247,7 @@ const BudgetHeader: React.FC<BudgetHeaderProps> = ({
   spent,
   budget,
   remaining,
-  rosterComplete,
+  rosterComplete: _rosterComplete,
   onShowRoster,
 }) => {
   const percentage = (spent / budget) * 100;

@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand';
-import type { Player, Roster, OLineUnit, DLineUnit, ReturnerDesignation } from '../types/player.types';
+import type { Player, Roster, OLineUnit, DLineUnit } from '../types/player.types';
 import type { Deck } from '../types/deck.types';
 import type { DraftPlayer, DraftLineUnit, PlayerPool } from '../data/playerPool';
 import { generatePlayerPool } from '../data/playerPool';
