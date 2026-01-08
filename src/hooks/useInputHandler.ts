@@ -10,14 +10,14 @@ interface InputState {
 }
 
 interface UseInputHandlerProps {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
   onMove: (direction: Vector2) => void;
   onSnap: () => void;
   onThrow: (location: Vector2) => void;
   onHandoff: () => void;
   onNextPlay: () => void;
   onTimeout?: () => void;
-  phase: 'PRE_SNAP' | 'SNAP' | 'ACTIVE' | 'TACKLE' | 'WHISTLE';
+  phase: 'HUDDLE' | 'BREAKING_HUDDLE' | 'PRE_SNAP' | 'SNAP' | 'ACTIVE' | 'TACKLE' | 'WHISTLE';
   enabled?: boolean;
 }
 

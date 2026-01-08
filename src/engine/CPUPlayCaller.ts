@@ -332,7 +332,7 @@ export class CPUPlayCaller {
     return 'PUNT';
   }
 
-  private calculateGoForItProbability(field: FieldPosition, situation: SituationAnalysis): number {
+  private calculateGoForItProbability(field: FieldPosition, _situation: SituationAnalysis): number {
     // Base probability curve based on yards to go
     // 1 yard = ~65%, 2 yards = ~45%, 3 yards = ~35%, etc.
     const yardsToGoFactor = Math.max(0, 0.75 - (field.yardsToGo - 1) * 0.12);

@@ -295,7 +295,7 @@ export class PenaltyEngine {
     currentYardLine: number,
     currentDown: 1 | 2 | 3 | 4,
     currentYardsToGo: number,
-    playYardsGained: number,
+    _playYardsGained: number,
     spotOfFoul?: number
   ): PenaltyResult {
     let newYardLine = currentYardLine;
@@ -366,20 +366,11 @@ export class PenaltyEngine {
   shouldDeclinePenalty(
     penalty: Penalty,
     playYardsGained: number,
-    currentYardLine: number,
-    currentDown: 1 | 2 | 3 | 4,
+    _currentYardLine: number,
+    _currentDown: 1 | 2 | 3 | 4,
     currentYardsToGo: number,
-    isUserOffense: boolean
+    _isUserOffense: boolean
   ): boolean {
-    // Calculate what happens if we accept vs decline
-    const resultIfAccepted = this.calculatePenaltyResult(
-      penalty,
-      currentYardLine,
-      currentDown,
-      currentYardsToGo,
-      playYardsGained
-    );
-
     // If play gained more yards than penalty would give, decline
     if (penalty.team === 'offense') {
       // Defense declining an offensive penalty
@@ -391,7 +382,6 @@ export class PenaltyEngine {
       // Offense declining a defensive penalty
       // Decline if we got a first down or big gain
       const playGotFirstDown = playYardsGained >= currentYardsToGo;
-      const penaltyGetsFirstDown = resultIfAccepted.newDown === 1;
 
       if (playGotFirstDown && playYardsGained > penalty.yards) {
         return true;

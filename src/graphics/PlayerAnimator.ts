@@ -6,7 +6,7 @@
  */
 
 import { Sprite, Container, Texture } from 'pixi.js';
-import { loadPlayerSprite, type TeamColor } from './SpriteLoader';
+import { loadSimplePlayerSprite, type SimpleTeamColor } from './SpriteLoader';
 
 /**
  * Simple sprite pool for player rendering
@@ -99,12 +99,12 @@ export class PlayerSpritePool {
  * Preload player textures for both teams
  */
 export async function preloadTeamSprites(
-  homeColor: TeamColor,
-  awayColor: TeamColor
+  homeColor: SimpleTeamColor,
+  awayColor: SimpleTeamColor
 ): Promise<{ home: Texture | null; away: Texture | null }> {
   const [home, away] = await Promise.all([
-    loadPlayerSprite(homeColor).catch(() => null),
-    loadPlayerSprite(awayColor).catch(() => null),
+    loadSimplePlayerSprite(homeColor).catch(() => null),
+    loadSimplePlayerSprite(awayColor).catch(() => null),
   ]);
 
   return { home, away };

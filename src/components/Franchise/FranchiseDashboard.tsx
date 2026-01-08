@@ -11,7 +11,7 @@ type Tab = 'roster' | 'depth' | 'schedule' | 'standings' | 'staff';
 export const FranchiseDashboard: React.FC = () => {
   const { teams, userTeamId, season } = useGameStore();
   const [activeTab, setActiveTab] = useState<Tab>('roster');
-  const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  const [, setSelectedPlayer] = useState<Player | null>(null);
 
   const userTeam = teams.find(t => t.info.id === userTeamId);
 

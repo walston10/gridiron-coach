@@ -14,9 +14,6 @@ import type {
   DayOfWeek,
   ShadyActionType,
   ShadyActionCounts,
-  GameEvent,
-  Choice,
-  ChoiceResult,
   DelayedEvent,
 } from '../types/Events';
 import {

@@ -1,4 +1,4 @@
-import type { Player, TeamRoster, LineUnitEntity } from './Player';
+import type { Player } from './Player';
 
 export type TeamInfo = {
   id: string;

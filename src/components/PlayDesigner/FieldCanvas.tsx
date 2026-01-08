@@ -26,7 +26,7 @@ const getBlockingIndicator = (blocking: OLBlockingAssignment): { symbol: string;
 };
 
 export const FieldCanvas: React.FC<FieldCanvasProps> = ({
-  formation,
+  formation: _formation,
   assignments,
   selectedPlayer,
   onPlayerClick,

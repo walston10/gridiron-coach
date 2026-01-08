@@ -31,8 +31,6 @@ import { useGameStore } from '../stores/gameStore';
 import {
   selectEventForDay,
   resolveChoice,
-  updatePatienceForGame,
-  updatePatienceWeekly,
   isFired,
   isIndicted,
   isUnderInvestigation,
@@ -273,7 +271,6 @@ export function useEventSystem(options: UseEventSystemOptions = {}): EventSystem
 
     // Handle weekly patience update on new week
     if (result.newWeek) {
-      const updatedState = eventStore.getEventSystemState();
       // Calculate patience change based on owner expectations
       const patienceChange = owner.winExpectation === 'REBUILD' ? 2 :
                              owner.winExpectation === 'CONTEND' ? -2 : 0;

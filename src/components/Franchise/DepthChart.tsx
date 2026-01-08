@@ -24,7 +24,7 @@ const POSITION_LABELS: Record<string, string> = {
   LB2: 'Linebacker 2 (OLB)',
 };
 
-export const DepthChart: React.FC<DepthChartProps> = ({ roster, onUpdateDepth }) => {
+export const DepthChart: React.FC<DepthChartProps> = ({ roster, onUpdateDepth: _onUpdateDepth }) => {
   const getPlayersForPosition = (pos: string): Player[] => {
     return roster
       .filter(p => p.position === pos)

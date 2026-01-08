@@ -1,5 +1,4 @@
 import type { Vector2, FieldPlayer, CoverageType, DefensivePlay } from '../types/GameSim';
-import type { RosterPosition } from '../types/Player';
 
 /**
  * Defense AI phases:
@@ -205,9 +204,9 @@ export class DefenseAI {
   private snapTime: number = 0;
   private qbLocation: Vector2 = { x: 80, y: 0 };
   private qbInPocket: boolean = true;
-  private ballInAir: boolean = false;
   private ballLocation: Vector2 = { x: 80, y: 0 };
   private ballCarrierId: string | null = null;
+  private ballInAir: boolean = false;
 
   reset(): void {
     this.defenderStates.clear();
@@ -355,7 +354,7 @@ export class DefenseAI {
 
     if (timeSinceSnap < 0.3) {
       this.globalPhase = 'READ';
-    } else if (ballInAir) {
+    } else if (this.ballInAir) {
       this.globalPhase = 'REACT_BALL';
     } else if (ballCarrierId && ballCarrierId.toLowerCase() !== 'qb') {
       // Ball carrier is not QB (run play or completed pass)
@@ -377,7 +376,7 @@ export class DefenseAI {
   getMovementVector(
     defender: FieldPlayer,
     offensivePlayers: FieldPlayer[],
-    currentTime: number
+    _currentTime: number
   ): Vector2 {
     const state = this.defenderStates.get(defender.id);
     if (!state) {
@@ -387,7 +386,6 @@ export class DefenseAI {
 
     // Linebackers pursue the ball carrier more aggressively (D-line is a unit now)
     const isLinebacker = ['LB1', 'LB2'].includes(defender.rosterPosition);
-    const isSecondary = ['CB1', 'CB2', 'S'].includes(defender.rosterPosition);
 
     // If ball carrier is not QB, linebackers pursue
     if (this.ballCarrierId && this.ballCarrierId.toLowerCase() !== 'qb') {

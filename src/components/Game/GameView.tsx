@@ -3,7 +3,9 @@ import { GameCanvas } from './GameCanvas';
 import { GameHUD } from './GameHUD';
 import { PlaySelector } from './PlaySelector';
 import { useGameEngine, useInputHandler } from '../../hooks';
-import type { OffensivePlay, Vector2 } from '../../types/GameSim';
+import type { OffensivePlay, DefensivePlay, Vector2 } from '../../types/GameSim';
+
+type Play = OffensivePlay | DefensivePlay;
 
 interface GameViewProps {
   homeTeam?: string;
@@ -27,7 +29,7 @@ export const GameView: React.FC<GameViewProps> = ({
     nextPlay,
   } = useGameEngine();
 
-  const [selectedPlay, setSelectedPlay] = useState<OffensivePlay | null>(null);
+  const [selectedPlay, setSelectedPlay] = useState<Play | null>(null);
 
   const isPreSnap = gameState?.phase === 'PRE_SNAP';
   const isLive = gameState?.phase === 'SNAP' || gameState?.phase === 'ACTIVE';
@@ -36,9 +38,11 @@ export const GameView: React.FC<GameViewProps> = ({
   const isBallInAir = !!gameState?.passFlight;
 
   // Handle play selection
-  const handleSelectPlay = useCallback((play: OffensivePlay) => {
+  const handleSelectPlay = useCallback((play: Play) => {
     setSelectedPlay(play);
-    selectPlay(play);
+    if ('type' in play) {
+      selectPlay(play);
+    }
   }, [selectPlay]);
 
   // Handle snap (only if play selected)

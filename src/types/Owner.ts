@@ -79,6 +79,9 @@ export interface Owner {
   // Patience recovery conditions
   patienceRecovery: PatienceRecovery;
 
+  // Win expectation (affects patience changes)
+  winExpectation?: 'REBUILD' | 'MAINTAIN' | 'CONTEND';
+
   // Flavor
   catchphrase: string;
   angryQuote: string;

@@ -227,7 +227,6 @@ export class RouteRunner {
   private scrambleStartTime: number | null = null;
 
   // Time thresholds
-  private static readonly SCRAMBLE_TRIGGER_TIME = 3.5; // Seconds before scramble drill kicks in
   private static readonly QB_POCKET_RADIUS = 15; // Units - if QB moves beyond this, receivers adjust
 
   reset(): void {
@@ -317,7 +316,7 @@ export class RouteRunner {
   }
 
   private shouldEnterScrambleDrill(
-    state: RouteState,
+    _state: RouteState,
     timeSinceSnap: number,
     def: RouteDefinition
   ): boolean {

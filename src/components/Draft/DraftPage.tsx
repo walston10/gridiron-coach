@@ -4,11 +4,10 @@ import { DraftBoard } from './DraftBoard';
 import { ProspectCard } from '../Scouting/ProspectCard';
 import { generateDraftClass } from '../../utils/draftGenerator';
 import type { Draft, DraftProspect } from '../../types';
-import { v4 as uuidv4 } from 'uuid';
 
 export const DraftPage: React.FC = () => {
   const { teams, userTeamId } = useGameStore();
-  const [prospects, setProspects] = useState<DraftProspect[]>(() => generateDraftClass(250));
+  const [prospects] = useState<DraftProspect[]>(() => generateDraftClass(250));
   const [draft, setDraft] = useState<Draft>(() => ({
     year: 2025,
     prospects,

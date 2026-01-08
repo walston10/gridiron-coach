@@ -4,7 +4,6 @@ import { GameHUD } from './GameHUD';
 import { PlaySelector } from './PlaySelector';
 import { useFullGame, useInputHandler } from '../../hooks';
 import type { OffensivePlay, DefensivePlay, Vector2 } from '../../types/GameSim';
-import type { GamePhase } from '../../engine/GameManager';
 
 interface FullGameViewProps {
   homeTeam?: string;
@@ -252,7 +251,7 @@ export const FullGameView: React.FC<FullGameViewProps> = ({
                   >
                     Punt
                   </button>
-                  {isInFieldGoalRange && (
+                  {isInFieldGoalRange() && (
                     <button
                       onClick={selectFieldGoal}
                       className="flex-1 p-2 bg-green-800 hover:bg-green-700 rounded text-white text-sm"

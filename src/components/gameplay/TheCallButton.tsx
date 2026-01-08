@@ -7,7 +7,7 @@
  * Tap to influence the refs (at a cost).
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { theCallSystem, type CallType, type CallResult } from '../../engine/theCallSystem';
 
 interface TheCallButtonProps {

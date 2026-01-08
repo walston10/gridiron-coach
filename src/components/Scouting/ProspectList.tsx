@@ -5,6 +5,7 @@ import { ProspectCard } from './ProspectCard';
 interface ProspectListProps {
   prospects: DraftProspect[];
   onScout: (prospectId: string) => void;
+  onToggleInterest?: (prospectId: string) => void;
 }
 
 export const ProspectList: React.FC<ProspectListProps> = ({

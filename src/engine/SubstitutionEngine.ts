@@ -13,16 +13,13 @@ import type {
   SubstitutionAction,
   AutoSubSettings,
   PlayerFatigueDisplay,
-  PositionSlot,
 } from '../types/Substitution';
 import {
   OFFENSIVE_SLOTS,
   DEFENSIVE_SLOTS,
   DEFAULT_LINEUP,
-  getOffensePositions,
-  getDefensePositions,
 } from '../types/Substitution';
-import type { OffenseRosterPosition, DefenseRosterPosition } from '../types/Player';
+import type { OffenseRosterPosition } from '../types/Player';
 import { fatigueEngine, type FatigueEngine } from './FatigueEngine';
 
 export class SubstitutionEngine {
@@ -134,12 +131,11 @@ export class SubstitutionEngine {
     if (!depthEntry || depthEntry.starters.length === 0) return undefined;
 
     // Get which player (starter or bench) is currently in
-    let lineupValue: 'starter' | 'bench';
+    let lineupValue: 'starter' | 'bench' = 'starter';
     if (side === 'offense') {
       lineupValue = this.currentLineup.offense[slot as OffenseRosterPosition];
-    } else {
-      lineupValue = this.currentLineup.defense[slot as DefenseRosterPosition];
     }
+    // Defense always uses starters (captain + unit system)
     const playerIndex = lineupValue === 'starter' ? 0 : 1;
     const playerId = depthEntry.starters[playerIndex];
 
@@ -204,22 +200,9 @@ export class SubstitutionEngine {
         return true;
       }
     } else {
-      const pos = slot as DefenseRosterPosition;
-      if (this.currentLineup.defense[pos]) {
-        const current = this.currentLineup.defense[pos];
-        this.currentLineup.defense[pos] = current === 'starter' ? 'bench' : 'starter';
-
-        // Fire callback
-        if (this.onSubstitution) {
-          this.onSubstitution({
-            position: pos,
-            from: current,
-            to: this.currentLineup.defense[pos],
-            reason: 'MANUAL',
-          });
-        }
-        return true;
-      }
+      // Defense doesn't support individual substitutions in this system
+      // The defense uses captain + unit combos that always play together
+      return false;
     }
     return false;
   }
@@ -247,7 +230,7 @@ export class SubstitutionEngine {
     const result = new Map<string, PlayerFatigueDisplay>();
 
     // Get fatigue for all roster players
-    this.roster.forEach((player, playerId) => {
+    this.roster.forEach((_player, playerId) => {
       const fatigue = this.fatigueEngine.getPlayerFatigue(playerId);
       if (fatigue) {
         result.set(playerId, fatigue);

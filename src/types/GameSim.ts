@@ -7,12 +7,9 @@
 
 import type {
   RosterPosition,
-  OffenseFieldRole,
-  DefenseFieldRole,
   FieldRole,
   OffenseFormation,
   DefenseFormation,
-  PlayerStats,
   LineUnitStats,
 } from './Player';
 
@@ -285,25 +282,8 @@ export interface GameStats {
  * Get the field ID used for routes based on roster position and formation.
  * This is what the engine uses to assign routes to players.
  */
-export function getFieldId(rosterPosition: RosterPosition, formation: OffenseFormation): string {
+export function getFieldId(rosterPosition: RosterPosition, _formation: OffenseFormation): string {
   // Most positions keep their roster position as field ID
-  // FLEX changes based on formation
-  if (rosterPosition === 'FLEX') {
-    switch (formation) {
-      case 'I_FORM':
-      case 'GOAL_LINE':
-        return 'FB';
-      case 'SHOTGUN':
-      case 'SINGLEBACK':
-        return 'TE';
-      case 'PISTOL':
-      case 'SPREAD':
-        return 'SLOT';
-      default:
-        return 'TE';
-    }
-  }
-
-  // WR1 -> WR1, WR2 -> WR2, etc.
+  // (FLEX handling removed - no longer a valid RosterPosition)
   return rosterPosition;
 }

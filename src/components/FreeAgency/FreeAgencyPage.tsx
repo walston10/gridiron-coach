@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useGameStore } from '../../stores/gameStore';
 import { FreeAgentList } from './FreeAgentList';
 import { OfferModal } from './OfferModal';
-import type { FreeAgent, ContractOffer, Player } from '../../types';
+import type { FreeAgent, ContractOffer } from '../../types';
 import { generatePlayer } from '../../utils/playerGenerator';
-import { v4 as uuidv4 } from 'uuid';
 
 export const FreeAgencyPage: React.FC = () => {
   const { teams, userTeamId } = useGameStore();

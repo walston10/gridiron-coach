@@ -22,7 +22,7 @@ const POSITION_RELEVANT_STATS: Record<string, (keyof PlayerStats)[]> = {
   SS: ['coverage', 'tackle', 'speed', 'toughness', 'awareness', 'strength', 'agility'],
 };
 
-export const generateDraftClass = (size: number = 250): DraftProspect[] => {
+export const generateDraftClass = (_size: number = 250): DraftProspect[] => {
   const prospects: DraftProspect[] = [];
   
   // Distribution of prospects by projected round

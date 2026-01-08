@@ -27,31 +27,6 @@ const VALID_POSITIONS: Position[] = [
   'DE', 'DT', 'NT'
 ];
 
-// Map legacy roster positions to simplified slot IDs
-// Offense: QB, RB, WR1, WR2, FB_TE, SLOT
-// Defense: D_LINE, LINEBACKERS, SECONDARY (captain+unit system - no individual subs)
-// O-Line: HOGS (unit)
-const POSITION_TO_SLOTS: Record<string, string[]> = {
-  // Offense skill positions
-  'QB': ['QB'],
-  'RB': ['RB'],
-  'WR': ['WR1', 'WR2', 'SLOT'],
-  'TE': ['FB_TE', 'SLOT'],
-  'FB': ['FB_TE'],
-  // Defense positions map to captain units (no individual subs allowed)
-  'CB': ['SECONDARY'],
-  'FS': ['SECONDARY'],
-  'SS': ['SECONDARY'],
-  'MLB': ['LINEBACKERS'],
-  'OLB': ['LINEBACKERS'],
-  'ILB': ['LINEBACKERS'],
-  'DE': ['D_LINE'],
-  'DT': ['D_LINE'],
-  'NT': ['D_LINE'],
-  // O-Line positions map to HOGS unit
-  'LT': ['HOGS'], 'LG': ['HOGS'], 'C': ['HOGS'], 'RG': ['HOGS'], 'RT': ['HOGS'],
-};
-
 // Reverse mapping: slot ID -> which legacy positions can fill it
 const SLOT_TO_POSITIONS: Record<string, string[]> = {
   // Offense skill slots
