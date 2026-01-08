@@ -20,8 +20,11 @@ import type { Card, CardPlayResult, OffensivePlayType, DefensivePlayType } from 
 export type GamePhase =
   | 'PREGAME'               // Coin toss, introductions
   | 'KICKOFF'               // Kicking off
+  | 'FOURTH_DOWN_DECISION'  // Offense chooses category (go for it, FG, punt)
+  | 'FOURTH_DOWN_DEFENSE'   // Defense responds to 4th down choice
   | 'OFFENSE_SELECT'        // Waiting for offensive card selection
   | 'DEFENSE_SELECT'        // Waiting for defensive card selection
+  | 'SPECIAL_TEAMS_SELECT'  // Selecting FG/punt/return card
   | 'REVEAL'                // Cards revealed, showing matchup
   | 'PLAY_RESULT'           // Showing result of play
   | 'TIMEOUT'               // Timeout called
@@ -241,6 +244,153 @@ export interface PlaySelection {
 }
 
 // =============================================================================
+// FOURTH DOWN STATE
+// =============================================================================
+
+/**
+ * 4th Down Decision Flow:
+ * 1. Offense reaches 4th down
+ * 2. Offense selects category: GO_FOR_IT, FIELD_GOAL, or PUNT
+ * 3. Defense responds with their counter-strategy
+ * 4. If offense chose FG/PUNT, they can still FAKE (hidden from defense)
+ * 5. Cards are selected and played
+ */
+
+/** Offense's initial 4th down category choice */
+export type FourthDownCategory =
+  | 'GO_FOR_IT'           // Play a regular offensive card
+  | 'FIELD_GOAL'          // Attempt FG (can fake)
+  | 'PUNT';               // Punt (can fake)
+
+/** Defense's response to the 4th down category */
+export type FourthDownDefenseResponse =
+  // vs GO_FOR_IT
+  | 'AGGRESSIVE_STOP'     // All-out to stop the conversion
+  | 'CONSERVATIVE_STOP'   // Prevent big play, contain
+
+  // vs FIELD_GOAL
+  | 'BLOCK_ATTEMPT'       // Rush to block the kick
+  | 'SAFE_RETURN'         // Set up for return if missed
+
+  // vs PUNT
+  | 'BLOCK_PUNT'          // Rush to block
+  | 'SAFE_FAIR_CATCH'     // Fair catch, no risk
+  | 'AGGRESSIVE_RETURN'   // Set up big return
+
+  // Universal
+  | 'EXPECT_FAKE';        // Anticipate a fake (bonus if correct)
+
+/** The complete 4th down state */
+export interface FourthDownState {
+  // Current phase
+  phase: FourthDownPhase;
+
+  // Offense decisions
+  offenseCategory: FourthDownCategory | null;
+  offenseIsFaking: boolean;           // Hidden from defense until reveal
+  fakePlayType?: 'PASS' | 'RUN';      // If faking, what type
+
+  // Defense decisions
+  defenseResponse: FourthDownDefenseResponse | null;
+  defenseExpectsFake: boolean;        // Did they choose EXPECT_FAKE?
+
+  // Derived info for UI/logic
+  fieldGoalDistance: number;          // Yards for FG attempt
+  fieldGoalSuccessChance: number;     // Based on distance + ST player
+  puntExpectedYards: number;          // Expected punt distance
+  conversionChance: number;           // Chance to convert if going for it
+
+  // Fake success modifiers
+  fakeSuccessBase: number;            // Base chance fake works (0-100)
+  fakeBonus: number;                  // Bonus from tendencies, situation
+  fakePenalty: number;                // Penalty if defense expects fake
+}
+
+export type FourthDownPhase =
+  | 'AWAITING_OFFENSE'      // Waiting for offense category selection
+  | 'AWAITING_DEFENSE'      // Waiting for defense response
+  | 'OFFENSE_FAKE_CHOICE'   // Offense secretly decides to fake or not
+  | 'CARDS_SELECTION'       // Both sides selecting their cards
+  | 'RESOLVED';             // Decision made, moving to play execution
+
+/** Calculate FG success chance based on distance and ratings */
+export function calculateFGSuccessChance(
+  distance: number,
+  kickPower: number,
+  kickAccuracy: number,
+  clutchKicking: number,
+  isCriticalMoment: boolean
+): number {
+  // Base chance decreases with distance
+  let baseChance = 100;
+  if (distance > 20) baseChance -= (distance - 20) * 2;
+  if (distance > 40) baseChance -= (distance - 40) * 3;
+  if (distance > 50) baseChance -= (distance - 50) * 5;
+
+  // Modify by ratings (normalized around 50)
+  const powerBonus = (kickPower - 50) * 0.3;      // Range affects max distance
+  const accuracyBonus = (kickAccuracy - 50) * 0.5; // Accuracy is most important
+  const clutchBonus = isCriticalMoment ? (clutchKicking - 50) * 0.3 : 0;
+
+  return Math.max(0, Math.min(100, baseChance + powerBonus + accuracyBonus + clutchBonus));
+}
+
+/** Calculate expected punt distance based on ratings */
+export function calculatePuntDistance(
+  kickPower: number,
+  kickAccuracy: number,
+  isCoffinCorner: boolean
+): { distance: number; hangTime: number } {
+  // Base punt is ~45 yards
+  const basePunt = 45;
+  const powerBonus = (kickPower - 50) * 0.3;
+  const distance = Math.round(basePunt + powerBonus);
+
+  // Hang time for coverage
+  const hangTime = 50 + (kickPower - 50) * 0.3 + (kickAccuracy - 50) * 0.2;
+
+  // Coffin corner reduces distance but pins opponent
+  if (isCoffinCorner) {
+    return {
+      distance: Math.round(distance * 0.7),
+      hangTime: hangTime + 10, // More height
+    };
+  }
+
+  return { distance, hangTime };
+}
+
+/** Get recommended 4th down decision based on situation */
+export function getRecommended4thDownDecision(
+  yardLine: number,
+  yardsToGo: number,
+  scoreDifferential: number,  // Positive = winning
+  timeRemaining: number,      // Seconds
+  fgSuccessChance: number
+): FourthDownCategory {
+  const yardsToEndzone = 100 - yardLine;
+
+  // In FG range and reasonable chance?
+  if (yardsToEndzone <= 45 && fgSuccessChance >= 60) {
+    return 'FIELD_GOAL';
+  }
+
+  // Short yardage go for it?
+  if (yardsToGo <= 2 && yardLine >= 40) {
+    return 'GO_FOR_IT';
+  }
+
+  // Desperation (losing, little time)?
+  if (scoreDifferential < 0 && timeRemaining < 300) {
+    if (yardsToEndzone <= 50) return 'FIELD_GOAL';
+    if (yardsToGo <= 5) return 'GO_FOR_IT';
+  }
+
+  // Default: punt
+  return 'PUNT';
+}
+
+// =============================================================================
 // LIVE GAME STATE
 // =============================================================================
 
@@ -267,6 +417,9 @@ export interface LiveGame {
 
   // Current play
   playSelection: PlaySelection;
+
+  // 4th down decision state (only active on 4th down)
+  fourthDownState: FourthDownState | null;
 
   // Play history
   playHistory: CardPlayResult[];

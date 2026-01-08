@@ -32,6 +32,7 @@ export type {
   Roster,
   OLineUnit,
   DLineUnit,
+  ReturnerDesignation,
 
   // Draft/Signing
   DraftProspect,
@@ -65,6 +66,10 @@ export type {
   DefensivePlayType,
   DefensiveCard,
 
+  // Special Teams
+  SpecialTeamsPlayType,
+  SpecialTeamsCard,
+
   // Dirty
   DirtyPlayType,
   DirtyCard,
@@ -93,6 +98,7 @@ export {
   RARITY_DRAW_WEIGHTS,
   isOffensiveCard,
   isDefensiveCard,
+  isSpecialTeamsCard,
   isDirtyCard,
   RARITY_COLORS,
   CATEGORY_COLORS,
@@ -125,6 +131,12 @@ export type {
   // Play Selection
   PlaySelection,
 
+  // Fourth Down
+  FourthDownCategory,
+  FourthDownDefenseResponse,
+  FourthDownState,
+  FourthDownPhase,
+
   // Live Game
   LiveGame,
   DriveState,
@@ -150,6 +162,10 @@ export {
   WEATHER_EFFECTS,
   getSituationDescription,
   isCriticalSituation,
+  // Fourth Down helpers
+  calculateFGSuccessChance,
+  calculatePuntDistance,
+  getRecommended4thDownDecision,
 } from './game.types';
 
 // =============================================================================

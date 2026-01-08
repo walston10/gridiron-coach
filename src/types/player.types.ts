@@ -24,8 +24,11 @@ export type DefensePosition =
   | 'CB'      // Cornerback - coverage cards
   | 'S';      // Safety - deep coverage and big hit cards
 
-/** Special teams */
-export type SpecialTeamsPosition = 'K' | 'P';
+/**
+ * Special Teams - single position covering kicker/punter
+ * ST players generate special teams cards (FG, punt, kickoff, fakes)
+ */
+export type SpecialTeamsPosition = 'ST';
 
 export type Position = OffensePosition | DefensePosition | SpecialTeamsPosition;
 
@@ -58,6 +61,12 @@ export interface PlayerRatings {
   coverage: number;       // CB, S, LB - defending passes
   tackling: number;       // All defense - bringing down ball carrier
 
+  // === Special Teams Ratings (ST position) ===
+  kickPower: number;      // KPW - Distance on kicks (FG range, kickoff depth, punt distance)
+  kickAccuracy: number;   // KAC - Accuracy (FG %, directional punting)
+  clutchKicking: number;  // CLT - Performance under pressure (game-winning FG, etc.)
+  coverageUnit: number;   // COV - How well the coverage unit performs
+
   // === Intangibles (hidden drama stats) ===
   ego: number;            // 1-99: Humble (1) to Diva (99) - affects events
   loyalty: number;        // 1-99: Will they leak? Demand trades? Stay quiet?
@@ -80,6 +89,12 @@ export const DEFAULT_RATINGS: PlayerRatings = {
   passRush: 50,
   coverage: 50,
   tackling: 50,
+  // Special Teams
+  kickPower: 50,
+  kickAccuracy: 50,
+  clutchKicking: 50,
+  coverageUnit: 50,
+  // Intangibles
   ego: 50,
   loyalty: 50,
   vice: 50,
@@ -204,11 +219,30 @@ export interface Roster {
     S: Player;                  // 1 starter (represents both safeties)
   };
 
+  // Special Teams (generates ST cards)
+  specialTeams: {
+    ST: Player;                 // Kicker/Punter (position: 'ST')
+  };
+
+  // Returner designation - which skill player handles returns
+  // Affects kick/punt return cards and risk/reward on returns
+  returner: ReturnerDesignation;
+
   // Bench (backups, can be promoted)
   bench: Player[];
 
   // Practice squad (development, not in deck)
   practiceSquad: Player[];
+}
+
+/**
+ * Designate which player handles kick/punt returns.
+ * Can be any skill position player (RB, WR, CB).
+ * Speed + carrying ratings affect return success.
+ */
+export interface ReturnerDesignation {
+  kickReturner: string;         // Player ID (usually WR or RB)
+  puntReturner: string;         // Player ID (can be same or different)
 }
 
 // =============================================================================
@@ -302,8 +336,7 @@ export const POSITION_VALUE_TIER: Record<Position, number> = {
   LB: 3,
   OL: 2,    // Units are valued differently
   DL: 2,
-  K: 1,
-  P: 1,
+  ST: 1,    // Special Teams (kicker/punter)
 };
 
 // =============================================================================
