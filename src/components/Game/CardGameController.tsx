@@ -305,6 +305,7 @@ const OffensivePlayUI: React.FC<{
     playerState,
     opponentState,
     playerRoster,
+    offensiveMomentum,
   } = useCardGameStore();
 
   const { draftedRoster } = useGameStore();
@@ -601,22 +602,45 @@ const OffensivePlayUI: React.FC<{
         {/* Modifier Selection (when play is selected) */}
         {selectedPlay && availableModifiers.length > 1 && (
           <div className="mt-3 p-3 bg-gray-900/50 rounded-lg border border-gray-800">
-            <div className="text-gray-400 text-sm mb-2">Modifier:</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-gray-400 text-sm">Modifier:</div>
+              <div className="flex items-center gap-1">
+                <span className="text-gray-500 text-xs">Momentum:</span>
+                <div className="flex gap-0.5">
+                  {[...Array(6)].map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-3 h-3 rounded ${i < offensiveMomentum ? 'bg-amber-500' : 'bg-gray-700'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
             <div className="flex gap-2 flex-wrap">
               {availableModifiers.map(mod => {
                 const effect = MODIFIER_EFFECTS[mod];
+                const canAfford = offensiveMomentum >= effect.momentumCost;
+                const isSelected = selectedModifier === mod;
                 return (
                   <button
                     key={mod}
-                    onClick={() => setSelectedModifier(mod)}
+                    onClick={() => canAfford && setSelectedModifier(mod)}
+                    disabled={!canAfford && mod !== 'NONE'}
                     className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                      selectedModifier === mod
+                      isSelected
                         ? 'bg-purple-600 text-white'
-                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                        : !canAfford && mod !== 'NONE'
+                          ? 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     }`}
                     title={effect.description}
                   >
-                    {mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}
+                    <span>{mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}</span>
+                    {effect.momentumCost > 0 && (
+                      <span className={`ml-1 ${canAfford ? 'text-amber-400' : 'text-red-400'}`}>
+                        -{effect.momentumCost}
+                      </span>
+                    )}
                   </button>
                 );
               })}

@@ -147,6 +147,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
   protectionBonus: number;   // % bonus to pass protection
   yardsBonus: number;        // Bonus yards on success
   turnoverRisk: number;      // Additional turnover risk %
+  momentumCost: number;      // Momentum required to use this modifier
   description: string;       // UI description
   specialEffect?: 'HARD_COUNT' | 'QUICK_COUNT';  // Special resolution
 }> = {
@@ -155,6 +156,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 0,
     yardsBonus: 0,
     turnoverRisk: 0,
+    momentumCost: 0,
     description: 'Standard play',
   },
   MAX_PROTECT: {
@@ -162,6 +164,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 20,
     yardsBonus: 0,
     turnoverRisk: -3,  // Less risk due to better protection
+    momentumCost: 1,
     description: 'Extra blockers stay in. +20% protection, fewer routes.',
   },
   MOTION: {
@@ -169,6 +172,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 0,
     yardsBonus: 1,
     turnoverRisk: 0,
+    momentumCost: 1,
     description: 'Pre-snap motion confuses defense. +8% success.',
   },
   HARD_COUNT: {
@@ -176,6 +180,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 0,
     yardsBonus: 0,
     turnoverRisk: 0,
+    momentumCost: 1,
     description: '~15% offsides (free play), ~15% false start, 70% normal snap.',
     specialEffect: 'HARD_COUNT',
   },
@@ -184,6 +189,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: -10,  // More vulnerable during fake
     yardsBonus: 3,
     turnoverRisk: 2,
+    momentumCost: 1,
     description: 'Fake handoff freezes linebackers. +12% success, +3 yards.',
   },
   QUICK_COUNT: {
@@ -191,6 +197,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 0,
     yardsBonus: 0,
     turnoverRisk: 0,
+    momentumCost: 1,
     description: 'Fast snap catches defense substituting. +10% success.',
     specialEffect: 'QUICK_COUNT',
   },
@@ -199,6 +206,7 @@ export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
     protectionBonus: 15,
     yardsBonus: 2,
     turnoverRisk: -2,
+    momentumCost: 1,
     description: 'Extra blockers for power running. +15% blocking, +2 yards.',
   },
 };
