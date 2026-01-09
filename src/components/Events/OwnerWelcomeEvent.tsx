@@ -36,7 +36,7 @@ const OWNER_DIALOGUES: Record<string, {
     offer: "Listen here, amigo. I didn't buy this team to lose. That's $50K for your... discretionary fund. Win me some games, make some noise, and there's plenty more where that came from. Got it?",
     amount: 50000,
     askMoreAmount: 100000,
-    // imageUrl: '/images/events/tex-welcome.jpg', // Add your image path here
+    imageUrl: '/images/events/tex-welcome.png',
   },
   hale: {
     title: 'A Formal Introduction',
