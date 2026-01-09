@@ -75,7 +75,7 @@ const DEFAULT_FOLDERS: PlayFolder[] = [
 ];
 
 // Intro flow types
-export type GamePhase = 'start' | 'intro' | 'nameInput' | 'desk';
+export type GamePhase = 'start' | 'intro' | 'nameInput' | 'draft' | 'desk';
 export type OwnerType = 'tex' | 'kessler' | 'hale';
 
 interface GameStore {
@@ -176,9 +176,8 @@ export const useGameStore = create<GameStore>()(
       setOwner: (owner: OwnerType) => set({ ownerType: owner }),
       setGMName: (name: string) => set({ gmName: name }),
       startFranchise: () => {
-        // Initialize the game with hardcoded team index for now
-        get().initializeGame(3);
-        set({ gamePhase: 'desk' });
+        // Go to fantasy draft first - team will be built there
+        set({ gamePhase: 'draft' });
       },
 
       initializeGame: (userTeamIndex: number) => {

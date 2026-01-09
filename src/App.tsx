@@ -10,11 +10,12 @@ import { ScoutingCenter } from './components/Scouting/ScoutingCenter';
 import { DraftPage } from './components/Draft/DraftPage';
 import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 import { StartScreen, FranchiseIntro, GMNameInput } from './components/intro';
+import { FantasyDraft } from './components/Draft/FantasyDraft';
 
 type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
 
 function App() {
-  const { gamePhase, teams, userTeamId, ownerType } = useGameStore();
+  const { gamePhase, teams, userTeamId, ownerType, setPhase, initializeGame } = useGameStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
 
   const userTeam = teams.find(t => t.info.id === userTeamId);
@@ -27,6 +28,16 @@ function App() {
       return <FranchiseIntro />;
     case 'nameInput':
       return <GMNameInput />;
+    case 'draft':
+      return (
+        <FantasyDraft
+          onComplete={() => {
+            // Initialize game after draft is complete
+            initializeGame(3);
+            setPhase('desk');
+          }}
+        />
+      );
     case 'desk':
       // Continue to main game
       break;
