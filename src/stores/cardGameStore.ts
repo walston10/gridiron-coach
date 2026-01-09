@@ -1120,13 +1120,13 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       down = 1;
       yardsToGo = 10;
     } else {
-      down = Math.min(4, down + 1) as Down;
-    }
-
-    // Check turnover on downs
-    if (down > 4) {
-      get().switchPossession('TURNOVER_ON_DOWNS');
-      return;
+      // Check turnover on downs BEFORE incrementing
+      // If we're on 4th down and didn't get the first down, it's a turnover
+      if (down === 4) {
+        get().switchPossession('TURNOVER_ON_DOWNS');
+        return;
+      }
+      down = (down + 1) as Down;
     }
 
     const yardsToEndzone = 100 - yardLine;

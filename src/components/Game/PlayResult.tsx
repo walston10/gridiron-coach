@@ -397,12 +397,14 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     );
   }
 
-  // Phase: DEFENSE REVEAL - Show what defense called
+  // Phase: OPPONENT PLAY REVEAL - Show what opponent called
   if (phase === 'defense_reveal') {
     // Get shade result from PlayResult if available
     const shadeResult = isPlayResult ? (result as PlayResult).shadeResult : undefined;
     return (
-      <DefenseRevealDisplay
+      <OpponentPlayRevealDisplay
+        isPlayerOffense={isPlayerOffense}
+        offensePlayType={offensePlayType}
         defenseCard={defenseCard}
         defenseShade={defenseShade}
         targetPosition={targetPosition}
@@ -1122,15 +1124,30 @@ const SnapPhaseDisplay: React.FC = () => {
 };
 
 // =============================================================================
-// DEFENSE REVEAL DISPLAY
+// OPPONENT PLAY REVEAL DISPLAY
 // =============================================================================
 
-interface DefenseRevealDisplayProps {
+interface OpponentPlayRevealDisplayProps {
+  isPlayerOffense: boolean;
+  offensePlayType?: OffensivePlayType;
   defenseCard?: DefensiveCard;
   defenseShade?: ShadePosition;
   targetPosition?: TargetPosition;
   shadeResult?: ShadeResult;
 }
+
+const OFFENSE_PLAY_LABELS: Record<string, string> = {
+  INSIDE_RUN: 'Inside Run',
+  OUTSIDE_RUN: 'Outside Run',
+  POWER_RUN: 'Power Run',
+  DRAW: 'Draw Play',
+  QB_RUN: 'QB Run',
+  SHORT_PASS: 'Short Pass',
+  MEDIUM_PASS: 'Medium Pass',
+  DEEP_PASS: 'Deep Pass',
+  SCREEN: 'Screen Pass',
+  PLAY_ACTION: 'Play Action',
+};
 
 const DEFENSE_PLAY_LABELS: Record<string, string> = {
   MAN_COVERAGE: 'Man Coverage',
@@ -1144,16 +1161,70 @@ const DEFENSE_PLAY_LABELS: Record<string, string> = {
   COVER_3: 'Cover 3',
 };
 
-const DefenseRevealDisplay: React.FC<DefenseRevealDisplayProps> = ({
+const OpponentPlayRevealDisplay: React.FC<OpponentPlayRevealDisplayProps> = ({
+  isPlayerOffense,
+  offensePlayType,
   defenseCard,
   defenseShade,
   targetPosition,
   shadeResult,
 }) => {
-  // Determine if shade was correct
+  // When player is on OFFENSE, show opponent's DEFENSE
+  // When player is on DEFENSE, show opponent's OFFENSE
+  const showingOpponentOffense = !isPlayerOffense;
+
+  // Determine if shade was correct (only relevant when player is on offense)
   const shadeMatched = shadeResult?.shadeMatched || shadeResult?.runShadeBonus;
   const shadeLabel = defenseShade && defenseShade !== 'NONE' ? defenseShade : null;
 
+  if (showingOpponentOffense) {
+    // Player is on defense - show what opponent's offense called
+    return (
+      <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
+        <div className="w-full max-w-md">
+          {/* Title */}
+          <div className="text-center mb-6">
+            <div className="text-sm text-gray-500 uppercase tracking-widest mb-2">
+              Opponent's Play Call
+            </div>
+            <div className="text-4xl">🏈</div>
+          </div>
+
+          {/* Offense Play Info */}
+          <div className="bg-gray-900/80 rounded-xl border-2 border-amber-500/50 p-6 animate-fadeIn">
+            {offensePlayType ? (
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-400">
+                  {OFFENSE_PLAY_LABELS[offensePlayType] || offensePlayType.replace(/_/g, ' ')}
+                </div>
+                <div className="text-sm text-gray-500 mt-2">
+                  {offensePlayType.includes('RUN') || offensePlayType === 'DRAW' || offensePlayType === 'QB_RUN'
+                    ? 'Running Play'
+                    : 'Passing Play'}
+                </div>
+                {targetPosition && (
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <span className="text-gray-400">Target: </span>
+                    <span className="text-amber-400 font-bold">{targetPosition}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center text-gray-400">
+                Offense is running...
+              </div>
+            )}
+          </div>
+
+          {/* Flash animation overlay */}
+          <div className="absolute inset-0 bg-amber-500/10 animate-ping pointer-events-none"
+               style={{ animationDuration: '0.5s', animationIterationCount: '1' }} />
+        </div>
+      </div>
+    );
+  }
+
+  // Player is on offense - show opponent's defense (original behavior)
   return (
     <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
       <div className="w-full max-w-md">
