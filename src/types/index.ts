@@ -73,18 +73,6 @@ export {
   canBeInjured,
 } from './Player';
 
-// =============================================================================
-// LEGACY GAME TYPES (from Game.ts - used by GameDay components)
-// =============================================================================
-export type {
-  GameState,
-  Down,
-  FieldPosition,
-  GameClock,
-  TeamGameState,
-  BallCarrier,
-  LiveGame,
-} from './Game';
 
 // =============================================================================
 // LEGACY TEAM TYPES (from Team.ts)
@@ -165,9 +153,6 @@ export type * from './CPU';
 
 // Gameplay types (used by engine)
 export type * from './gameplay.types';
-
-// GameSim types
-export type * from './GameSim';
 
 // Substitution types
 export type * from './Substitution';
