@@ -1,123 +1,96 @@
 // src/components/Game/CardGameView.tsx
-// FULLY WIRED - connects to real stores and engines
+// New playbook-based card game UI
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useSimpleCardGameStore, type DefenseCard } from '../../stores/simpleCardGameStore';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  useSimpleCardGameStore,
+  type DefenseCard,
+  type BasePlay,
+  type SignatureCard,
+} from '../../stores/simpleCardGameStore';
 import { useGameStore } from '../../stores/gameStore';
-import { generateDeckFromRoster } from '../../engine/deckGenerator';
 import { generateAIRoster } from '../../utils/playerGenerator';
 
 export const CardGameView: React.FC = () => {
   const { draftedRoster, userTeamId } = useGameStore();
 
-  // Create fallback roster if none drafted (for testing or page refresh scenarios)
+  // Create fallback roster if none drafted
   const gameRoster = useMemo(() => {
     if (draftedRoster) return draftedRoster;
-    // Generate a fallback roster if none exists
     return generateAIRoster(userTeamId || 'player', 'AVERAGE');
   }, [draftedRoster, userTeamId]);
 
   // Get state from card game store
   const {
     gameState,
-    hand,
+    playbook,
+    offensiveModifiers,
+    dirtyModifiers,
     momentum,
     tendencies,
-    activeBonuses,
     defenseIntel,
-
-    // Actions
-    selectCard,
-    selectedCard,
-    snapBall,
-    selectCoverage,
-    selectAdjustment,
+    selectedCategory,
+    selectedPlay,
+    selectedModifier,
+    calculatedSuccess,
     selectedCoverage,
     selectedAdjustment,
-    setDefense,
-    drawCards,
-    useTimeout,
-    initializeGame,
-
-    // Derived
     isPlayerOnOffense,
-    canAffordCard,
+    lastPlayResult,
+    showingResult,
+
+    // Actions
+    initializeGame,
+    setCategory,
+    selectPlay,
+    selectModifier,
+    selectCoverage,
+    selectAdjustment,
+    snapBall,
+    setDefense,
+    dismissResult,
+    useTimeout,
+    canAffordPlay,
+    getTotalCost,
   } = useSimpleCardGameStore();
 
-  const [showMatchups, setShowMatchups] = useState(false);
-  const [showTendencies, setShowTendencies] = useState(false);
-  const [showResult, setShowResult] = useState(false);
-  const [lastResult, setLastResult] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showModifiers, setShowModifiers] = useState(false);
+  const [showDirtyModifiers, setShowDirtyModifiers] = useState(false);
 
   // Initialize game on mount
   useEffect(() => {
     if (!isInitialized && gameRoster) {
-      const deck = generateDeckFromRoster(gameRoster);
-      initializeGame(gameRoster, deck);
+      initializeGame(gameRoster);
       setIsInitialized(true);
     }
   }, [gameRoster, isInitialized, initializeGame]);
 
-  // Coverage options (base coverages are free)
+  // Coverage options
   const coverageOptions: DefenseCard[] = [
-    { id: 'cover0', name: 'Cover 0', type: 'coverage', cost: 0, description: 'All out blitz, no safety help', vsRun: 45, vsPass: 40 },
-    { id: 'cover1', name: 'Cover 1', type: 'coverage', cost: 0, description: 'Single high safety, man under', vsRun: 55, vsPass: 65 },
-    { id: 'cover2', name: 'Cover 2', type: 'coverage', cost: 0, description: 'Two deep safeties, zone under', vsRun: 50, vsPass: 70 },
+    { id: 'cover0', name: 'Cover 0', type: 'coverage', cost: 0, description: 'All out blitz', vsRun: 45, vsPass: 40 },
+    { id: 'cover1', name: 'Cover 1', type: 'coverage', cost: 0, description: 'Single high safety', vsRun: 55, vsPass: 65 },
+    { id: 'cover2', name: 'Cover 2', type: 'coverage', cost: 0, description: 'Two deep safeties', vsRun: 50, vsPass: 70 },
     { id: 'cover3', name: 'Cover 3', type: 'coverage', cost: 0, description: 'Three deep zones', vsRun: 55, vsPass: 68 },
     { id: 'cover4', name: 'Cover 4', type: 'coverage', cost: 0, description: 'Four deep quarters', vsRun: 48, vsPass: 75 },
-    { id: 'man', name: 'Man Coverage', type: 'coverage', cost: 0, description: 'Man-to-man across the board', vsRun: 52, vsPass: 68 },
+    { id: 'man', name: 'Man', type: 'coverage', cost: 0, description: 'Man-to-man', vsRun: 52, vsPass: 68 },
   ];
 
   const adjustmentOptions: DefenseCard[] = [
     { id: 'blitz', name: 'Blitz', type: 'adjustment', cost: 1, description: 'Send extra rusher', vsRun: -5, vsPass: -10, sackBonus: 15 },
     { id: 'spy', name: 'Spy', type: 'adjustment', cost: 1, description: 'LB watches QB', vsRun: 5, vsPass: 5, scrambleCounter: true },
-    { id: 'bracket', name: 'Bracket', type: 'adjustment', cost: 2, description: 'Double team WR1', vsRun: -5, vsPass: 15 },
-    { id: 'press', name: 'Press', type: 'adjustment', cost: 1, description: 'Jam at the line', vsRun: 0, vsPass: 8 },
+    { id: 'bracket', name: 'Bracket', type: 'adjustment', cost: 2, description: 'Double WR1', vsRun: -5, vsPass: 15 },
+    { id: 'contain', name: 'Contain', type: 'adjustment', cost: 1, description: 'Prevent outside runs', vsRun: 12, vsPass: 0 },
   ];
 
   const handleSnapBall = async () => {
-    if (!selectedCard) return;
-    if (!canAffordCard(selectedCard)) return;
-
-    const result = await snapBall(selectedCard);
-    setLastResult(result);
-    setShowResult(true);
-
-    // Auto-hide result after delay
-    setTimeout(() => {
-      setShowResult(false);
-      setLastResult(null);
-    }, 3000);
+    if (!selectedPlay || !canAffordPlay()) return;
+    await snapBall();
   };
 
   const handleSetDefense = async () => {
     if (!selectedCoverage) return;
-
-    const result = await setDefense(selectedCoverage, selectedAdjustment);
-    setLastResult(result);
-    setShowResult(true);
-
-    setTimeout(() => {
-      setShowResult(false);
-      setLastResult(null);
-    }, 3000);
-  };
-
-  const getCardBg = (type: string) => {
-    switch (type) {
-      case 'pass': return 'from-blue-900 via-blue-800 to-blue-950';
-      case 'run': return 'from-emerald-900 via-emerald-800 to-emerald-950';
-      case 'dirty': return 'from-purple-900 via-fuchsia-900 to-purple-950';
-      case 'special': return 'from-amber-900 via-amber-800 to-amber-950';
-      default: return 'from-gray-800 to-gray-900';
-    }
-  };
-
-  const getSuccessColor = (prob: number) => {
-    if (prob >= 65) return 'text-green-400';
-    if (prob >= 45) return 'text-yellow-400';
-    return 'text-red-400';
+    await setDefense();
   };
 
   const formatDown = (down: number) => {
@@ -136,10 +109,31 @@ export const CardGameView: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getSuccessColor = (rate: number) => {
+    if (rate >= 65) return 'text-green-400';
+    if (rate >= 45) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const getCategoryBg = (cat: string) => {
+    switch (cat) {
+      case 'short': return 'from-green-900 to-green-950';
+      case 'medium': return 'from-blue-900 to-blue-950';
+      case 'deep': return 'from-purple-900 to-purple-950';
+      case 'run': return 'from-amber-900 to-amber-950';
+      case 'trick': return 'from-pink-900 to-pink-950';
+      case 'signature': return 'from-yellow-700 to-yellow-900';
+      default: return 'from-slate-800 to-slate-900';
+    }
+  };
+
+  // Get plays for current category
+  const currentPlays = playbook[selectedCategory] || [];
+
   // Loading state
-  if (!isInitialized || hand.length === 0) {
+  if (!isInitialized) {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center font-sans text-white p-6">
+      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
         <div className="text-amber-500 text-2xl font-bold mb-4">KICKOFF</div>
         <div className="text-gray-400">Preparing game...</div>
       </div>
@@ -150,11 +144,11 @@ export const CardGameView: React.FC = () => {
   if (gameState.isGameOver) {
     const playerWon = gameState.playerScore > gameState.opponentScore;
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center font-sans text-white p-6">
+      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
         <div className={`text-4xl font-bold mb-4 ${playerWon ? 'text-green-400' : 'text-red-400'}`}>
           {playerWon ? 'VICTORY!' : 'DEFEAT'}
         </div>
-        <div className="text-6xl font-bold text-white mb-8">
+        <div className="text-6xl font-bold mb-8">
           {gameState.playerScore} - {gameState.opponentScore}
         </div>
         <div className="text-gray-500">Final Score</div>
@@ -162,44 +156,39 @@ export const CardGameView: React.FC = () => {
     );
   }
 
-  // PLAY RESULT OVERLAY
-  if (showResult && lastResult) {
+  // Play result overlay
+  if (showingResult && lastPlayResult) {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center font-sans text-white p-6">
-        <div className={`text-center ${lastResult.success ? 'text-green-400' : 'text-red-400'}`}>
+      <div
+        className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6 cursor-pointer"
+        onClick={dismissResult}
+      >
+        <div className={`text-center ${lastPlayResult.success ? 'text-green-400' : 'text-red-400'}`}>
           <div className="text-6xl mb-4">
-            {lastResult.touchdown ? '🏈🎉' : lastResult.turnover ? '😱' : lastResult.success ? '✓' : '✗'}
+            {lastPlayResult.touchdown ? '🏈🎉' : lastPlayResult.turnover ? '😱' : lastPlayResult.success ? '✓' : '✗'}
           </div>
           <div className="text-3xl font-black mb-2">
-            {lastResult.touchdown ? 'TOUCHDOWN!' :
-             lastResult.turnover ? (lastResult.interception ? 'INTERCEPTED!' : 'FUMBLE!') :
-             lastResult.sack ? 'SACKED!' :
-             lastResult.success ? 'COMPLETE!' : 'INCOMPLETE'}
+            {lastPlayResult.touchdown ? 'TOUCHDOWN!' :
+             lastPlayResult.turnover ? (lastPlayResult.interception ? 'INTERCEPTED!' : 'FUMBLE!') :
+             lastPlayResult.sack ? 'SACKED!' :
+             lastPlayResult.penalty ? 'FLAG!' :
+             lastPlayResult.success ? 'COMPLETE!' : 'INCOMPLETE'}
           </div>
           <div className="text-5xl font-black mb-4">
-            {lastResult.yards > 0 ? '+' : ''}{lastResult.yards} YDS
+            {lastPlayResult.yards > 0 ? '+' : ''}{lastPlayResult.yards} YDS
           </div>
-          {lastResult.breakaway && (
+          {lastPlayResult.breakaway && (
             <div className="text-purple-400 text-xl font-bold mb-2">💥 BREAKAWAY!</div>
           )}
-          {lastResult.firstDown && !lastResult.touchdown && (
+          {lastPlayResult.firstDown && !lastPlayResult.touchdown && (
             <div className="text-amber-400 text-xl font-bold mb-2">FIRST DOWN!</div>
           )}
-          <div className="text-slate-400 text-sm">
-            {lastResult.clockUsed && `Clock: -${lastResult.clockUsed}s`}
-          </div>
+          {lastPlayResult.freePlay && (
+            <div className="text-green-400 text-xl font-bold mb-2">FREE PLAY!</div>
+          )}
+          <div className="text-slate-400 text-sm mt-4">{lastPlayResult.description}</div>
         </div>
-
-        {/* Momentum change */}
-        {lastResult.momentumChange !== 0 && (
-          <div className={`mt-4 text-lg font-bold ${lastResult.momentumChange > 0 ? 'text-green-400' : 'text-red-400'}`}>
-            Momentum {lastResult.momentumChange > 0 ? '+' : ''}{lastResult.momentumChange}
-          </div>
-        )}
-
-        <div className="mt-8 text-slate-500 text-sm animate-pulse">
-          Continuing...
-        </div>
+        <div className="mt-8 text-slate-500 text-sm animate-pulse">Tap to continue</div>
       </div>
     );
   }
@@ -207,12 +196,11 @@ export const CardGameView: React.FC = () => {
   // OFFENSE VIEW
   if (isPlayerOnOffense) {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col font-sans text-white overflow-hidden">
-
-        {/* === TOP BAR === */}
+      <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden">
+        {/* Top Bar */}
         <div className="bg-black/90 px-3 py-2 flex justify-between items-center border-b border-amber-600/30">
           <div className="text-center">
-            <div className="text-amber-500 text-xs font-bold tracking-wider">YOU</div>
+            <div className="text-amber-500 text-xs font-bold">YOU</div>
             <div className="text-3xl font-black text-amber-400">{gameState.playerScore}</div>
           </div>
           <div className="text-center flex-1">
@@ -225,136 +213,234 @@ export const CardGameView: React.FC = () => {
             </div>
           </div>
           <div className="text-center">
-            <div className="text-red-500 text-xs font-bold tracking-wider">OPP</div>
+            <div className="text-red-500 text-xs font-bold">OPP</div>
             <div className="text-3xl font-black text-red-400">{gameState.opponentScore}</div>
           </div>
         </div>
 
-        {/* === ACTIVE BONUSES === */}
-        {activeBonuses.length > 0 && (
-          <div className="bg-green-950/40 px-3 py-2 border-b border-green-700/30">
-            <div className="flex gap-2 overflow-x-auto">
-              {activeBonuses.map((bonus, i) => (
-                <div key={i} className="flex-shrink-0 bg-green-900/50 border border-green-600/50 rounded px-2 py-1">
-                  <span className="text-green-400 text-xs font-bold">{bonus.name}</span>
-                  <span className="text-green-300 text-xs ml-1">+{bonus.value}%</span>
+        {/* Defense Intel */}
+        {defenseIntel && (
+          <div className="bg-red-950/50 px-3 py-2 border-b border-red-700/30">
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-red-400 text-xs">Defense: {defenseIntel.showing}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-slate-400">
+                  Run Rate: <span className={tendencies.runRate > 0.55 ? 'text-amber-400' : 'text-slate-300'}>
+                    {Math.round(tendencies.runRate * 100)}%
+                  </span>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* === MAIN FIELD AREA === */}
-        <div className="flex-1 relative bg-gradient-to-b from-slate-800/30 to-slate-900/50 overflow-hidden">
+        {/* Category Tabs */}
+        <div className="bg-slate-900/80 px-2 py-2 border-b border-slate-700 overflow-x-auto">
+          <div className="flex gap-1 min-w-max">
+            {(['short', 'medium', 'deep', 'run', 'trick', 'signature'] as const).map((cat) => {
+              const plays = playbook[cat];
+              const isActive = selectedCategory === cat;
+              const hasPlays = plays.length > 0;
 
-          {/* Defense Intel Panel */}
-          <div className="absolute top-2 left-2 right-2 bg-red-950/90 border border-red-800/50 rounded-lg p-2">
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="text-red-400 text-xs font-bold">DC: {defenseIntel?.coordinator || 'Unknown'}</div>
-                <div className="text-red-300 text-sm font-bold">{defenseIntel?.showing || 'Base Defense'}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-xs bg-red-900 text-red-300 px-1.5 py-0.5 rounded">{defenseIntel?.personality || 'BALANCED'}</span>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-red-500">READING YOU AS:</div>
-                <div className="text-red-300 text-sm font-bold">
-                  {tendencies.runRate > 0.6 ? '⚠️ Run Heavy' : tendencies.runRate < 0.4 ? '⚠️ Pass Heavy' : 'Balanced'}
-                </div>
-              </div>
-            </div>
+              return (
+                <button
+                  key={cat}
+                  onClick={() => hasPlays && setCategory(cat)}
+                  disabled={!hasPlays}
+                  className={`px-3 py-1.5 rounded text-xs font-bold uppercase transition-all ${
+                    isActive
+                      ? 'bg-amber-600 text-black'
+                      : hasPlays
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'bg-slate-900 text-slate-600 cursor-not-allowed'
+                  }`}
+                >
+                  {cat}
+                  {cat === 'signature' && plays.length > 0 && ' ★'}
+                </button>
+              );
+            })}
           </div>
+        </div>
 
-          {/* Collapsible Panels */}
-          <div className="absolute top-24 left-2 right-2 flex gap-2">
-            <button
-              onClick={() => { setShowMatchups(!showMatchups); setShowTendencies(false); }}
-              className={`flex-1 text-xs py-1.5 rounded border transition-all ${showMatchups ? 'bg-blue-900/80 border-blue-500 text-blue-300' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}
-            >
-              👥 Matchups
-            </button>
-            <button
-              onClick={() => { setShowTendencies(!showTendencies); setShowMatchups(false); }}
-              className={`flex-1 text-xs py-1.5 rounded border transition-all ${showTendencies ? 'bg-amber-900/80 border-amber-500 text-amber-300' : 'bg-slate-800/80 border-slate-600 text-slate-400'}`}
-            >
-              📊 Tendencies
-            </button>
-          </div>
+        {/* Play Selection */}
+        <div className="flex-1 overflow-y-auto p-2">
+          <div className="grid grid-cols-2 gap-2">
+            {currentPlays.map((play: BasePlay | SignatureCard) => {
+              const isSelected = selectedPlay?.id === play.id;
+              const cost = play.baseCost + (selectedModifier?.cost || 0);
+              const canAfford = momentum.offense >= cost;
 
-          {/* Tendencies Panel */}
-          {showTendencies && (
-            <div className="absolute top-36 left-2 right-2 bg-slate-900/95 border border-amber-600/50 rounded-lg p-2 z-10">
-              <div className="text-xs text-amber-400 mb-2">⚠️ DEFENSE IS TRACKING</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-slate-800 rounded p-2">
-                  <div className="text-slate-500">Run Rate</div>
-                  <div className="text-amber-400 font-bold text-lg">{Math.round(tendencies.runRate * 100)}%</div>
-                </div>
-                <div className="bg-slate-800 rounded p-2">
-                  <div className="text-slate-500">Favored Target</div>
-                  <div className="text-amber-400 font-bold">{tendencies.favoredTarget || 'WR1'}</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Selected Card Detail */}
-          {selectedCard && !showMatchups && !showTendencies && (
-            <div className="absolute top-36 left-2 right-2 bg-slate-900/95 border border-amber-500/50 rounded-lg p-3 z-10">
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <div className="text-amber-400 font-bold text-lg">{selectedCard.name}</div>
-                  {selectedCard.target && (
-                    <div className="text-slate-400 text-sm">{selectedCard.target}</div>
-                  )}
-                </div>
-                <div className="text-right">
-                  <div className={`text-2xl font-black ${getSuccessColor(selectedCard.successRate)}`}>
-                    {selectedCard.successRate}%
+              return (
+                <button
+                  key={play.id}
+                  onClick={() => selectPlay(isSelected ? null : play)}
+                  disabled={!canAfford && !isSelected}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    isSelected
+                      ? 'bg-amber-900/80 border-amber-500 ring-2 ring-amber-400'
+                      : canAfford
+                        ? `bg-gradient-to-br ${getCategoryBg(selectedCategory)} border-slate-600 hover:border-slate-500`
+                        : 'bg-slate-900/50 border-slate-700 opacity-50'
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <div className="text-white font-bold text-sm">{play.name}</div>
+                    <div className="text-amber-400 text-xs font-bold">{play.baseCost}⚡</div>
                   </div>
-                  <div className="text-slate-500 text-xs">Success Rate</div>
-                </div>
-              </div>
-
-              {/* Outcome Range */}
-              <div className="bg-slate-800 rounded p-2 mb-2">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <span className="text-slate-500 text-xs">Yards: </span>
-                    <span className="text-white font-bold">{selectedCard.yardRange.min}-{selectedCard.yardRange.max}</span>
-                  </div>
-                  {selectedCard.breakawayChance > 5 && (
-                    <div className="text-right">
-                      <span className="text-slate-500 text-xs">Breakaway: </span>
-                      <span className="text-purple-400 font-bold">{selectedCard.breakawayChance}%</span>
+                  <div className="text-slate-400 text-xs mb-2">{play.description}</div>
+                  <div className="flex justify-between items-center">
+                    <div className={`text-lg font-black ${getSuccessColor(play.baseSuccess || 50)}`}>
+                      {play.baseSuccess}%
                     </div>
-                  )}
-                </div>
+                    <div className="text-slate-500 text-xs">
+                      {play.yardRange?.min}-{play.yardRange?.max} yds
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Modifier Selection (collapsible) */}
+        <div className="bg-slate-900/80 border-t border-slate-700">
+          <button
+            onClick={() => setShowModifiers(!showModifiers)}
+            className="w-full px-3 py-2 flex justify-between items-center text-xs"
+          >
+            <span className="text-slate-400 font-bold uppercase">
+              Modifiers {selectedModifier ? `(${selectedModifier.name})` : ''}
+            </span>
+            <span className="text-slate-500">{showModifiers ? '▼' : '▶'}</span>
+          </button>
+
+          {showModifiers && (
+            <div className="px-2 pb-2 space-y-2">
+              {/* Clean Modifiers */}
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                <button
+                  onClick={() => selectModifier(null)}
+                  className={`flex-shrink-0 px-2 py-1 rounded text-xs ${
+                    !selectedModifier ? 'bg-slate-600 text-white' : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  None
+                </button>
+                {offensiveModifiers.map((mod) => {
+                  const totalCost = (selectedPlay?.baseCost || 0) + mod.cost;
+                  const canAfford = momentum.offense >= totalCost;
+                  const isSelected = selectedModifier?.id === mod.id;
+
+                  return (
+                    <button
+                      key={mod.id}
+                      onClick={() => canAfford && selectModifier(isSelected ? null : mod)}
+                      disabled={!canAfford}
+                      className={`flex-shrink-0 px-2 py-1 rounded text-xs ${
+                        isSelected
+                          ? 'bg-blue-600 text-white'
+                          : canAfford
+                            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                            : 'bg-slate-900 text-slate-600'
+                      }`}
+                    >
+                      {mod.icon} {mod.name} ({mod.cost}⚡)
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Warnings */}
-              {selectedCard.intRisk && selectedCard.intRisk > 5 && (
-                <div className="bg-red-900/50 border border-red-600/50 rounded p-2 mb-2 text-xs">
-                  <span className="text-red-400 font-bold">🎲 INT Risk: {selectedCard.intRisk}%</span>
+              {/* Dirty Modifiers Toggle */}
+              <button
+                onClick={() => setShowDirtyModifiers(!showDirtyModifiers)}
+                className="text-xs text-purple-400 hover:text-purple-300"
+              >
+                {showDirtyModifiers ? '▼' : '▶'} Dirty Plays ({gameState.heat}% heat)
+              </button>
+
+              {showDirtyModifiers && (
+                <div className="flex gap-1 overflow-x-auto pb-1">
+                  {dirtyModifiers.map((mod) => {
+                    const totalCost = (selectedPlay?.baseCost || 0) + mod.cost;
+                    const canAfford = momentum.offense >= totalCost;
+                    const isSelected = selectedModifier?.id === mod.id;
+
+                    return (
+                      <button
+                        key={mod.id}
+                        onClick={() => canAfford && selectModifier(isSelected ? null : mod)}
+                        disabled={!canAfford}
+                        className={`flex-shrink-0 px-2 py-1 rounded text-xs border ${
+                          isSelected
+                            ? 'bg-purple-600 border-purple-400 text-white'
+                            : canAfford
+                              ? 'bg-purple-900/50 border-purple-700 text-purple-300 hover:bg-purple-800/50'
+                              : 'bg-slate-900 border-slate-700 text-slate-600'
+                        }`}
+                      >
+                        {mod.icon} {mod.name} ({mod.cost}⚡)
+                        <span className="ml-1 text-yellow-500">⚠️</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-
-              {/* Action Button */}
-              <button
-                className="w-full bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black font-black py-3 rounded-lg text-lg transition-all active:scale-95"
-                onClick={handleSnapBall}
-              >
-                ⚡ SNAP BALL
-              </button>
             </div>
           )}
         </div>
 
-        {/* === MOMENTUM BAR === */}
+        {/* Selected Play Preview */}
+        {selectedPlay && calculatedSuccess && (
+          <div className="bg-slate-900/95 border-t border-amber-600/50 p-3">
+            <div className="flex justify-between items-start mb-2">
+              <div>
+                <div className="text-amber-400 font-bold text-lg">
+                  {selectedPlay.name}
+                  {selectedModifier && <span className="text-blue-400 ml-2">+ {selectedModifier.name}</span>}
+                </div>
+                <div className="text-slate-400 text-xs">
+                  Cost: {getTotalCost()}⚡ • Yards: {selectedPlay.yardRange?.min}-{selectedPlay.yardRange?.max}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`text-3xl font-black ${getSuccessColor(calculatedSuccess.finalSuccess)}`}>
+                  {calculatedSuccess.finalSuccess}%
+                </div>
+                <div className="text-slate-500 text-xs">(base {calculatedSuccess.baseSuccess}%)</div>
+              </div>
+            </div>
+
+            {/* Breakdown */}
+            {calculatedSuccess.breakdown.length > 1 && (
+              <div className="text-xs text-slate-400 mb-2 max-h-16 overflow-y-auto">
+                {calculatedSuccess.breakdown.slice(1).map((item, i) => (
+                  <div key={i}>{item}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Risks */}
+            <div className="flex gap-2 text-xs mb-3">
+              {selectedPlay.baseIntRisk && selectedPlay.baseIntRisk > 5 && (
+                <span className="text-red-400">INT: {selectedPlay.baseIntRisk}%</span>
+              )}
+              {selectedPlay.baseFumbleRisk && selectedPlay.baseFumbleRisk > 3 && (
+                <span className="text-orange-400">FUM: {selectedPlay.baseFumbleRisk}%</span>
+              )}
+              {selectedPlay.baseBreakaway && selectedPlay.baseBreakaway > 15 && (
+                <span className="text-purple-400">Break: {selectedPlay.baseBreakaway}%</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Momentum Bar */}
         <div className="bg-black/90 px-4 py-2 border-t border-slate-700">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-slate-500 font-bold tracking-wider">MOMENTUM</span>
+            <span className="text-xs text-slate-500 font-bold">MOMENTUM</span>
             <span className="text-xs text-amber-400 font-bold">{momentum.offense}/{momentum.max}</span>
           </div>
           <div className="flex gap-1">
@@ -367,63 +453,28 @@ export const CardGameView: React.FC = () => {
           </div>
         </div>
 
-        {/* === CARD HAND === */}
-        <div className="bg-gradient-to-t from-black via-slate-900 to-slate-800 px-2 pt-3 pb-4 border-t border-slate-600">
-          <div className="flex gap-2 overflow-x-auto pb-2 px-1">
-            {hand.map((card) => {
-              const affordable = canAffordCard(card);
-              return (
-                <div
-                  key={card.id}
-                  onClick={() => affordable && selectCard(card)}
-                  className={`
-                    flex-shrink-0 w-24 rounded-xl overflow-hidden cursor-pointer transition-all duration-200 shadow-lg
-                    ${selectedCard?.id === card.id ? 'ring-2 ring-amber-400 -translate-y-3 scale-105 shadow-amber-500/30' : ''}
-                    ${!affordable ? 'opacity-40 grayscale' : 'hover:-translate-y-1 hover:shadow-xl'}
-                  `}
-                >
-                  {/* Card Top */}
-                  <div className={`bg-gradient-to-br ${getCardBg(card.type)} p-2 relative`}>
-                    <div className="absolute top-1 right-1 bg-black/60 backdrop-blur rounded-full w-6 h-6 flex items-center justify-center border border-amber-500/50">
-                      <span className="text-amber-400 text-sm font-black">{card.cost}</span>
-                    </div>
-                    <div className="text-white font-bold text-xs mt-4 leading-tight">{card.name}</div>
-                    <div className="text-2xl mt-1">
-                      {card.type === 'pass' ? '🏈' : card.type === 'run' ? '💨' : card.type === 'dirty' ? '💀' : '⭐'}
-                    </div>
-                  </div>
-
-                  {/* Card Bottom */}
-                  <div className="bg-slate-950 p-2">
-                    <div className={`text-center font-black text-lg ${getSuccessColor(card.successRate)}`}>
-                      {card.successRate}%
-                    </div>
-                    <div className="text-slate-400 text-xs text-center">
-                      {card.yardRange.min}-{card.yardRange.max} yds
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-2 mt-2 px-1">
+        {/* Action Button */}
+        <div className="bg-black/90 px-4 py-4 border-t border-slate-700">
+          <div className="flex gap-2 mb-2">
             <button
               onClick={() => useTimeout('player')}
               disabled={gameState.playerTimeouts <= 0}
-              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs py-2.5 rounded-lg transition-colors border border-slate-600 disabled:opacity-50"
+              className="flex-1 bg-slate-800 text-slate-300 text-xs py-2 rounded disabled:opacity-50"
             >
-              ⏱️ TIMEOUT ({gameState.playerTimeouts})
-            </button>
-            <button
-              onClick={() => drawCards(2)}
-              disabled={momentum.offense < 2}
-              className="flex-1 bg-red-900/80 hover:bg-red-800 text-red-300 text-xs py-2.5 rounded-lg transition-colors border border-red-700 disabled:opacity-50"
-            >
-              🃏 DRAW +2 (2🔥)
+              ⏱️ Timeout ({gameState.playerTimeouts})
             </button>
           </div>
+          <button
+            onClick={handleSnapBall}
+            disabled={!selectedPlay || !canAffordPlay()}
+            className={`w-full py-4 rounded-xl text-lg font-black transition-all active:scale-95 ${
+              selectedPlay && canAffordPlay()
+                ? 'bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-black'
+                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+            }`}
+          >
+            ⚡ SNAP BALL
+          </button>
         </div>
       </div>
     );
@@ -431,12 +482,11 @@ export const CardGameView: React.FC = () => {
 
   // DEFENSE VIEW
   return (
-    <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col font-sans text-white overflow-hidden">
-
-      {/* === TOP BAR === */}
+    <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden">
+      {/* Top Bar */}
       <div className="bg-black/90 px-3 py-2 flex justify-between items-center border-b border-red-600/30">
         <div className="text-center">
-          <div className="text-amber-500 text-xs font-bold tracking-wider">YOU</div>
+          <div className="text-amber-500 text-xs font-bold">YOU</div>
           <div className="text-3xl font-black text-amber-400">{gameState.playerScore}</div>
         </div>
         <div className="text-center flex-1">
@@ -447,35 +497,35 @@ export const CardGameView: React.FC = () => {
           </div>
         </div>
         <div className="text-center">
-          <div className="text-red-500 text-xs font-bold tracking-wider">OPP</div>
+          <div className="text-red-500 text-xs font-bold">OPP</div>
           <div className="text-3xl font-black text-red-400">{gameState.opponentScore}</div>
         </div>
       </div>
 
-      {/* === OPPONENT INTEL === */}
+      {/* Opponent Tendencies */}
       <div className="bg-red-950/50 px-3 py-2 border-b border-red-700/30">
         <div className="text-xs text-red-400 mb-1">OPPONENT TENDENCIES</div>
         <div className="flex gap-3 text-xs">
           <div>
             <span className="text-slate-500">Run Rate: </span>
-            <span className="text-red-300 font-bold">{Math.round((tendencies.opponentRunRate || 0.5) * 100)}%</span>
+            <span className="text-red-300 font-bold">{Math.round(tendencies.opponentRunRate * 100)}%</span>
           </div>
           <div>
             <span className="text-slate-500">Prediction: </span>
             <span className="text-amber-300 font-bold">
-              {(tendencies.opponentRunRate || 0.5) > 0.5 ? 'Likely Run' : 'Likely Pass'}
+              {tendencies.opponentRunRate > 0.5 ? 'Likely Run' : 'Likely Pass'}
             </span>
           </div>
         </div>
       </div>
 
-      {/* === MAIN AREA === */}
+      {/* Defense Selection */}
       <div className="flex-1 overflow-y-auto px-3 py-4">
         {/* Coverage Selection */}
         <div className="mb-4">
-          <div className="text-xs text-slate-400 mb-2 font-bold tracking-wider">SELECT COVERAGE</div>
+          <div className="text-xs text-slate-400 mb-2 font-bold uppercase">Select Coverage</div>
           <div className="grid grid-cols-2 gap-2">
-            {coverageOptions.map(card => (
+            {coverageOptions.map((card) => (
               <button
                 key={card.id}
                 onClick={() => selectCoverage(card)}
@@ -498,9 +548,9 @@ export const CardGameView: React.FC = () => {
 
         {/* Adjustment Selection */}
         <div className="mb-4">
-          <div className="text-xs text-slate-400 mb-2 font-bold tracking-wider">ADD ADJUSTMENT (Optional)</div>
+          <div className="text-xs text-slate-400 mb-2 font-bold uppercase">Add Adjustment (Optional)</div>
           <div className="grid grid-cols-2 gap-2">
-            {adjustmentOptions.map(card => {
+            {adjustmentOptions.map((card) => {
               const canAfford = momentum.defense >= card.cost;
               return (
                 <button
@@ -517,7 +567,7 @@ export const CardGameView: React.FC = () => {
                 >
                   <div className="flex justify-between items-start">
                     <div className="text-white font-bold text-sm">{card.name}</div>
-                    <div className="text-amber-400 text-xs font-bold">{card.cost}🔥</div>
+                    <div className="text-amber-400 text-xs font-bold">{card.cost}⚡</div>
                   </div>
                   <div className="text-slate-400 text-xs">{card.description}</div>
                 </button>
@@ -538,10 +588,10 @@ export const CardGameView: React.FC = () => {
         )}
       </div>
 
-      {/* === MOMENTUM BAR === */}
+      {/* Momentum Bar */}
       <div className="bg-black/90 px-4 py-2 border-t border-slate-700">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-slate-500 font-bold tracking-wider">DEF MOMENTUM</span>
+          <span className="text-xs text-slate-500 font-bold">DEF MOMENTUM</span>
           <span className="text-xs text-red-400 font-bold">{momentum.defense}/{momentum.max}</span>
         </div>
         <div className="flex gap-1">
@@ -554,12 +604,12 @@ export const CardGameView: React.FC = () => {
         </div>
       </div>
 
-      {/* === ACTION BUTTONS === */}
+      {/* Action Button */}
       <div className="bg-black/90 px-4 py-4 border-t border-slate-700">
         <button
           onClick={() => useTimeout('player')}
           disabled={gameState.playerTimeouts <= 0}
-          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg transition-colors border border-slate-600 mb-2 disabled:opacity-50"
+          className="w-full bg-slate-800 text-slate-300 py-2.5 rounded-lg mb-2 disabled:opacity-50"
         >
           ⏱️ Timeout ({gameState.playerTimeouts})
         </button>
