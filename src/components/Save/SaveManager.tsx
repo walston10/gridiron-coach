@@ -11,19 +11,23 @@ import { ExportImportModal } from './ExportImportModal';
 import { STORAGE_LIMITS } from '../../types/save.types';
 
 interface SaveManagerProps {
-  // Callbacks
-  onLoadSave: (saveId: string) => void;
-  onNewGame: () => void;
+  // Callbacks - either old style or new style
+  onLoadSave?: (saveId: string) => void;
+  onNewGame?: () => void;
   onBack?: () => void;
+  onClose?: () => void;
+  onLoadComplete?: () => void;
 
-  // Optional: show title screen mode vs in-game menu mode
-  mode?: 'title' | 'menu';
+  // Mode: 'title' for start screen, 'menu' for in-game, 'load' for load-only
+  mode?: 'title' | 'menu' | 'load';
 }
 
 export const SaveManager: React.FC<SaveManagerProps> = ({
   onLoadSave,
   onNewGame,
   onBack,
+  onClose,
+  onLoadComplete,
   mode = 'title',
 }) => {
   const {
@@ -59,8 +63,15 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
     const result = await loadSave(saveId);
 
     if (result.success && result.save) {
-      onLoadSave(saveId);
+      onLoadSave?.(saveId);
+      onLoadComplete?.();
     }
+  };
+
+  // Handle back/close
+  const handleBack = () => {
+    onBack?.();
+    onClose?.();
   };
 
   // Handle delete
@@ -108,6 +119,9 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
     slots.push(null as unknown as typeof saves[0]);
   }
 
+  const showBackButton = onBack || onClose;
+  const isLoadOnly = mode === 'load';
+
   return (
     <div className={`${mode === 'title' ? 'min-h-screen bg-gray-900' : ''} p-6`}>
       {/* Header */}
@@ -115,7 +129,7 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-white">
-              {mode === 'title' ? 'ILLEGAL MOTION' : 'Save / Load Game'}
+              {mode === 'title' ? 'ILLEGAL MOTION' : isLoadOnly ? 'Load Game' : 'Save / Load Game'}
             </h1>
             {mode === 'title' && (
               <p className="text-gray-400 mt-1">Select a save or start a new game</p>
@@ -129,9 +143,9 @@ export const SaveManager: React.FC<SaveManagerProps> = ({
             >
               Import Save
             </button>
-            {onBack && (
+            {showBackButton && (
               <button
-                onClick={onBack}
+                onClick={handleBack}
                 className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded"
               >
                 Back
