@@ -638,7 +638,7 @@ const OffensivePlayUI: React.FC<{
                     <span>{mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}</span>
                     {effect.momentumCost > 0 && (
                       <span className={`ml-1 ${canAfford ? 'text-amber-400' : 'text-red-400'}`}>
-                        -{effect.momentumCost}
+                        ⚡{effect.momentumCost}
                       </span>
                     )}
                   </button>
