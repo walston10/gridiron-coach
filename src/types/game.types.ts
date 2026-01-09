@@ -1180,6 +1180,396 @@ export interface WeatherEffect {
 }
 
 // =============================================================================
+// STADIUM EVENTS (Pregame Modifier)
+// =============================================================================
+
+/**
+ * Stadium events that affect game atmosphere and mechanics.
+ * Selected during pregame card reveal.
+ */
+export type StadiumEvent =
+  | 'REGULAR_GAME'        // Standard game, no special effects
+  | 'PRIMETIME'           // National TV spotlight, momentum swings amplified
+  | 'PACKED_HOUSE'        // Full stadium, home team bonus
+  | 'EMPTY_STADIUM'       // Empty stands, no crowd noise advantage
+  | 'HOSTILE_ENVIRONMENT' // Hostile road crowd, offense penalties more likely
+  | 'THURSDAY_NIGHT'      // Short week, all fatigue starts higher
+  | 'LONDON_GAME'         // International, both teams slightly fatigued
+  | 'PLAYOFF_ATMOSPHERE'  // High stakes, clutch moments amplified
+  | 'NEUTRAL_SITE'        // No home field advantage
+;
+
+/**
+ * Stadium event configuration with effects on gameplay.
+ */
+export interface StadiumConfig {
+  event: StadiumEvent;
+  description: string;
+  flavorText: string;
+  homeBonus: number;           // % bonus for home team (negative = penalty)
+  awayBonus: number;           // % bonus for away team
+  momentumMultiplier: number;  // How much momentum swings are amplified (1.0 = normal)
+  fatigueModifier: number;     // Starting fatigue adjustment (0 = none)
+  clutchMultiplier: number;    // Multiplier for clutch play bonuses (1.0 = normal)
+  falseStartRisk: number;      // Additional false start chance for away team
+}
+
+export const STADIUM_CONFIGS: Record<StadiumEvent, StadiumConfig> = {
+  REGULAR_GAME: {
+    event: 'REGULAR_GAME',
+    description: 'Standard Game',
+    flavorText: 'A regular season matchup under the lights.',
+    homeBonus: 3,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 0,
+  },
+  PRIMETIME: {
+    event: 'PRIMETIME',
+    description: 'Primetime Spotlight',
+    flavorText: 'The whole nation is watching. Every play matters more.',
+    homeBonus: 5,
+    awayBonus: 0,
+    momentumMultiplier: 1.4,  // 40% bigger momentum swings
+    fatigueModifier: 0,
+    clutchMultiplier: 1.3,    // Clutch plays worth 30% more
+    falseStartRisk: 2,
+  },
+  PACKED_HOUSE: {
+    event: 'PACKED_HOUSE',
+    description: 'Sold Out Stadium',
+    flavorText: 'The 12th man is here. Defense feeds off the energy.',
+    homeBonus: 8,
+    awayBonus: -2,
+    momentumMultiplier: 1.2,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 4,        // Crowd noise causes communication issues
+  },
+  EMPTY_STADIUM: {
+    event: 'EMPTY_STADIUM',
+    description: 'Empty Stadium',
+    flavorText: 'Echo of cleats on concrete. No crowd energy.',
+    homeBonus: 0,
+    awayBonus: 0,
+    momentumMultiplier: 0.7,  // Momentum swings reduced
+    fatigueModifier: 0,
+    clutchMultiplier: 0.8,    // Less pressure = less clutch moments
+    falseStartRisk: 0,
+  },
+  HOSTILE_ENVIRONMENT: {
+    event: 'HOSTILE_ENVIRONMENT',
+    description: 'Hostile Road Crowd',
+    flavorText: 'The crowd is ruthless. Every mistake will be punished.',
+    homeBonus: 10,
+    awayBonus: -5,
+    momentumMultiplier: 1.5,
+    fatigueModifier: 5,       // Mental fatigue for away team
+    clutchMultiplier: 1.2,
+    falseStartRisk: 6,        // Very loud crowd
+  },
+  THURSDAY_NIGHT: {
+    event: 'THURSDAY_NIGHT',
+    description: 'Thursday Night Football',
+    flavorText: 'Short week. Both teams are running on fumes.',
+    homeBonus: 3,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 15,      // Both teams start fatigued
+    clutchMultiplier: 1.0,
+    falseStartRisk: 2,
+  },
+  LONDON_GAME: {
+    event: 'LONDON_GAME',
+    description: 'London International',
+    flavorText: 'Across the pond. Jet lag affects everyone.',
+    homeBonus: 0,             // No home team in London
+    awayBonus: 0,
+    momentumMultiplier: 0.9,
+    fatigueModifier: 10,      // Travel fatigue
+    clutchMultiplier: 1.0,
+    falseStartRisk: 3,        // Unfamiliar venue
+  },
+  PLAYOFF_ATMOSPHERE: {
+    event: 'PLAYOFF_ATMOSPHERE',
+    description: 'Playoff Atmosphere',
+    flavorText: 'Win or go home. Every possession is crucial.',
+    homeBonus: 5,
+    awayBonus: 0,
+    momentumMultiplier: 1.6,  // Huge momentum swings
+    fatigueModifier: 0,
+    clutchMultiplier: 1.5,    // Clutch plays massively rewarded
+    falseStartRisk: 3,
+  },
+  NEUTRAL_SITE: {
+    event: 'NEUTRAL_SITE',
+    description: 'Neutral Site',
+    flavorText: 'Even playing field. Pure football.',
+    homeBonus: 0,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 0,
+  },
+};
+
+// =============================================================================
+// PREGAME MODIFIERS (Combined State)
+// =============================================================================
+
+/**
+ * All pregame modifiers selected before kickoff.
+ * Replaces coin toss with card reveal mechanic.
+ */
+export interface PregameModifiers {
+  stadium: StadiumEvent;
+  weather: WeatherCondition;
+  referee: RefereeStyle;
+
+  // Who receives first (determined after reveals)
+  receivingFirst: 'HOME' | 'AWAY';
+}
+
+/**
+ * Pregame card for UI presentation.
+ * Each category shows as a face-down card that flips to reveal.
+ */
+export interface PregameCard {
+  category: 'STADIUM' | 'WEATHER' | 'REFEREE';
+  value: StadiumEvent | WeatherCondition | RefereeStyle;
+  isRevealed: boolean;
+  description: string;
+  effectsSummary: string[];
+}
+
+/**
+ * Create pregame cards for the reveal sequence.
+ */
+export function createPregameCards(modifiers: PregameModifiers): PregameCard[] {
+  const stadiumConfig = STADIUM_CONFIGS[modifiers.stadium];
+  const weatherEffect = WEATHER_EFFECTS[modifiers.weather];
+  const refereeConfig = REFEREE_STYLES[modifiers.referee];
+
+  return [
+    {
+      category: 'STADIUM',
+      value: modifiers.stadium,
+      isRevealed: false,
+      description: stadiumConfig.description,
+      effectsSummary: getStadiumEffectsSummary(stadiumConfig),
+    },
+    {
+      category: 'WEATHER',
+      value: modifiers.weather,
+      isRevealed: false,
+      description: getWeatherDescription(modifiers.weather),
+      effectsSummary: getWeatherEffectsSummary(weatherEffect, modifiers.weather),
+    },
+    {
+      category: 'REFEREE',
+      value: modifiers.referee,
+      isRevealed: false,
+      description: refereeConfig.description,
+      effectsSummary: getRefereeEffectsSummary(refereeConfig),
+    },
+  ];
+}
+
+/**
+ * Get summary strings for stadium effects.
+ */
+function getStadiumEffectsSummary(config: StadiumConfig): string[] {
+  const effects: string[] = [];
+
+  if (config.homeBonus > 0) effects.push(`Home +${config.homeBonus}% success`);
+  if (config.homeBonus < 0) effects.push(`Home ${config.homeBonus}% success`);
+  if (config.awayBonus !== 0) effects.push(`Away ${config.awayBonus > 0 ? '+' : ''}${config.awayBonus}% success`);
+  if (config.momentumMultiplier !== 1.0) {
+    const pct = Math.round((config.momentumMultiplier - 1.0) * 100);
+    effects.push(`Momentum swings ${pct > 0 ? '+' : ''}${pct}%`);
+  }
+  if (config.fatigueModifier > 0) effects.push(`+${config.fatigueModifier} starting fatigue`);
+  if (config.clutchMultiplier !== 1.0) {
+    const pct = Math.round((config.clutchMultiplier - 1.0) * 100);
+    effects.push(`Clutch bonus ${pct > 0 ? '+' : ''}${pct}%`);
+  }
+  if (config.falseStartRisk > 0) effects.push(`+${config.falseStartRisk}% false start risk (away)`);
+
+  if (effects.length === 0) effects.push('No special effects');
+  return effects;
+}
+
+/**
+ * Get human-readable weather description.
+ */
+function getWeatherDescription(weather: WeatherCondition): string {
+  const descriptions: Record<WeatherCondition, string> = {
+    CLEAR: 'Clear Skies',
+    RAIN: 'Rainy Conditions',
+    SNOW: 'Snow Game',
+    WIND: 'High Winds',
+    EXTREME_COLD: 'Freezing Cold',
+    EXTREME_HEAT: 'Extreme Heat',
+    DOME: 'Indoor Dome',
+  };
+  return descriptions[weather];
+}
+
+/**
+ * Get summary strings for weather effects.
+ */
+function getWeatherEffectsSummary(effect: WeatherEffect, weather: WeatherCondition): string[] {
+  const effects: string[] = [];
+
+  if (effect.passModifier !== 0) effects.push(`${effect.passModifier > 0 ? '+' : ''}${effect.passModifier}% passing`);
+  if (effect.runModifier !== 0) effects.push(`${effect.runModifier > 0 ? '+' : ''}${effect.runModifier}% rushing`);
+  if (effect.kickModifier !== 0) effects.push(`${effect.kickModifier > 0 ? '+' : ''}${effect.kickModifier}% kicking`);
+  if (effect.staminaDrain > 0) effects.push(`+${effect.staminaDrain}% stamina drain`);
+
+  if (effects.length === 0) {
+    if (weather === 'DOME') effects.push('Perfect conditions');
+    else effects.push('No weather effects');
+  }
+  return effects;
+}
+
+/**
+ * Get summary strings for referee effects.
+ */
+function getRefereeEffectsSummary(config: RefereeConfig): string[] {
+  const effects: string[] = [];
+
+  if (config.penaltyMultiplier !== 1.0) {
+    const pct = Math.round((config.penaltyMultiplier - 1.0) * 100);
+    effects.push(`${pct > 0 ? '+' : ''}${pct}% penalty frequency`);
+  }
+  if (config.homeTeamBias > 0) effects.push(`${Math.round(config.homeTeamBias * 100)}% home team bias`);
+  if (config.makeupCallChance > 0) effects.push(`${Math.round(config.makeupCallChance * 100)}% makeup call chance`);
+
+  if (effects.length === 0) effects.push('Calls the game straight');
+  return effects;
+}
+
+/**
+ * Randomly generate pregame modifiers.
+ * Weighted to make dramatic games more common.
+ */
+export function generateRandomPregameModifiers(): PregameModifiers {
+  // Stadium weights (dramatic events slightly less common)
+  const stadiumWeights: [StadiumEvent, number][] = [
+    ['REGULAR_GAME', 40],
+    ['PRIMETIME', 15],
+    ['PACKED_HOUSE', 12],
+    ['EMPTY_STADIUM', 3],
+    ['HOSTILE_ENVIRONMENT', 8],
+    ['THURSDAY_NIGHT', 8],
+    ['LONDON_GAME', 4],
+    ['PLAYOFF_ATMOSPHERE', 5],
+    ['NEUTRAL_SITE', 5],
+  ];
+
+  // Weather weights (clear most common)
+  const weatherWeights: [WeatherCondition, number][] = [
+    ['CLEAR', 35],
+    ['DOME', 25],
+    ['RAIN', 12],
+    ['WIND', 10],
+    ['SNOW', 6],
+    ['EXTREME_COLD', 6],
+    ['EXTREME_HEAT', 6],
+  ];
+
+  // Referee weights (normal most common)
+  const refereeWeights: [RefereeStyle, number][] = [
+    ['NORMAL', 50],
+    ['TIGHT', 15],
+    ['LOOSE', 15],
+    ['HOME_COOKING', 10],
+    ['MAKEUP_CALL', 10],
+  ];
+
+  return {
+    stadium: weightedRandomSelect(stadiumWeights),
+    weather: weightedRandomSelect(weatherWeights),
+    referee: weightedRandomSelect(refereeWeights),
+    receivingFirst: Math.random() < 0.5 ? 'HOME' : 'AWAY',
+  };
+}
+
+/**
+ * Helper for weighted random selection.
+ */
+function weightedRandomSelect<T>(weights: [T, number][]): T {
+  const totalWeight = weights.reduce((sum, [, w]) => sum + w, 0);
+  let random = Math.random() * totalWeight;
+
+  for (const [value, weight] of weights) {
+    random -= weight;
+    if (random <= 0) return value;
+  }
+
+  return weights[0][0]; // Fallback
+}
+
+/**
+ * Calculate combined effects from all pregame modifiers.
+ * Used by play resolver to apply bonuses/penalties.
+ */
+export interface CombinedPregameEffects {
+  // Success modifiers
+  homePassBonus: number;
+  homeRunBonus: number;
+  awayPassBonus: number;
+  awayRunBonus: number;
+
+  // Kicking
+  kickModifier: number;
+
+  // Fatigue/stamina
+  staminaDrainMultiplier: number;
+  startingFatigue: number;
+
+  // Momentum
+  momentumMultiplier: number;
+  clutchMultiplier: number;
+
+  // Penalties
+  penaltyMultiplier: number;
+  homeTeamPenaltyBias: number;  // Positive = more penalties on away team
+  makeupCallChance: number;
+  extraFalseStartRisk: number;
+}
+
+export function calculateCombinedEffects(modifiers: PregameModifiers): CombinedPregameEffects {
+  const stadium = STADIUM_CONFIGS[modifiers.stadium];
+  const weather = WEATHER_EFFECTS[modifiers.weather];
+  const referee = REFEREE_STYLES[modifiers.referee];
+
+  return {
+    homePassBonus: stadium.homeBonus + weather.passModifier,
+    homeRunBonus: stadium.homeBonus + weather.runModifier,
+    awayPassBonus: stadium.awayBonus + weather.passModifier,
+    awayRunBonus: stadium.awayBonus + weather.runModifier,
+
+    kickModifier: weather.kickModifier,
+
+    staminaDrainMultiplier: 1 + (weather.staminaDrain / 100),
+    startingFatigue: stadium.fatigueModifier,
+
+    momentumMultiplier: stadium.momentumMultiplier,
+    clutchMultiplier: stadium.clutchMultiplier,
+
+    penaltyMultiplier: referee.penaltyMultiplier,
+    homeTeamPenaltyBias: referee.homeTeamBias,
+    makeupCallChance: referee.makeupCallChance,
+    extraFalseStartRisk: stadium.falseStartRisk,
+  };
+}
+
+// =============================================================================
 // GAME SETTINGS
 // =============================================================================
 

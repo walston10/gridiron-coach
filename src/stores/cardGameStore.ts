@@ -29,6 +29,10 @@ import type {
   StaminaState,
   OffensiveModifier,
   RefereeStyle,
+  PregameModifiers,
+  PregameCard,
+  StadiumEvent,
+  CombinedPregameEffects,
 } from '../types/game.types';
 import {
   INITIAL_STAMINA,
@@ -36,6 +40,10 @@ import {
   updateStaminaAfterPlay,
   applyHalftimeRecovery,
   getStaminaEffectModifier,
+  generateRandomPregameModifiers,
+  createPregameCards,
+  calculateCombinedEffects,
+  STADIUM_CONFIGS,
 } from '../types/game.types';
 import type {
   Card,
@@ -238,6 +246,12 @@ export interface CardGameState {
   refereeStyle: RefereeStyle;
   playerIsHome: boolean;
 
+  // === Pregame System ===
+  pregameModifiers: PregameModifiers | null;
+  pregameCards: PregameCard[];
+  pregameEffects: CombinedPregameEffects | null;
+  pregamePhase: 'NOT_STARTED' | 'REVEALING' | 'COMPLETE';
+
   // === Stamina System ===
   playerStamina: StaminaState;
   opponentStamina: StaminaState;
@@ -417,6 +431,12 @@ interface CardGameActions {
   setFourthDownOffenseChoice: (choice: FourthDownCategory, isFaking?: boolean) => void;
   setFourthDownDefenseResponse: (response: FourthDownDefenseResponse) => void;
 
+  // === Pregame ===
+  initializePregame: () => void;
+  revealPregameCard: (index: number) => void;
+  completePregame: () => void;
+  getPregameEffects: () => CombinedPregameEffects | null;
+
   // === UI ===
   showTransition: (screen: TransitionScreen) => void;
   dismissTransition: () => void;
@@ -482,6 +502,10 @@ const initialState: CardGameState = {
   quarterMinutes: QUARTER_CONFIG.DEFAULT_MINUTES,
   refereeStyle: 'NORMAL',
   playerIsHome: true,
+  pregameModifiers: null,
+  pregameCards: [],
+  pregameEffects: null,
+  pregamePhase: 'NOT_STARTED',
   playerStamina: { ...INITIAL_STAMINA },
   opponentStamina: { ...INITIAL_STAMINA },
   lastPenaltyAgainst: null,
@@ -1407,6 +1431,82 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   },
 
   // =========================================================================
+  // PREGAME
+  // =========================================================================
+
+  initializePregame: () => {
+    // Generate random pregame modifiers
+    const modifiers = generateRandomPregameModifiers();
+
+    // Create face-down cards for reveal sequence
+    const cards = createPregameCards(modifiers);
+
+    // Calculate combined effects
+    const effects = calculateCombinedEffects(modifiers);
+
+    set({
+      pregameModifiers: modifiers,
+      pregameCards: cards,
+      pregameEffects: effects,
+      pregamePhase: 'REVEALING',
+      phase: 'PREGAME',
+      // Pre-set weather and referee from modifiers
+      weather: modifiers.weather,
+      refereeStyle: modifiers.referee,
+    });
+  },
+
+  revealPregameCard: (index) => {
+    set((state) => {
+      const newCards = [...state.pregameCards];
+      if (newCards[index]) {
+        newCards[index] = { ...newCards[index], isRevealed: true };
+      }
+      return { pregameCards: newCards };
+    });
+  },
+
+  completePregame: () => {
+    const state = get();
+    if (!state.pregameModifiers || !state.pregameEffects) return;
+
+    const modifiers = state.pregameModifiers;
+    const effects = state.pregameEffects;
+
+    // Apply starting fatigue from stadium effects
+    const startingFatigue = effects.startingFatigue;
+
+    set({
+      pregamePhase: 'COMPLETE',
+      phase: 'KICKOFF',
+      // Apply starting fatigue if any (Thursday Night, London Game, etc.)
+      playerState: {
+        ...state.playerState,
+        fatigue: startingFatigue,
+      },
+      opponentState: {
+        ...state.opponentState,
+        fatigue: startingFatigue,
+      },
+      // Set who receives first (determined during pregame)
+      possessionState: {
+        ...state.possessionState,
+        possession: modifiers.receivingFirst === 'HOME'
+          ? (state.playerIsHome ? 'player' : 'opponent')
+          : (state.playerIsHome ? 'opponent' : 'player'),
+        kickoffPending: true,
+        receivingNextHalf: modifiers.receivingFirst === 'HOME'
+          ? (state.playerIsHome ? 'opponent' : 'player')
+          : (state.playerIsHome ? 'player' : 'opponent'),
+      },
+    });
+  },
+
+  getPregameEffects: () => {
+    return get().pregameEffects;
+  },
+
+  // =========================================================================
   // UI
   // =========================================================================
 
@@ -1533,6 +1633,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     const isUserHome = state.playerIsHome;
     const userOnOffense = isPlayerOffense;
 
+    // Get pregame effects if available
+    const pregameEffects = state.pregameEffects;
+    const isHomeTeamOnOffense = state.playerIsHome === isPlayerOffense;
+
     return {
       offenseRoster: isPlayerOffense ? state.playerRoster : state.opponentRoster,
       defenseRoster: isPlayerOffense ? state.opponentRoster : state.playerRoster,
@@ -1553,6 +1657,9 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       refereeStyle: state.refereeStyle,
       isUserHome: isUserHome && userOnOffense, // User is home AND on offense
       lastPenaltyAgainst: state.lastPenaltyAgainst,
+      // Pregame effects context
+      pregameEffects: pregameEffects || undefined,
+      isHomeTeamOnOffense,
     };
   },
 }));

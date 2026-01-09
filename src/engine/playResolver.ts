@@ -36,6 +36,7 @@ import type {
   OffensiveModifier,
   PenaltyType,
   RefereeStyle,
+  CombinedPregameEffects,
 } from '../types/game.types';
 import {
   DEFAULT_PLAY_TARGETS,
@@ -130,6 +131,9 @@ export interface PlayContext {
   refereeStyle?: RefereeStyle;       // Current referee style
   isUserHome?: boolean;              // Is user playing as home team
   lastPenaltyAgainst?: 'OFFENSE' | 'DEFENSE' | null; // For makeup calls
+  // Pregame effects
+  pregameEffects?: CombinedPregameEffects; // Combined stadium/weather/referee effects
+  isHomeTeamOnOffense?: boolean;    // Is the home team currently on offense
 }
 
 export interface PlayResult {
@@ -172,6 +176,7 @@ export interface PlayBreakdown {
   shadeModifier: number;
   staminaModifier: number;
   modifierBonus: number;        // Pre-snap modifier effect
+  pregameModifier: number;      // Stadium/weather/referee combined effects
   finalSuccessChance: number;
   rolls: { name: string; target: number; result: number; success: boolean }[];
 }
@@ -726,6 +731,7 @@ export function resolveOffensivePlay(
       shadeModifier: 0,
       staminaModifier: 0,
       modifierBonus: 0,
+      pregameModifier: 0,
       finalSuccessChance: 0,
       rolls: [],
     };
@@ -759,6 +765,7 @@ export function resolveOffensivePlay(
     shadeModifier: 0,
     staminaModifier: 0,
     modifierBonus: 0,
+    pregameModifier: 0,
     finalSuccessChance: 0,
     rolls: [],
   };
@@ -806,6 +813,35 @@ export function resolveOffensivePlay(
     const weatherMod = isPass ? weatherEffect.passModifier : weatherEffect.runModifier;
     breakdown.weatherModifier = weatherMod;
     successChance += weatherMod;
+  }
+
+  // === Step 6.5: Apply pregame effects (Stadium + home/away) ===
+  if (context.pregameEffects) {
+    const effects = context.pregameEffects;
+    const isPass = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
+      offenseCard.playType
+    );
+    const isHomeOnOffense = context.isHomeTeamOnOffense ?? false;
+
+    // Apply home/away bonuses from stadium
+    let pregameMod = 0;
+    if (isHomeOnOffense) {
+      pregameMod = isPass ? effects.homePassBonus : effects.homeRunBonus;
+    } else {
+      pregameMod = isPass ? effects.awayPassBonus : effects.awayRunBonus;
+    }
+
+    // Note: Weather effects are already included in homePassBonus/etc in calculateCombinedEffects
+    // But we still want to apply the raw stadium bonus here (weather handled in Step 6)
+    // So subtract weather to avoid double-counting
+    if (context.weather) {
+      const weatherEffect = getWeatherEffect(context.weather);
+      const weatherMod = isPass ? weatherEffect.passModifier : weatherEffect.runModifier;
+      pregameMod -= weatherMod; // Remove weather since it's already applied
+    }
+
+    breakdown.pregameModifier = pregameMod;
+    successChance += pregameMod;
   }
 
   // === Step 7: Apply fatigue modifier ===

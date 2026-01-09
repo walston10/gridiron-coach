@@ -21,6 +21,7 @@ import { getAvailableModifiers, MODIFIER_EFFECTS, LOCKED_TARGET_PLAYS, DEFAULT_P
 
 // Lazy load the heavy game components
 import { PlayResultDisplay } from './PlayResult';
+import { PregamePresentation } from './PregamePresentation';
 
 // =============================================================================
 // TYPES
@@ -532,6 +533,14 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isPlayerOnOffense,
     setFourthDownOffenseChoice,
     setFourthDownDefenseResponse,
+    // Pregame
+    pregameModifiers,
+    pregameCards,
+    pregamePhase,
+    playerIsHome,
+    initializePregame,
+    revealPregameCard,
+    completePregame,
   } = useCardGameStore();
 
   const { draftedRoster, draftedDeck, userTeamId } = useGameStore();
@@ -539,31 +548,46 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   const [lastResult, setLastResult] = useState<PlayResult | FourthDownResult | null>(null);
 
-  // Initialize game on mount
+  // Track if we've started initialization
+  const [initStarted, setInitStarted] = useState(false);
+
+  // Initialize pregame on mount
   useEffect(() => {
-    if (!isInitialized && draftedRoster && draftedDeck) {
-      // Get opponent info
-      const currentGame = getCurrentUserGame();
-      const opponentId = currentGame
-        ? (currentGame.homeTeamId === userTeamId ? currentGame.awayTeamId : currentGame.homeTeamId)
-        : DEFAULT_TEAMS[0].info.id;
-
-      // Generate opponent roster and deck
-      const opponentRoster = generateAIRoster(opponentId, 'AVERAGE');
-      const opponentDeck = buildDeck(opponentRoster);
-
-      // Start the game (coin toss decides who receives)
-      const playerReceivesFirst = Math.random() > 0.5;
-
-      startGame(
-        draftedRoster,
-        opponentRoster,
-        draftedDeck,
-        opponentDeck,
-        playerReceivesFirst
-      );
+    if (!initStarted && !isInitialized && draftedRoster && draftedDeck && pregamePhase === 'NOT_STARTED') {
+      setInitStarted(true);
+      initializePregame();
     }
-  }, [isInitialized, draftedRoster, draftedDeck, userTeamId, getCurrentUserGame, startGame]);
+  }, [initStarted, isInitialized, draftedRoster, draftedDeck, pregamePhase, initializePregame]);
+
+  // Handle pregame completion - now start the actual game
+  const handlePregameComplete = useCallback(() => {
+    if (!draftedRoster || !draftedDeck || !pregameModifiers) return;
+
+    // Get opponent info
+    const currentGame = getCurrentUserGame();
+    const opponentId = currentGame
+      ? (currentGame.homeTeamId === userTeamId ? currentGame.awayTeamId : currentGame.homeTeamId)
+      : DEFAULT_TEAMS[0].info.id;
+
+    // Generate opponent roster and deck
+    const opponentRoster = generateAIRoster(opponentId, 'AVERAGE');
+    const generatedOpponentDeck = buildDeck(opponentRoster);
+
+    // Determine who receives based on pregame coin toss
+    const playerReceivesFirst = (pregameModifiers.receivingFirst === 'HOME') === playerIsHome;
+
+    // Complete pregame (applies starting fatigue etc)
+    completePregame();
+
+    // Start the game with pregame modifiers already applied
+    startGame(
+      draftedRoster,
+      opponentRoster,
+      draftedDeck,
+      generatedOpponentDeck,
+      playerReceivesFirst
+    );
+  }, [draftedRoster, draftedDeck, pregameModifiers, userTeamId, getCurrentUserGame, playerIsHome, completePregame, startGame]);
 
   // Handle snap ball (offensive play)
   const handleSnapBall = useCallback((card: OffensiveCard, target: TargetPosition, modifier: OffensiveModifier) => {
@@ -688,6 +712,19 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     console.log('XP choice:', choice);
     handleContinue();
   }, [handleContinue]);
+
+  // Pregame presentation
+  if (phase === 'PREGAME' && pregameCards.length > 0 && pregameModifiers) {
+    return (
+      <PregamePresentation
+        cards={pregameCards}
+        onReveal={revealPregameCard}
+        onComplete={handlePregameComplete}
+        receivingFirst={pregameModifiers.receivingFirst}
+        playerIsHome={playerIsHome}
+      />
+    );
+  }
 
   // Loading state
   if (!isInitialized) {
