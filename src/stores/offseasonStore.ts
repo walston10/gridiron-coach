@@ -20,7 +20,6 @@ import type {
   DraftClass,
   DraftPick,
   DraftSelection,
-  DraftProspect,
   CampReport,
   RosterCut,
   ResigningOffer,
@@ -28,7 +27,7 @@ import type {
   FreeAgentOffer,
 } from '../types/offseason.types';
 import { getNextPhase } from '../types/offseason.types';
-import type { Player, Contract } from '../types/player.types';
+import type { Contract } from '../types/player.types';
 
 // =============================================================================
 // STORE STATE & ACTIONS

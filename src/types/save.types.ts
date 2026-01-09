@@ -4,7 +4,7 @@
  * Defines the save game structure and metadata for local storage.
  */
 
-import type { FranchiseState, FranchiseSettings } from './franchise.types';
+import type { FranchiseState } from './franchise.types';
 import type { LiveGame } from './game.types';
 
 // =============================================================================

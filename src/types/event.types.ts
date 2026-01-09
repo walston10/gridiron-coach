@@ -135,6 +135,9 @@ export interface EventPrerequisites {
   requiresHighEgo?: boolean;         // Player with ego > 70
   requiresVice?: boolean;            // Player with vice > 60
 
+  // Financial requirements
+  minSlushFund?: number;          // Minimum slush fund balance
+
   // Situation requirements
   requiresPlayoffs?: boolean;
   requiresLastPlace?: boolean;
@@ -175,7 +178,7 @@ export interface EventChoice {
   requiresHeat?: number;              // Max heat to attempt
 
   // Tags
-  tags?: ('SHADY' | 'EXPENSIVE' | 'RISKY' | 'SAFE' | 'MORAL' | 'IMMORAL')[];
+  tags?: ('SHADY' | 'EXPENSIVE' | 'RISKY' | 'SAFE' | 'MORAL' | 'IMMORAL' | 'MONEY')[];
 
   // Follow-up
   triggersEvent?: string;             // Event ID to trigger later

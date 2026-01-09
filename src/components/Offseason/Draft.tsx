@@ -6,7 +6,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useOffseasonStore } from '../../stores/offseasonStore';
-import type { DraftProspect, DraftPick } from '../../types/offseason.types';
+import type { DraftProspect } from '../../types/offseason.types';
 import type { Position } from '../../types/player.types';
 
 interface DraftProps {

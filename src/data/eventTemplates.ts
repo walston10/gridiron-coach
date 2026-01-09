@@ -8,10 +8,8 @@
 import type {
   GameEvent,
   EventCategory,
-  EventCharacter,
   EventRarity,
   EventTag,
-  EventChoice,
 } from '../types/event.types';
 
 // =============================================================================

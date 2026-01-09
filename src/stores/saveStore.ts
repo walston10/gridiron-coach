@@ -121,7 +121,7 @@ interface SaveStoreState {
 // =============================================================================
 
 let lastSaveTimestamp = 0;
-let pendingAutoSave: NodeJS.Timeout | null = null;
+let pendingAutoSave: ReturnType<typeof setTimeout> | null = null;
 
 // =============================================================================
 // STORE
