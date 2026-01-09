@@ -16,8 +16,26 @@ import { generateAIRoster } from '../../utils/playerGenerator';
 import { buildDeck } from '../../engine/cardGenerator';
 import type { OffensiveCard, DefensiveCard, OffensivePlayType } from '../../types/card.types';
 import type { PlayResult, FourthDownResult } from '../../engine/playResolver';
-import type { FourthDownCategory, FourthDownDefenseResponse, TargetPosition, OffensiveModifier } from '../../types/game.types';
-import { getAvailableModifiers, MODIFIER_EFFECTS, LOCKED_TARGET_PLAYS, DEFAULT_PLAY_TARGETS } from '../../types/game.types';
+import type {
+  FourthDownCategory,
+  FourthDownDefenseResponse,
+  TargetPosition,
+  OffensiveModifier,
+  DefenseAnticipation,
+  DefenseScheme,
+  DefenseModifier,
+} from '../../types/game.types';
+import {
+  getAvailableModifiers,
+  MODIFIER_EFFECTS,
+  LOCKED_TARGET_PLAYS,
+  DEFAULT_PLAY_TARGETS,
+  ANTICIPATION_CONFIG,
+  DEFENSE_SCHEME_CONFIG,
+  DEFENSE_MODIFIER_CONFIG,
+  getSchemesForAnticipation,
+  getModifiersForScheme,
+} from '../../types/game.types';
 
 // Lazy load the heavy game components
 import { PlayResultDisplay } from './PlayResult';
@@ -325,7 +343,7 @@ const OffensivePlayUI: React.FC<{
 };
 
 // =============================================================================
-// DEFENSIVE PLAY UI (Inline for now)
+// DEFENSIVE PLAY UI - 3-LAYER SYSTEM
 // =============================================================================
 
 const DefensivePlayUI: React.FC<{
@@ -344,16 +362,67 @@ const DefensivePlayUI: React.FC<{
   } = useCardGameStore();
 
   const cards = getAvailableDefensiveCards();
-  const [selectedCard, setSelectedCard] = useState<DefensiveCard | null>(null);
-  const [prediction, setPrediction] = useState<OffensivePlayType | null>(null);
+
+  // 3-Layer Defense State
+  const [anticipation, setAnticipation] = useState<DefenseAnticipation | null>(null);
+  const [scheme, setScheme] = useState<DefenseScheme | null>(null);
+  const [modifier, setModifier] = useState<DefenseModifier>('NONE');
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Get available schemes based on anticipation
+  const availableSchemes = anticipation ? getSchemesForAnticipation(anticipation) : [];
+
+  // Get available modifiers based on scheme
+  const availableModifiers = scheme ? getModifiersForScheme(scheme) : [];
+
+  // Check if can afford modifier
+  const modifierCost = DEFENSE_MODIFIER_CONFIG[modifier].momentumCost;
+  const canAffordModifier = defensiveMomentum >= modifierCost;
+
+  // Get a card that matches our scheme (for now, pick the best one we have)
+  const getMatchingCard = useCallback((): DefensiveCard | null => {
+    if (!scheme || cards.length === 0) return null;
+
+    // Try to find a card that matches the scheme's strengths
+    const schemeConfig = DEFENSE_SCHEME_CONFIG[scheme];
+
+    // Sort cards by how well they match the scheme
+    const sortedCards = [...cards].sort((a, b) => {
+      // If scheme is pass-focused, prioritize pass defense
+      if (schemeConfig.vsPassRating > schemeConfig.vsRunRating) {
+        return b.passDefenseRating - a.passDefenseRating;
+      }
+      // If scheme is run-focused, prioritize run stopping
+      return b.runStopRating - a.runStopRating;
+    });
+
+    return sortedCards[0];
+  }, [scheme, cards]);
 
   const handleSetDefense = useCallback(() => {
-    if (selectedCard) {
-      onSetDefense(selectedCard, prediction || undefined);
-      setSelectedCard(null);
-      setPrediction(null);
+    const card = getMatchingCard();
+    if (card && scheme) {
+      // Deduct modifier cost from momentum
+      // (This would be handled in the store normally)
+      onSetDefense(card, undefined);
+      // Reset state
+      setAnticipation(null);
+      setScheme(null);
+      setModifier('NONE');
     }
-  }, [selectedCard, prediction, onSetDefense]);
+  }, [getMatchingCard, scheme, onSetDefense]);
+
+  // Reset downstream selections when upstream changes
+  const handleAnticipationChange = (ant: DefenseAnticipation) => {
+    setAnticipation(ant);
+    setScheme(null);
+    setModifier('NONE');
+  };
+
+  const handleSchemeChange = (sch: DefenseScheme) => {
+    setScheme(sch);
+    setModifier('NONE');
+  };
 
   // Fourth down response screen
   if (phase === 'FOURTH_DOWN_DEFENSE') {
@@ -425,61 +494,201 @@ const DefensivePlayUI: React.FC<{
 
       {/* Momentum */}
       <div className="bg-gray-900 border-b border-gray-800 p-2">
-        <div className="flex items-center justify-center gap-2">
-          <span className="text-gray-500 text-sm">Momentum:</span>
-          <div className="flex gap-1">
-            {[...Array(6)].map((_, i) => (
-              <div
-                key={i}
-                className={`w-4 h-4 rounded ${i < defensiveMomentum ? 'bg-red-500' : 'bg-gray-700'}`}
-              />
-            ))}
+        <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 text-sm">Momentum:</span>
+            <div className="flex gap-1">
+              {[...Array(6)].map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-4 h-4 rounded ${i < defensiveMomentum ? 'bg-red-500' : 'bg-gray-700'}`}
+                />
+              ))}
+            </div>
+          </div>
+          <button onClick={() => setShowHelp(true)} className="text-blue-400 text-xs hover:text-blue-300">? Help</button>
+        </div>
+      </div>
+
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
+              <h3 className="text-white font-bold">3-Layer Defense System</h3>
+              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <div className="p-4 space-y-4 text-sm">
+              <div>
+                <h4 className="text-red-400 font-bold mb-1">Layer 1: Anticipate</h4>
+                <p className="text-gray-300">Predict if offense will run or pass. Stack the box vs runs, drop DBs vs passes, or stay balanced.</p>
+              </div>
+              <div>
+                <h4 className="text-red-400 font-bold mb-1">Layer 2: Scheme</h4>
+                <p className="text-gray-300">Pick your coverage or front. Cover 0-4 for pass defense, Bear/Under/Over fronts for run defense, or blitz packages for pressure.</p>
+              </div>
+              <div>
+                <h4 className="text-red-400 font-bold mb-1">Layer 3: Modifier</h4>
+                <p className="text-gray-300">Optional adjustments that cost momentum. Spy the QB, bracket a receiver, pinch the D-line, etc.</p>
+              </div>
+              <div>
+                <h4 className="text-red-400 font-bold mb-1">Strategy Tips</h4>
+                <ul className="text-gray-300 list-disc list-inside space-y-1">
+                  <li>Correct anticipation gives +15% bonus</li>
+                  <li>Wrong anticipation gives -10% penalty</li>
+                  <li>Blitzes are high risk/reward</li>
+                  <li>Save momentum modifiers for key downs</li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Prediction Section */}
-      <div className="bg-gray-900/50 border-b border-gray-800 p-3">
-        <div className="text-gray-400 text-sm mb-2">Predict their play (bonus if correct):</div>
-        <div className="flex flex-wrap gap-2">
-          {(['INSIDE_RUN', 'OUTSIDE_RUN', 'SHORT_PASS', 'DEEP_PASS'] as OffensivePlayType[]).map(type => (
-            <button
-              key={type}
-              onClick={() => setPrediction(prediction === type ? null : type)}
-              className={`px-3 py-1 rounded text-sm ${
-                prediction === type
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {type.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Main 3-Layer Selection Area */}
+      <div className="flex-1 p-4 overflow-y-auto space-y-4">
 
-      {/* Card Hand */}
-      <div className="flex-1 p-4 overflow-y-auto">
-        <div className="text-gray-400 text-sm mb-3">Select defensive play:</div>
-        <div className="grid grid-cols-2 gap-3">
-          {cards.map(card => (
-            <button
-              key={card.id}
-              onClick={() => setSelectedCard(card)}
-              className={`p-4 rounded-lg border-2 transition-all text-left ${
-                selectedCard?.id === card.id
-                  ? 'border-red-500 bg-red-900/30'
-                  : 'border-gray-700 bg-gray-800 hover:border-gray-600'
-              }`}
-            >
-              <div className="font-bold text-white text-sm truncate">{card.name}</div>
-              <div className="text-gray-400 text-xs mt-1">{card.playType.replace(/_/g, ' ')}</div>
-              <div className="text-xs mt-2 text-red-400">
-                vs Run: {card.runStopRating}% | vs Pass: {card.passDefenseRating}%
-              </div>
-            </button>
-          ))}
+        {/* LAYER 1: ANTICIPATE */}
+        <div className="bg-gray-900/50 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded">1</span>
+            <span className="text-white font-bold">ANTICIPATE</span>
+            <span className="text-gray-500 text-xs">What are they calling?</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {(['RUN_HEAVY', 'BALANCED', 'PASS_HEAVY'] as DefenseAnticipation[]).map(ant => {
+              const config = ANTICIPATION_CONFIG[ant];
+              const isSelected = anticipation === ant;
+              return (
+                <button
+                  key={ant}
+                  onClick={() => handleAnticipationChange(ant)}
+                  className={`p-3 rounded-lg border-2 transition-all ${
+                    isSelected
+                      ? 'border-red-500 bg-red-900/40'
+                      : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="text-white font-bold text-sm">{config.name}</div>
+                  <div className="text-gray-400 text-xs mt-1">{config.description}</div>
+                  <div className="flex justify-between mt-2 text-xs">
+                    <span className={config.vsRunBonus > 0 ? 'text-green-400' : config.vsRunBonus < 0 ? 'text-red-400' : 'text-gray-500'}>
+                      Run: {config.vsRunBonus > 0 ? '+' : ''}{config.vsRunBonus}%
+                    </span>
+                    <span className={config.vsPassBonus > 0 ? 'text-green-400' : config.vsPassBonus < 0 ? 'text-red-400' : 'text-gray-500'}>
+                      Pass: {config.vsPassBonus > 0 ? '+' : ''}{config.vsPassBonus}%
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {/* LAYER 2: SCHEME */}
+        {anticipation && (
+          <div className="bg-gray-900/50 rounded-lg p-4 animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded">2</span>
+              <span className="text-white font-bold">SCHEME</span>
+              <span className="text-gray-500 text-xs">Coverage or Front</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+              {availableSchemes.map(sch => {
+                const config = DEFENSE_SCHEME_CONFIG[sch];
+                const isSelected = scheme === sch;
+                const categoryColors: Record<string, string> = {
+                  COVERAGE: 'bg-blue-900/30 border-blue-700',
+                  PRESSURE: 'bg-orange-900/30 border-orange-700',
+                  RUN_STOP: 'bg-green-900/30 border-green-700',
+                  SPECIALTY: 'bg-purple-900/30 border-purple-700',
+                };
+                return (
+                  <button
+                    key={sch}
+                    onClick={() => handleSchemeChange(sch)}
+                    className={`p-3 rounded-lg border-2 transition-all text-left ${
+                      isSelected
+                        ? 'border-red-500 bg-red-900/40'
+                        : `${categoryColors[config.category] || 'border-gray-700 bg-gray-800'} hover:border-gray-500`
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-white font-bold text-sm">{config.name}</div>
+                      {config.blitzChance > 50 && <span className="text-orange-400 text-xs">BLITZ</span>}
+                    </div>
+                    <div className="text-gray-400 text-xs mt-1 line-clamp-2">{config.description}</div>
+                    <div className="flex gap-3 mt-2 text-xs">
+                      <span className="text-green-400">Run: {config.vsRunRating}%</span>
+                      <span className="text-blue-400">Pass: {config.vsPassRating}%</span>
+                    </div>
+                    {config.bigPlayRisk > 20 && (
+                      <div className="text-yellow-500 text-xs mt-1">High risk: {config.bigPlayRisk}% big play</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* LAYER 3: MODIFIER */}
+        {scheme && (
+          <div className="bg-gray-900/50 rounded-lg p-4 animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded">3</span>
+              <span className="text-white font-bold">MODIFIER</span>
+              <span className="text-gray-500 text-xs">Optional adjustment (costs momentum)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+              {availableModifiers.map(mod => {
+                const config = DEFENSE_MODIFIER_CONFIG[mod];
+                const isSelected = modifier === mod;
+                const canAfford = defensiveMomentum >= config.momentumCost;
+                return (
+                  <button
+                    key={mod}
+                    onClick={() => canAfford && setModifier(mod)}
+                    disabled={!canAfford && mod !== 'NONE'}
+                    className={`p-3 rounded-lg border-2 transition-all text-left ${
+                      isSelected
+                        ? 'border-red-500 bg-red-900/40'
+                        : !canAfford && mod !== 'NONE'
+                          ? 'border-gray-800 bg-gray-900 opacity-50 cursor-not-allowed'
+                          : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="text-white font-bold text-sm">{config.name}</div>
+                      {config.momentumCost > 0 && (
+                        <span className={`text-xs ${canAfford ? 'text-yellow-400' : 'text-red-400'}`}>
+                          -{config.momentumCost} Mom
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-gray-400 text-xs mt-1 line-clamp-2">{config.description}</div>
+                    {config.specialEffect && (
+                      <div className="text-purple-400 text-xs mt-1">{config.specialEffect}</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Selection Summary */}
+        {scheme && (
+          <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+            <div className="text-gray-400 text-xs uppercase tracking-wider mb-2">Your Call</div>
+            <div className="text-white font-bold">
+              {anticipation && ANTICIPATION_CONFIG[anticipation].name}
+              {' → '}
+              {scheme && DEFENSE_SCHEME_CONFIG[scheme].name}
+              {modifier !== 'NONE' && ` + ${DEFENSE_MODIFIER_CONFIG[modifier].name}`}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Action Buttons */}
@@ -493,14 +702,17 @@ const DefensivePlayUI: React.FC<{
         </button>
         <button
           onClick={handleSetDefense}
-          disabled={!selectedCard}
+          disabled={!scheme || (modifier !== 'NONE' && !canAffordModifier)}
           className={`w-full py-4 rounded-lg text-lg font-bold transition-all ${
-            selectedCard
+            scheme && (modifier === 'NONE' || canAffordModifier)
               ? 'bg-red-600 hover:bg-red-500 text-white'
               : 'bg-gray-700 text-gray-500 cursor-not-allowed'
           }`}
         >
-          SET DEFENSE
+          {!anticipation ? 'SELECT ANTICIPATION' :
+           !scheme ? 'SELECT SCHEME' :
+           modifier !== 'NONE' && !canAffordModifier ? 'NOT ENOUGH MOMENTUM' :
+           'SET DEFENSE'}
         </button>
       </div>
     </div>

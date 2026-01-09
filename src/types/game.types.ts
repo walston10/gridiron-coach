@@ -1674,3 +1674,619 @@ export function isCriticalSituation(field: FieldPosition, clock: GameClock): boo
 
   return false;
 }
+
+// =============================================================================
+// 3-LAYER DEFENSIVE SYSTEM
+// =============================================================================
+
+/**
+ * LAYER 1: ANTICIPATE - What type of play are you expecting?
+ * This affects your base alignment and gap responsibilities.
+ */
+export type DefenseAnticipation =
+  | 'RUN_HEAVY'    // Expecting run, stack the box
+  | 'PASS_HEAVY'   // Expecting pass, drop into coverage
+  | 'BALANCED';    // Not committing either way
+
+export const ANTICIPATION_CONFIG: Record<DefenseAnticipation, {
+  name: string;
+  description: string;
+  vsRunBonus: number;      // % bonus vs run plays
+  vsPassBonus: number;     // % bonus vs pass plays
+  vulnerableRun: number;   // % penalty if wrong (vs run)
+  vulnerablePass: number;  // % penalty if wrong (vs pass)
+}> = {
+  RUN_HEAVY: {
+    name: 'Run Heavy',
+    description: 'Stack the box, 8+ men near line',
+    vsRunBonus: 15,
+    vsPassBonus: -10,
+    vulnerableRun: 0,
+    vulnerablePass: 15,
+  },
+  PASS_HEAVY: {
+    name: 'Pass Heavy',
+    description: 'Light box, extra DBs deep',
+    vsRunBonus: -10,
+    vsPassBonus: 15,
+    vulnerableRun: 15,
+    vulnerablePass: 0,
+  },
+  BALANCED: {
+    name: 'Balanced',
+    description: 'Standard alignment, react to play',
+    vsRunBonus: 0,
+    vsPassBonus: 0,
+    vulnerableRun: 5,
+    vulnerablePass: 5,
+  },
+};
+
+/**
+ * LAYER 2: SCHEME - Your base coverage and front
+ * Rich football terminology with strategic trade-offs.
+ */
+export type DefenseScheme =
+  // Coverage-focused schemes
+  | 'COVER_0'          // Man coverage, no safety help - aggressive
+  | 'COVER_1'          // Man coverage with single high safety
+  | 'COVER_2'          // Two-deep zone, 5 underneath
+  | 'COVER_3'          // Three-deep zone (single high + 2 corners)
+  | 'COVER_4'          // Quarters coverage, 4 deep zones
+  | 'TAMPA_2'          // Cover 2 with MLB dropping deep middle
+  | 'COVER_6'          // Cover 2 on strong side, Cover 4 on weak
+  // Pressure packages
+  | 'ZONE_BLITZ'       // Send pressure, drop linemen into zones
+  | 'FIRE_ZONE'        // 5-man pressure, 3 deep coverage
+  | 'ZERO_BLITZ'       // All-out blitz, pure man, no deep help
+  | 'OVERLOAD_BLITZ'   // Heavy pressure from one side
+  | 'DELAY_BLITZ'      // LBs show coverage then rush late
+  // Run-focused fronts
+  | 'BEAR_FRONT'       // 4-6 front, clog running lanes
+  | 'UNDER_FRONT'      // Shift line to run strength
+  | 'OVER_FRONT'       // Shift line away from TE
+  | 'GOAL_LINE'        // Heavy front for short yardage
+  // Specialty
+  | 'PREVENT'          // Deep coverage, give up short stuff
+  | 'NICKEL'           // 5 DBs, balanced look
+  | 'DIME'             // 6 DBs, pass-focused
+  | 'QUARTER'          // 7 DBs, extreme pass prevent
+;
+
+export interface DefenseSchemeConfig {
+  scheme: DefenseScheme;
+  name: string;
+  description: string;
+  category: 'COVERAGE' | 'PRESSURE' | 'RUN_STOP' | 'SPECIALTY';
+  vsRunRating: number;      // 0-100
+  vsPassRating: number;     // 0-100
+  blitzChance: number;      // % chance of getting pressure
+  bigPlayRisk: number;      // % chance of giving up big play
+  bestAgainst: string[];    // Play types this is good against
+  vulnerableTo: string[];   // Play types this struggles with
+}
+
+export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> = {
+  // Coverage schemes
+  COVER_0: {
+    scheme: 'COVER_0',
+    name: 'Cover 0 (Man Free)',
+    description: 'Pure man coverage, no safety help. High risk, high reward.',
+    category: 'COVERAGE',
+    vsRunRating: 55,
+    vsPassRating: 70,
+    blitzChance: 60,
+    bigPlayRisk: 25,
+    bestAgainst: ['SHORT_PASS', 'SCREEN'],
+    vulnerableTo: ['DEEP_PASS', 'PLAY_ACTION'],
+  },
+  COVER_1: {
+    scheme: 'COVER_1',
+    name: 'Cover 1 (Man)',
+    description: 'Man coverage with one deep safety. Balanced man look.',
+    category: 'COVERAGE',
+    vsRunRating: 60,
+    vsPassRating: 65,
+    blitzChance: 35,
+    bigPlayRisk: 15,
+    bestAgainst: ['SHORT_PASS', 'MEDIUM_PASS'],
+    vulnerableTo: ['PLAY_ACTION', 'SCREEN'],
+  },
+  COVER_2: {
+    scheme: 'COVER_2',
+    name: 'Cover 2 (Zone)',
+    description: 'Two safeties deep, five underneath. Good vs outside.',
+    category: 'COVERAGE',
+    vsRunRating: 50,
+    vsPassRating: 70,
+    blitzChance: 15,
+    bigPlayRisk: 10,
+    bestAgainst: ['OUTSIDE_RUN', 'DEEP_PASS'],
+    vulnerableTo: ['INSIDE_RUN', 'MEDIUM_PASS'],
+  },
+  COVER_3: {
+    scheme: 'COVER_3',
+    name: 'Cover 3 (Sky)',
+    description: 'Three deep zones, four underneath. Classic zone shell.',
+    category: 'COVERAGE',
+    vsRunRating: 65,
+    vsPassRating: 60,
+    blitzChance: 20,
+    bigPlayRisk: 12,
+    bestAgainst: ['INSIDE_RUN', 'DEEP_PASS'],
+    vulnerableTo: ['SCREEN', 'OUTSIDE_RUN'],
+  },
+  COVER_4: {
+    scheme: 'COVER_4',
+    name: 'Cover 4 (Quarters)',
+    description: 'Four deep zones. Great vs verticals, vulnerable underneath.',
+    category: 'COVERAGE',
+    vsRunRating: 45,
+    vsPassRating: 75,
+    blitzChance: 10,
+    bigPlayRisk: 5,
+    bestAgainst: ['DEEP_PASS', 'PLAY_ACTION'],
+    vulnerableTo: ['INSIDE_RUN', 'SCREEN'],
+  },
+  TAMPA_2: {
+    scheme: 'TAMPA_2',
+    name: 'Tampa 2',
+    description: 'Cover 2 with MLB dropping deep. Covers the deep middle hole.',
+    category: 'COVERAGE',
+    vsRunRating: 45,
+    vsPassRating: 75,
+    blitzChance: 10,
+    bigPlayRisk: 8,
+    bestAgainst: ['MEDIUM_PASS', 'DEEP_PASS'],
+    vulnerableTo: ['POWER_RUN', 'SCREEN'],
+  },
+  COVER_6: {
+    scheme: 'COVER_6',
+    name: 'Cover 6 (Quarter-Quarter-Half)',
+    description: 'Cover 4 to field, Cover 2 to boundary. Versatile look.',
+    category: 'COVERAGE',
+    vsRunRating: 55,
+    vsPassRating: 70,
+    blitzChance: 15,
+    bigPlayRisk: 10,
+    bestAgainst: ['MEDIUM_PASS', 'OUTSIDE_RUN'],
+    vulnerableTo: ['DRAW', 'PLAY_ACTION'],
+  },
+
+  // Pressure packages
+  ZONE_BLITZ: {
+    scheme: 'ZONE_BLITZ',
+    name: 'Zone Blitz',
+    description: 'Rush unexpected players, drop linemen into zones. Confusing.',
+    category: 'PRESSURE',
+    vsRunRating: 60,
+    vsPassRating: 65,
+    blitzChance: 55,
+    bigPlayRisk: 18,
+    bestAgainst: ['SHORT_PASS', 'DRAW'],
+    vulnerableTo: ['SCREEN', 'QUICK_PASS'],
+  },
+  FIRE_ZONE: {
+    scheme: 'FIRE_ZONE',
+    name: 'Fire Zone',
+    description: '5-man pressure with 3 deep coverage. Popular zone blitz.',
+    category: 'PRESSURE',
+    vsRunRating: 55,
+    vsPassRating: 70,
+    blitzChance: 65,
+    bigPlayRisk: 15,
+    bestAgainst: ['MEDIUM_PASS', 'PLAY_ACTION'],
+    vulnerableTo: ['SCREEN', 'OUTSIDE_RUN'],
+  },
+  ZERO_BLITZ: {
+    scheme: 'ZERO_BLITZ',
+    name: 'Zero Blitz',
+    description: 'All-out pressure, pure man, no safety help. Boom or bust.',
+    category: 'PRESSURE',
+    vsRunRating: 50,
+    vsPassRating: 60,
+    blitzChance: 80,
+    bigPlayRisk: 30,
+    bestAgainst: ['SHORT_PASS', 'INSIDE_RUN'],
+    vulnerableTo: ['DEEP_PASS', 'SCREEN'],
+  },
+  OVERLOAD_BLITZ: {
+    scheme: 'OVERLOAD_BLITZ',
+    name: 'Overload Blitz',
+    description: 'Stack one side and bring the house. Hard to pick up.',
+    category: 'PRESSURE',
+    vsRunRating: 45,
+    vsPassRating: 65,
+    blitzChance: 75,
+    bigPlayRisk: 22,
+    bestAgainst: ['INSIDE_RUN', 'SHORT_PASS'],
+    vulnerableTo: ['OUTSIDE_RUN', 'PLAY_ACTION'],
+  },
+  DELAY_BLITZ: {
+    scheme: 'DELAY_BLITZ',
+    name: 'Delay Blitz',
+    description: 'LBs show coverage then rush late. Catches offenses off guard.',
+    category: 'PRESSURE',
+    vsRunRating: 55,
+    vsPassRating: 60,
+    blitzChance: 45,
+    bigPlayRisk: 20,
+    bestAgainst: ['PLAY_ACTION', 'DRAW'],
+    vulnerableTo: ['QUICK_PASS', 'SCREEN'],
+  },
+
+  // Run-focused fronts
+  BEAR_FRONT: {
+    scheme: 'BEAR_FRONT',
+    name: 'Bear Front (46)',
+    description: '4-6 defensive front, 2-gap everything. Stuffs inside runs.',
+    category: 'RUN_STOP',
+    vsRunRating: 85,
+    vsPassRating: 40,
+    blitzChance: 25,
+    bigPlayRisk: 20,
+    bestAgainst: ['INSIDE_RUN', 'POWER_RUN'],
+    vulnerableTo: ['DEEP_PASS', 'PLAY_ACTION'],
+  },
+  UNDER_FRONT: {
+    scheme: 'UNDER_FRONT',
+    name: 'Under Front',
+    description: 'Defensive line shifts toward run strength. Sound vs run.',
+    category: 'RUN_STOP',
+    vsRunRating: 75,
+    vsPassRating: 50,
+    blitzChance: 30,
+    bigPlayRisk: 15,
+    bestAgainst: ['INSIDE_RUN', 'OUTSIDE_RUN'],
+    vulnerableTo: ['MEDIUM_PASS', 'SCREEN'],
+  },
+  OVER_FRONT: {
+    scheme: 'OVER_FRONT',
+    name: 'Over Front',
+    description: 'Line shifts away from TE. Sets edge against outside runs.',
+    category: 'RUN_STOP',
+    vsRunRating: 70,
+    vsPassRating: 55,
+    blitzChance: 30,
+    bigPlayRisk: 15,
+    bestAgainst: ['OUTSIDE_RUN', 'DRAW'],
+    vulnerableTo: ['INSIDE_RUN', 'QUICK_PASS'],
+  },
+  GOAL_LINE: {
+    scheme: 'GOAL_LINE',
+    name: 'Goal Line',
+    description: 'Heavy front, max run stoppers. Last stand defense.',
+    category: 'RUN_STOP',
+    vsRunRating: 90,
+    vsPassRating: 30,
+    blitzChance: 20,
+    bigPlayRisk: 25,
+    bestAgainst: ['INSIDE_RUN', 'QB_RUN', 'POWER_RUN'],
+    vulnerableTo: ['PLAY_ACTION', 'FADE'],
+  },
+
+  // Specialty
+  PREVENT: {
+    scheme: 'PREVENT',
+    name: 'Prevent Defense',
+    description: 'Give up short stuff, protect the deep ball. Clock killer.',
+    category: 'SPECIALTY',
+    vsRunRating: 35,
+    vsPassRating: 50,
+    blitzChance: 5,
+    bigPlayRisk: 3,
+    bestAgainst: ['DEEP_PASS'],
+    vulnerableTo: ['INSIDE_RUN', 'SHORT_PASS', 'SCREEN'],
+  },
+  NICKEL: {
+    scheme: 'NICKEL',
+    name: 'Nickel (5 DBs)',
+    description: '5 defensive backs, balanced against pass with run support.',
+    category: 'SPECIALTY',
+    vsRunRating: 55,
+    vsPassRating: 65,
+    blitzChance: 30,
+    bigPlayRisk: 12,
+    bestAgainst: ['SHORT_PASS', 'MEDIUM_PASS'],
+    vulnerableTo: ['POWER_RUN', 'DRAW'],
+  },
+  DIME: {
+    scheme: 'DIME',
+    name: 'Dime (6 DBs)',
+    description: '6 defensive backs, pass-heavy sub package.',
+    category: 'SPECIALTY',
+    vsRunRating: 40,
+    vsPassRating: 75,
+    blitzChance: 25,
+    bigPlayRisk: 10,
+    bestAgainst: ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS'],
+    vulnerableTo: ['INSIDE_RUN', 'DRAW', 'POWER_RUN'],
+  },
+  QUARTER: {
+    scheme: 'QUARTER',
+    name: 'Quarter (7 DBs)',
+    description: '7 defensive backs, extreme pass prevent. Hail Mary defense.',
+    category: 'SPECIALTY',
+    vsRunRating: 25,
+    vsPassRating: 80,
+    blitzChance: 10,
+    bigPlayRisk: 5,
+    bestAgainst: ['DEEP_PASS'],
+    vulnerableTo: ['INSIDE_RUN', 'DRAW', 'SCREEN'],
+  },
+};
+
+/**
+ * LAYER 3: MODIFIER - Special adjustments that cost momentum
+ * These are optional tactical tweaks that can swing a play.
+ */
+export type DefenseModifier =
+  | 'NONE'              // No modifier
+  | 'QB_SPY'            // Keep a defender to spy the QB
+  | 'BRACKET_WR1'       // Double team the #1 receiver
+  | 'BRACKET_TE'        // Double team the tight end
+  | 'PRESS_COVERAGE'    // Jam receivers at the line
+  | 'OFF_COVERAGE'      // Give cushion, prevent deep balls
+  | 'PINCH_DLINE'       // D-line crashes inside
+  | 'WIDE_DLINE'        // D-line spreads wide
+  | 'SHOW_BLITZ'        // Fake blitz to confuse protection
+  | 'GREEN_DOG'         // Rush if your man blocks
+  | 'ROBBER'            // Safety plays underneath vs crossing routes
+  | 'RAT_IN_HOLE'       // LB sits in throwing lane
+;
+
+export interface DefenseModifierConfig {
+  modifier: DefenseModifier;
+  name: string;
+  description: string;
+  momentumCost: number;
+  vsRunEffect: number;
+  vsPassEffect: number;
+  specialEffect?: string;
+  bestUsedWith: DefenseScheme[];
+  counters: string[];
+}
+
+export const DEFENSE_MODIFIER_CONFIG: Record<DefenseModifier, DefenseModifierConfig> = {
+  NONE: {
+    modifier: 'NONE',
+    name: 'Standard',
+    description: 'No special adjustment',
+    momentumCost: 0,
+    vsRunEffect: 0,
+    vsPassEffect: 0,
+    bestUsedWith: [],
+    counters: [],
+  },
+  QB_SPY: {
+    modifier: 'QB_SPY',
+    name: 'QB Spy',
+    description: 'Assign a defender to mirror the QB. Shuts down scrambles.',
+    momentumCost: 1,
+    vsRunEffect: -5,
+    vsPassEffect: -5,
+    specialEffect: 'Negates QB_RUN bonus, limits scramble yards',
+    bestUsedWith: ['COVER_1', 'COVER_3', 'NICKEL'],
+    counters: ['QB_RUN', 'SCRAMBLE'],
+  },
+  BRACKET_WR1: {
+    modifier: 'BRACKET_WR1',
+    name: 'Bracket WR1',
+    description: 'Double team the primary receiver. Takes away the top target.',
+    momentumCost: 2,
+    vsRunEffect: -10,
+    vsPassEffect: 15,
+    specialEffect: '+25% coverage vs WR1 target',
+    bestUsedWith: ['COVER_2', 'COVER_4', 'TAMPA_2'],
+    counters: ['WR1_TARGET'],
+  },
+  BRACKET_TE: {
+    modifier: 'BRACKET_TE',
+    name: 'Bracket TE',
+    description: 'Double team the tight end. Shuts down the seam.',
+    momentumCost: 1,
+    vsRunEffect: -5,
+    vsPassEffect: 10,
+    specialEffect: '+20% coverage vs TE target',
+    bestUsedWith: ['COVER_2', 'TAMPA_2', 'FIRE_ZONE'],
+    counters: ['TE_TARGET'],
+  },
+  PRESS_COVERAGE: {
+    modifier: 'PRESS_COVERAGE',
+    name: 'Press Coverage',
+    description: 'Jam receivers at the line. Disrupts timing but risky vs speed.',
+    momentumCost: 1,
+    vsRunEffect: 5,
+    vsPassEffect: 10,
+    specialEffect: '+15% vs short passes, -10% vs deep routes',
+    bestUsedWith: ['COVER_0', 'COVER_1', 'ZONE_BLITZ'],
+    counters: ['SHORT_PASS', 'SCREEN'],
+  },
+  OFF_COVERAGE: {
+    modifier: 'OFF_COVERAGE',
+    name: 'Off Coverage',
+    description: 'Give 8-10 yard cushion. Prevents deep balls, gives up underneath.',
+    momentumCost: 0,
+    vsRunEffect: -5,
+    vsPassEffect: -5,
+    specialEffect: '+20% vs deep, -15% vs short/screen',
+    bestUsedWith: ['COVER_2', 'COVER_3', 'PREVENT'],
+    counters: ['DEEP_PASS'],
+  },
+  PINCH_DLINE: {
+    modifier: 'PINCH_DLINE',
+    name: 'Pinch D-Line',
+    description: 'Defensive line crashes inside. Stuffs inside runs.',
+    momentumCost: 1,
+    vsRunEffect: 15,
+    vsPassEffect: -5,
+    specialEffect: '+20% vs inside run, -15% vs outside',
+    bestUsedWith: ['BEAR_FRONT', 'UNDER_FRONT', 'GOAL_LINE'],
+    counters: ['INSIDE_RUN', 'POWER_RUN'],
+  },
+  WIDE_DLINE: {
+    modifier: 'WIDE_DLINE',
+    name: 'Wide D-Line',
+    description: 'Defensive line spreads wide. Sets the edge.',
+    momentumCost: 1,
+    vsRunEffect: 10,
+    vsPassEffect: 0,
+    specialEffect: '+15% vs outside run, -10% vs inside',
+    bestUsedWith: ['OVER_FRONT', 'NICKEL', 'DIME'],
+    counters: ['OUTSIDE_RUN', 'DRAW'],
+  },
+  SHOW_BLITZ: {
+    modifier: 'SHOW_BLITZ',
+    name: 'Show Blitz',
+    description: 'Fake blitz look pre-snap. May cause protection confusion.',
+    momentumCost: 1,
+    vsRunEffect: 0,
+    vsPassEffect: 8,
+    specialEffect: '25% chance offense picks wrong protection',
+    bestUsedWith: ['COVER_1', 'COVER_3', 'ZONE_BLITZ'],
+    counters: ['QUICK_PASS', 'SCREEN'],
+  },
+  GREEN_DOG: {
+    modifier: 'GREEN_DOG',
+    name: 'Green Dog',
+    description: 'LB rushes if his man (RB/TE) stays to block.',
+    momentumCost: 1,
+    vsRunEffect: 5,
+    vsPassEffect: 10,
+    specialEffect: 'Extra pressure vs max protect, vulnerable to releases',
+    bestUsedWith: ['COVER_1', 'COVER_0', 'ZONE_BLITZ'],
+    counters: ['PLAY_ACTION', 'SCREEN'],
+  },
+  ROBBER: {
+    modifier: 'ROBBER',
+    name: 'Robber',
+    description: 'Safety jumps crossing routes underneath. Creates interceptions.',
+    momentumCost: 2,
+    vsRunEffect: 0,
+    vsPassEffect: 12,
+    specialEffect: '+10% INT chance vs medium passes',
+    bestUsedWith: ['COVER_3', 'COVER_1', 'FIRE_ZONE'],
+    counters: ['MEDIUM_PASS', 'CROSSING_ROUTES'],
+  },
+  RAT_IN_HOLE: {
+    modifier: 'RAT_IN_HOLE',
+    name: 'Rat in the Hole',
+    description: 'LB sits in throwing lane. Takes away favorite read.',
+    momentumCost: 1,
+    vsRunEffect: -5,
+    vsPassEffect: 10,
+    specialEffect: 'Denies primary receiver on short/medium routes',
+    bestUsedWith: ['COVER_2', 'TAMPA_2', 'ZONE_BLITZ'],
+    counters: ['SHORT_PASS', 'MEDIUM_PASS'],
+  },
+};
+
+/**
+ * Get schemes appropriate for anticipated play type.
+ */
+export function getSchemesForAnticipation(anticipation: DefenseAnticipation): DefenseScheme[] {
+  switch (anticipation) {
+    case 'RUN_HEAVY':
+      return ['BEAR_FRONT', 'UNDER_FRONT', 'OVER_FRONT', 'GOAL_LINE', 'COVER_3', 'ZONE_BLITZ'];
+    case 'PASS_HEAVY':
+      return ['COVER_0', 'COVER_1', 'COVER_2', 'COVER_4', 'TAMPA_2', 'NICKEL', 'DIME', 'FIRE_ZONE', 'ZERO_BLITZ'];
+    case 'BALANCED':
+      return ['COVER_1', 'COVER_2', 'COVER_3', 'COVER_6', 'NICKEL', 'ZONE_BLITZ', 'DELAY_BLITZ', 'UNDER_FRONT'];
+  }
+}
+
+/**
+ * Get modifiers that make sense with the selected scheme.
+ */
+export function getModifiersForScheme(scheme: DefenseScheme): DefenseModifier[] {
+  const config = DEFENSE_SCHEME_CONFIG[scheme];
+  const always: DefenseModifier[] = ['NONE'];
+
+  // Add modifiers that synergize with scheme category
+  const modifiers: DefenseModifier[] = [...always];
+
+  // All schemes can use spy
+  modifiers.push('QB_SPY');
+
+  // Coverage schemes benefit from brackets and coverage adjustments
+  if (config.category === 'COVERAGE' || config.category === 'SPECIALTY') {
+    modifiers.push('BRACKET_WR1', 'BRACKET_TE', 'PRESS_COVERAGE', 'OFF_COVERAGE', 'ROBBER');
+  }
+
+  // Pressure schemes benefit from show blitz and green dog
+  if (config.category === 'PRESSURE') {
+    modifiers.push('SHOW_BLITZ', 'GREEN_DOG', 'PRESS_COVERAGE');
+  }
+
+  // Run stop schemes benefit from D-line adjustments
+  if (config.category === 'RUN_STOP') {
+    modifiers.push('PINCH_DLINE', 'WIDE_DLINE');
+  }
+
+  // Zone schemes get rat in hole
+  if (['COVER_2', 'COVER_3', 'COVER_6', 'TAMPA_2', 'ZONE_BLITZ', 'FIRE_ZONE'].includes(scheme)) {
+    if (!modifiers.includes('RAT_IN_HOLE')) modifiers.push('RAT_IN_HOLE');
+  }
+
+  return modifiers;
+}
+
+/**
+ * Calculate defensive bonus based on all three layers.
+ */
+export function calculateDefenseBonus(
+  anticipation: DefenseAnticipation,
+  scheme: DefenseScheme,
+  modifier: DefenseModifier,
+  actualPlayIsRun: boolean
+): { vsPlayBonus: number; description: string } {
+  const antConfig = ANTICIPATION_CONFIG[anticipation];
+  const schemeConfig = DEFENSE_SCHEME_CONFIG[scheme];
+  const modConfig = DEFENSE_MODIFIER_CONFIG[modifier];
+
+  let bonus = 0;
+  const descriptions: string[] = [];
+
+  // Layer 1: Anticipation
+  if (actualPlayIsRun) {
+    bonus += antConfig.vsRunBonus;
+    if (antConfig.vsRunBonus > 0) descriptions.push(`+${antConfig.vsRunBonus}% (${antConfig.name})`);
+    if (antConfig.vsRunBonus < 0) descriptions.push(`${antConfig.vsRunBonus}% (${antConfig.name})`);
+  } else {
+    bonus += antConfig.vsPassBonus;
+    if (antConfig.vsPassBonus > 0) descriptions.push(`+${antConfig.vsPassBonus}% (${antConfig.name})`);
+    if (antConfig.vsPassBonus < 0) descriptions.push(`${antConfig.vsPassBonus}% (${antConfig.name})`);
+  }
+
+  // Layer 2: Scheme (normalized to bonus)
+  const schemeRating = actualPlayIsRun ? schemeConfig.vsRunRating : schemeConfig.vsPassRating;
+  const schemeBonus = Math.round((schemeRating - 50) / 5); // -10 to +10 range
+  bonus += schemeBonus;
+  if (schemeBonus !== 0) {
+    descriptions.push(`${schemeBonus > 0 ? '+' : ''}${schemeBonus}% (${schemeConfig.name})`);
+  }
+
+  // Layer 3: Modifier
+  const modEffect = actualPlayIsRun ? modConfig.vsRunEffect : modConfig.vsPassEffect;
+  bonus += modEffect;
+  if (modEffect !== 0) {
+    descriptions.push(`${modEffect > 0 ? '+' : ''}${modEffect}% (${modConfig.name})`);
+  }
+
+  return {
+    vsPlayBonus: bonus,
+    description: descriptions.join(', ') || 'Standard defense',
+  };
+}
+
+/**
+ * Complete defensive selection state.
+ */
+export interface DefensiveSelection {
+  anticipation: DefenseAnticipation;
+  scheme: DefenseScheme;
+  modifier: DefenseModifier;
+  // Legacy fields for backward compat
+  prediction?: OffensivePlayType;
+  shade?: ShadePosition;
+}

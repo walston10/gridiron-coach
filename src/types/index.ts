@@ -308,6 +308,14 @@ export type {
   // Summary
   GameSummary,
   GameHighlight,
+
+  // 3-Layer Defense System
+  DefenseAnticipation,
+  DefenseScheme,
+  DefenseSchemeConfig,
+  DefenseModifier,
+  DefenseModifierConfig,
+  DefensiveSelection,
 } from './game.types';
 
 export {
@@ -321,6 +329,13 @@ export {
   calculateFGSuccessChance,
   calculatePuntDistance,
   getRecommended4thDownDecision,
+  // 3-Layer Defense helpers
+  ANTICIPATION_CONFIG,
+  DEFENSE_SCHEME_CONFIG,
+  DEFENSE_MODIFIER_CONFIG,
+  getSchemesForAnticipation,
+  getModifiersForScheme,
+  calculateDefenseBonus,
 } from './game.types';
 
 // =============================================================================
