@@ -1,13 +1,21 @@
 // src/components/Game/CardGameView.tsx
 // FULLY WIRED - connects to real stores and engines
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSimpleCardGameStore, type DefenseCard } from '../../stores/simpleCardGameStore';
 import { useGameStore } from '../../stores/gameStore';
 import { generateDeckFromRoster } from '../../engine/deckGenerator';
+import { generateAIRoster } from '../../utils/playerGenerator';
 
 export const CardGameView: React.FC = () => {
-  const { draftedRoster } = useGameStore();
+  const { draftedRoster, userTeamId } = useGameStore();
+
+  // Create fallback roster if none drafted (for testing or page refresh scenarios)
+  const gameRoster = useMemo(() => {
+    if (draftedRoster) return draftedRoster;
+    // Generate a fallback roster if none exists
+    return generateAIRoster(userTeamId || 'player', 'AVERAGE');
+  }, [draftedRoster, userTeamId]);
 
   // Get state from card game store
   const {
@@ -44,12 +52,12 @@ export const CardGameView: React.FC = () => {
 
   // Initialize game on mount
   useEffect(() => {
-    if (!isInitialized && draftedRoster) {
-      const deck = generateDeckFromRoster(draftedRoster);
-      initializeGame(draftedRoster, deck);
+    if (!isInitialized && gameRoster) {
+      const deck = generateDeckFromRoster(gameRoster);
+      initializeGame(gameRoster, deck);
       setIsInitialized(true);
     }
-  }, [draftedRoster, isInitialized, initializeGame]);
+  }, [gameRoster, isInitialized, initializeGame]);
 
   // Coverage options (base coverages are free)
   const coverageOptions: DefenseCard[] = [

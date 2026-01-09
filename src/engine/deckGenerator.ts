@@ -196,6 +196,29 @@ export function generateDeckFromRoster(roster: any): Card[] {
     });
   }
 
+  // Always add 0-cost safety cards to prevent getting stuck
+  cards.push({
+    id: 'checkdown-deck',
+    name: 'Checkdown',
+    type: 'pass',
+    cost: 0,
+    successRate: 65,
+    yardRange: { min: 2, max: 5 },
+    breakawayChance: 3,
+    intRisk: 2,
+  });
+
+  cards.push({
+    id: 'qb-sneak-deck',
+    name: 'QB Sneak',
+    type: 'run',
+    cost: 0,
+    successRate: 75,
+    yardRange: { min: 0, max: 2 },
+    breakawayChance: 1,
+    fumbleRisk: 2,
+  });
+
   // Ensure minimum deck size with generic plays
   while (cards.length < 10) {
     const i = cards.length;

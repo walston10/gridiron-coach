@@ -125,6 +125,33 @@ interface SimpleCardGameState {
 }
 
 // ============================================
+// ZERO-COST SAFETY CARDS
+// ============================================
+
+const ZERO_COST_CARDS: Card[] = [
+  {
+    id: 'checkdown',
+    name: 'Checkdown',
+    type: 'pass',
+    cost: 0,
+    successRate: 65,
+    yardRange: { min: 2, max: 5 },
+    breakawayChance: 3,
+    intRisk: 2,
+  },
+  {
+    id: 'qb-sneak',
+    name: 'QB Sneak',
+    type: 'run',
+    cost: 0,
+    successRate: 75,
+    yardRange: { min: 0, max: 2 },
+    breakawayChance: 1,
+    fumbleRisk: 2,
+  },
+];
+
+// ============================================
 // INITIAL STATE
 // ============================================
 
@@ -160,11 +187,6 @@ const initialTendencies: Tendencies = {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-function generateHandFromDeck(deck: Card[], count: number): Card[] {
-  const shuffled = [...deck].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
-}
 
 function calculateClockUsed(result: PlayResult, clockMode: string): number {
   let base = 30; // Base seconds
@@ -274,14 +296,39 @@ function resolveOffensivePlay(
   else if (sack) momentumChange = -1;
   else if (breakaway) momentumChange = 1;
 
-  // Build description
+  // Build description - runs NEVER say "incomplete"!
   let description = '';
-  if (touchdown) description = `TOUCHDOWN! ${card.name} for ${yards} yards!`;
-  else if (interception) description = `INTERCEPTED! ${card.name} picked off!`;
-  else if (fumble && turnover) description = `FUMBLE LOST on ${card.name}!`;
-  else if (sack) description = `SACKED for ${Math.abs(yards)} yard loss!`;
-  else if (success) description = `${card.name} - ${yards} yards${breakaway ? ' BREAKAWAY!' : ''}`;
-  else description = `${card.name} - incomplete`;
+  if (touchdown) {
+    description = `TOUCHDOWN! ${card.name} for ${yards} yards!`;
+  } else if (interception) {
+    description = `INTERCEPTED! ${card.name} picked off!`;
+  } else if (fumble && turnover) {
+    description = `FUMBLE LOST on ${card.name}!`;
+  } else if (sack) {
+    description = `SACKED for ${Math.abs(yards)} yard loss!`;
+  } else if (card.type === 'pass') {
+    // Pass plays
+    if (success) {
+      const extra = breakaway ? ' BREAKAWAY!' : '';
+      description = `${card.name} - ${yards} yard gain${extra}`;
+    } else if (yards === 0) {
+      description = `${card.name} - Incomplete`;
+    } else {
+      description = `${card.name} - Incomplete`;
+    }
+  } else {
+    // Run plays - NEVER say "incomplete"
+    if (success) {
+      const extra = breakaway ? ' BREAKAWAY!' : '';
+      description = `${card.name} - ${yards} yard gain${extra}`;
+    } else if (yards < 0) {
+      description = `${card.name} - Stuffed for ${Math.abs(yards)} yard loss`;
+    } else if (yards === 0) {
+      description = `${card.name} - Stuffed for no gain`;
+    } else {
+      description = `${card.name} - Limited to ${yards} yard${yards !== 1 ? 's' : ''}`;
+    }
+  }
 
   return {
     success,
@@ -414,8 +461,27 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
 
   // Initialize game with drafted roster/deck
   initializeGame: (_roster, deck) => {
-    const hand = generateHandFromDeck(deck, 5);
-    const remainingDeck = deck.filter(c => !hand.find(h => h.id === c.id));
+    // Ensure deck has 0-cost cards
+    let gameDeck = [...deck];
+    if (!gameDeck.some(c => c.cost === 0)) {
+      gameDeck.push(
+        { ...ZERO_COST_CARDS[0], id: `${ZERO_COST_CARDS[0].id}-${Date.now()}` },
+        { ...ZERO_COST_CARDS[1], id: `${ZERO_COST_CARDS[1].id}-${Date.now()}` }
+      );
+    }
+
+    // Shuffle deck
+    gameDeck = gameDeck.sort(() => Math.random() - 0.5);
+
+    // Draw initial hand
+    let hand = gameDeck.slice(0, 5);
+    let remainingDeck = gameDeck.slice(5);
+
+    // ENSURE hand has at least one 0-cost card
+    if (!hand.some(c => c.cost === 0)) {
+      const zeroCost = ZERO_COST_CARDS[0];
+      hand.push({ ...zeroCost, id: `${zeroCost.id}-init-${Date.now()}` });
+    }
 
     set({
       gameState: { ...initialGameState },
@@ -465,30 +531,32 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
     // Update tendencies
     const newRecentPlays = [...tendencies.recentPlays, card.type].slice(-10);
     const runCount = newRecentPlays.filter(p => p === 'run').length;
-    const newRunRate = runCount / newRecentPlays.length;
+    const newRunRate = newRecentPlays.length > 0 ? runCount / newRecentPlays.length : 0.5;
 
     // Update hand - remove played card, draw new one
-    const newHand = hand.filter(c => c.id !== card.id);
-    if (offenseDeck.length > 0) {
-      const drawCard = offenseDeck[Math.floor(Math.random() * offenseDeck.length)];
-      newHand.push(drawCard);
+    let newHand = hand.filter(c => c.id !== card.id);
+    let newDeck = [...offenseDeck];
+    if (newDeck.length > 0) {
+      const idx = Math.floor(Math.random() * newDeck.length);
+      newHand.push(newDeck[idx]);
+      newDeck.splice(idx, 1);
     }
 
     // Update game state
     const newGameState = { ...gameState };
+    let staysOnOffense = true;
 
     if (result.touchdown) {
       newGameState.playerScore += 7; // Assume XP made for now
       newGameState.fieldPosition = 25;
       newGameState.down = 1;
       newGameState.distance = 10;
-      // Possession flips after score
-      set({ isPlayerOnOffense: false });
+      staysOnOffense = false;
     } else if (result.turnover) {
       newGameState.fieldPosition = 100 - (gameState.fieldPosition + result.yards);
       newGameState.down = 1;
       newGameState.distance = 10;
-      set({ isPlayerOnOffense: false });
+      staysOnOffense = false;
     } else {
       newGameState.fieldPosition += result.yards;
 
@@ -504,7 +572,7 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
           newGameState.fieldPosition = 100 - newGameState.fieldPosition;
           newGameState.down = 1;
           newGameState.distance = 10;
-          set({ isPlayerOnOffense: false });
+          staysOnOffense = false;
         }
       }
     }
@@ -519,10 +587,24 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
       }
     }
 
-    // Update momentum
+    // Calculate new momentum: cost deducted + bonuses applied
+    let newOffenseMomentum = Math.max(0, Math.min(momentum.max, momentum.offense - card.cost + result.momentumChange));
+
+    // If staying on offense, regen +1 momentum for NEXT play
+    if (staysOnOffense) {
+      newOffenseMomentum = Math.min(momentum.max, newOffenseMomentum + 1);
+
+      // SAFETY NET: Ensure hand has at least one playable card
+      const cheapestInHand = Math.min(...newHand.map(c => c.cost));
+      if (cheapestInHand > newOffenseMomentum) {
+        // Add a free checkdown card
+        newHand.push({ ...ZERO_COST_CARDS[0], id: `checkdown-${Date.now()}` });
+      }
+    }
+
     const newMomentum = {
       ...momentum,
-      offense: Math.max(0, Math.min(momentum.max, momentum.offense - card.cost + result.momentumChange)),
+      offense: newOffenseMomentum,
     };
 
     // Calculate active bonuses
@@ -535,7 +617,7 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
       gameState: newGameState,
       momentum: newMomentum,
       hand: newHand,
-      offenseDeck: offenseDeck.filter(c => c.id !== (newHand[newHand.length - 1]?.id)),
+      offenseDeck: newDeck,
       tendencies: {
         ...tendencies,
         recentPlays: newRecentPlays,
@@ -544,6 +626,7 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
       },
       activeBonuses: newBonuses,
       selectedCard: null,
+      isPlayerOnOffense: staysOnOffense,
     });
 
     return result;
