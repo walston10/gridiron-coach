@@ -190,7 +190,6 @@ const NARRATION_TEMPLATES = {
 const SNAP_DELAY = 1000;           // 1 second showing "Ball snapped..."
 const DEFENSE_REVEAL_DELAY = 1500; // 1.5 seconds showing defense call
 const TYPEWRITER_SPEED = 25;       // 25ms per character
-const RESULT_DELAY = 500;          // 0.5 second pause before result
 const SECONDARY_EFFECT_DELAY = 300; // Time between secondary effects
 
 // =============================================================================
@@ -211,7 +210,6 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   const [phase, setPhase] = useState<'snap' | 'defense_reveal' | 'narration' | 'result' | 'breakaway' | 'transition' | 'xp_choice'>('snap');
   const [breakawayYard, setBreakawayYard] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<number | null>(null);
 
   // Narration state
   const [narrationText, setNarrationText] = useState('');
@@ -243,14 +241,6 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
 
   // Check if it's a PlayResult (has breakdown) or FourthDownResult
   const isPlayResult = 'breakdown' in result;
-
-  // Calculate display time based on result significance
-  const displayTime = useMemo(() => {
-    if (result.touchdown) return 5000;
-    if (result.turnover) return 4000;
-    if ('bigPlay' in result && result.bigPlay) return 4000;
-    return 2500;
-  }, [result]);
 
   // Generate narration text
   const generatedNarration = useMemo(() => {
@@ -321,23 +311,22 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [isTypingComplete, secondaryEffects.length, visibleEffects]);
 
-  // Phase 3c: Transition to result phase after all effects shown
-  useEffect(() => {
-    if (isTypingComplete && visibleEffects >= secondaryEffects.length && phase === 'narration') {
-      const timer = setTimeout(() => {
-        setPhase('result');
-      }, RESULT_DELAY);
-      return () => clearTimeout(timer);
-    }
-  }, [isTypingComplete, visibleEffects, secondaryEffects.length, phase]);
+  // Phase 3c: Auto-transition to result phase disabled - now requires tap
+  // (No auto-advance - user must tap)
 
-  // Handle tap to skip typewriter
-  const handleSkipTypewriter = useCallback(() => {
-    if (phase === 'narration' && !isTypingComplete) {
-      skipRef.current = true;
-      setDisplayedText(narrationText);
-      setIsTypingComplete(true);
-      setVisibleEffects(secondaryEffects.length);
+  // Handle tap during narration - skip typing OR advance to result
+  const handleNarrationTap = useCallback(() => {
+    if (phase === 'narration') {
+      if (!isTypingComplete) {
+        // Skip typewriter animation
+        skipRef.current = true;
+        setDisplayedText(narrationText);
+        setIsTypingComplete(true);
+        setVisibleEffects(secondaryEffects.length);
+      } else {
+        // Typing complete, advance to result
+        setPhase('result');
+      }
     }
   }, [phase, isTypingComplete, narrationText, secondaryEffects.length]);
 
@@ -371,26 +360,8 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [result, fieldPosition, phase]);
 
-  // Auto-advance timer
-  useEffect(() => {
-    if (phase === 'result' && !result.touchdown && !transitionType) {
-      const timer = window.setTimeout(() => {
-        onContinue();
-      }, displayTime);
-      setAutoAdvanceTimer(displayTime);
-      return () => window.clearTimeout(timer);
-    }
-  }, [phase, result, transitionType, displayTime, onContinue]);
-
-  // Countdown timer display
-  useEffect(() => {
-    if (autoAdvanceTimer && autoAdvanceTimer > 0) {
-      const interval = setInterval(() => {
-        setAutoAdvanceTimer(prev => (prev ? prev - 100 : null));
-      }, 100);
-      return () => clearInterval(interval);
-    }
-  }, [autoAdvanceTimer]);
+  // Auto-advance disabled - user must tap to continue
+  // (Removed auto-advance timer for better user control)
 
   // Handle continue
   const handleContinue = useCallback(() => {
@@ -448,7 +419,7 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
         isTypingComplete={isTypingComplete}
         secondaryEffects={secondaryEffects}
         visibleEffects={visibleEffects}
-        onTap={handleSkipTypewriter}
+        onTap={handleNarrationTap}
       />
     );
   }
@@ -576,14 +547,9 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
         <div className="p-4 bg-gray-900/50 border-t border-gray-800">
           <button
             onClick={handleContinue}
-            className="w-full py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-white font-medium transition-colors"
+            className="w-full py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-white font-medium transition-colors animate-pulse"
           >
-            {transitionType ? 'Continue' : 'Next Play'}
-            {autoAdvanceTimer && !transitionType && (
-              <span className="ml-2 text-gray-500 text-sm">
-                ({Math.ceil(autoAdvanceTimer / 1000)}s)
-              </span>
-            )}
+            {transitionType ? 'TAP TO CONTINUE' : 'TAP FOR NEXT PLAY'}
           </button>
         </div>
       </div>
