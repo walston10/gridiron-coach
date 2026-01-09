@@ -15,7 +15,7 @@ import { buildDeck } from '../engine/cardGenerator';
 // CONSTANTS
 // =============================================================================
 
-export const DRAFT_BUDGET = 150; // $150M
+export const DRAFT_BUDGET = 160; // $160M
 
 export interface PositionRequirement {
   min: number;
