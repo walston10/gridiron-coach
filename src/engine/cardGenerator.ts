@@ -12,8 +12,6 @@
 
 import type {
   Player,
-  PlayerRatings,
-  Position,
   Roster,
   OLineUnit,
   DLineUnit,
@@ -42,9 +40,6 @@ import type {
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-/** Minimum rating to generate a card type (below this = liability cards) */
-const MIN_VIABLE_RATING = 60;
 
 /** Rating thresholds for card quality tiers */
 const QUALITY_THRESHOLDS = {
@@ -1596,7 +1591,7 @@ function createDefensiveCard(params: DefensiveCardParams): DefensiveCard {
     player,
     unit,
     primaryRating,
-    secondaryRating,
+    secondaryRating: _secondaryRating,
     pressureBonus = 0,
     isHighRisk = false,
     situationBonuses = [],
@@ -1662,7 +1657,7 @@ function createSTCard(params: STCardParams): SpecialTeamsCard {
     playType,
     player,
     primaryRating,
-    secondaryRating,
+    secondaryRating: _secondaryRating2,
     distance,
     isFake = false,
     isReturn = false,
@@ -2074,7 +2069,6 @@ export {
   generateSCards,
   generateSTCards,
   generateReturnCards,
-  getCardQualityTier,
   QUALITY_THRESHOLDS,
   ST_THRESHOLDS,
 };

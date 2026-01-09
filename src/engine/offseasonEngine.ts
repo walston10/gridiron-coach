@@ -20,12 +20,8 @@ import type {
   DraftPick,
   CampReport,
   TrainingCampPlayer,
-  getRetirementChance,
-  getDevelopmentType,
-  getDevelopmentAmount,
-  estimateMarketValue,
 } from '../types/offseason.types';
-import type { Player, Position, PlayerRatings, PlayerPersonality, Contract } from '../types/player.types';
+import type { Player, Position, PlayerRatings, PlayerPersonality } from '../types/player.types';
 import type { TeamStanding, SeasonRecords } from '../types/season.types';
 
 // =============================================================================
@@ -119,7 +115,7 @@ export function generateSeasonSummary(
  */
 export function generateOwnerEvaluation(
   summary: SeasonSummary,
-  previousDemands: string[],
+  _previousDemands: string[],
   ownerPersonality: 'PATIENT' | 'DEMANDING' | 'HANDS_OFF' | 'MEDDLING' = 'DEMANDING'
 ): OwnerEvaluation {
   const { record, playoffResult, ownerSatisfaction } = summary;
@@ -399,11 +395,10 @@ export function generateFreeAgentPool(existingFreeAgents: Player[] = []): Offsea
     const tier = getTierFromOverall(player.overall);
     const wave = getWaveFromTier(tier);
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { contract: _, ...playerWithoutContract } = player;
     pool.push({
-      player: {
-        ...player,
-        contract: null,
-      },
+      player: playerWithoutContract,
       askingPrice: estimateMarketValueInternal(player.position, player.overall, player.age),
       yearsWanted: player.age > 30 ? 2 : 3,
       interest: 50,
@@ -767,7 +762,7 @@ export function simulateAIOffseason(
 
   // AI makes draft picks
   const teamPicks = draftPicks.filter(p => p.teamId === teamId && !p.selectedPlayerId);
-  for (const pick of teamPicks) {
+  for (const _pick of teamPicks) {
     if (remainingProspects.length === 0) break;
 
     // Pick best available within reasonable range

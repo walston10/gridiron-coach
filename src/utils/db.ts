@@ -6,7 +6,6 @@
  */
 
 import type { SaveGame, SaveMetadata } from '../types/save.types';
-import { CURRENT_SAVE_VERSION } from '../types/save.types';
 
 // =============================================================================
 // DATABASE CONFIG

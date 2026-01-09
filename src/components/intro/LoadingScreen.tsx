@@ -5,8 +5,8 @@
  * Shows progress bar, logo, and rotating tips.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { LOADING_TIPS, getRandomTip } from '../../data/assetManifests';
+import React, { useState, useEffect } from 'react';
+import { getRandomTip } from '../../data/assetManifests';
 import type { LoadProgress } from '../../utils/assetPreloader';
 
 interface LoadingScreenProps {
@@ -27,7 +27,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   onSkip,
 }) => {
   const [tip, setTip] = useState(getRandomTip());
-  const [startTime] = useState(Date.now());
+  const [_startTime] = useState(Date.now());
   const [canComplete, setCanComplete] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
 

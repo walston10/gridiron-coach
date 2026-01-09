@@ -2,41 +2,211 @@
  * ILLEGAL MOTION - Type Exports
  *
  * Card-based football management game with corruption mechanics.
- * All types re-exported from this barrel file.
+ *
+ * NOTE: This codebase has two type systems in transition:
+ * - Legacy types (Player.ts, Game.ts, etc.) - used by existing components
+ * - New card-game types (player.types.ts, game.types.ts) - for future card system
+ *
+ * For compatibility, legacy types are exported as defaults.
+ * New card-game types are aliased with "Card" prefix.
  */
 
 // =============================================================================
-// PLAYER TYPES
+// LEGACY PLAYER TYPES (from Player.ts - used by existing components)
 // =============================================================================
 export type {
-  // Positions
+  // Position types (detailed: LT, LG, DE, DT, OLB, MLB, etc.)
+  Position,
   OffensePosition,
   DefensePosition,
   SpecialTeamsPosition,
-  Position,
+  // Roster types
+  OffenseRosterPosition,
+  DefenseRosterPosition,
+  RosterPosition,
+  LineUnit,
+  RosterSlot,
+  // Field roles
+  OffenseFieldRole,
+  DefenseFieldRole,
+  FieldRole,
+  // Formation types
+  OffenseFormation,
+  DefenseFormation,
+  Formation,
+  // Role mapping
+  OffenseRoleMapping,
+  // Stats
+  PlayerStats,
+  OLineUnitStats,
+  DefenseUnitStats,
+  LineUnitStats,
+  // Contract (has years, yearlySalary)
+  Contract,
+  // Injury
+  InjuryStatus,
+  // Player entity (has stats, injuryStatus, teamId)
+  Player,
+  // Unit types
+  OLineEntity,
+  DefenseCaptainEntity,
+  // Roster structure
+  TeamRoster,
+  // Draft types
+  DraftSlot,
+  DraftPlayer,
+  DraftPool,
+} from './Player';
 
-  // Ratings
+export {
+  OFFENSE_FORMATION_ROLES,
+  getOffenseFieldRole,
+  isOffensePosition,
+  isDefensePosition,
+  isOffenseFormation,
+  isDefenseFormation,
+  getAllPlayers,
+  calculateOverall,
+  isEmergencyBackup,
+  canBeTradedOrCut,
+  canBeInEvent,
+  canBeInjured,
+} from './Player';
+
+// =============================================================================
+// LEGACY GAME TYPES (from Game.ts - used by GameDay components)
+// =============================================================================
+export type {
+  GameState,
+  Down,
+  FieldPosition,
+  GameClock,
+  TeamGameState,
+  BallCarrier,
+  LiveGame,
+} from './Game';
+
+// =============================================================================
+// LEGACY TEAM TYPES (from Team.ts)
+// =============================================================================
+export type {
+  Team,
+  TeamInfo,
+  Coordinator,
+  DepthChart,
+  LegacyTeam,
+} from './Team';
+
+// =============================================================================
+// LEGACY PLAY TYPES (from Play.ts - used by Playbook, PlayDesigner)
+// =============================================================================
+export type {
+  Play,
+  PlayFolder,
+  Playbook,
+  FormationType,
+  PersonnelPackage,
+  FieldSide,
+  RouteType,
+  ReceiverBlockType,
+  OLBlockingAssignment,
+  BlockingAssignment,
+  PassAction,
+  QBRunType,
+  RunAssignment,
+  RunGap,
+  ProtectionScheme,
+  RunBlockingScheme,
+  MotionType,
+  MotionTiming,
+  MotionAssignment,
+  PlayerAssignment,
+  PlayTag,
+  ConceptTemplate,
+  ReceiverPosition,
+} from './Play';
+
+// =============================================================================
+// LEGACY DRAFT TYPES (from Draft.ts)
+// =============================================================================
+export type {
+  DraftProspect,
+  Draft,
+  DraftPick,
+} from './Draft';
+
+// =============================================================================
+// LEGACY FREE AGENCY TYPES (from FreeAgency.ts)
+// =============================================================================
+export type {
+  FreeAgent,
+  ContractOffer,
+  FreeAgencyPeriod,
+} from './FreeAgency';
+
+// =============================================================================
+// LEGACY SEASON TYPES (from Season.ts)
+// =============================================================================
+export type {
+  SeasonPhase as LegacySeasonPhase,
+  ScheduleGame,
+  Standings,
+  Season,
+} from './Season';
+
+// =============================================================================
+// CPU TYPES
+// =============================================================================
+export type * from './CPU';
+
+// =============================================================================
+// OTHER LEGACY TYPES
+// =============================================================================
+
+// Gameplay types (used by engine)
+export type * from './gameplay.types';
+
+// GameSim types
+export type * from './GameSim';
+
+// Substitution types
+export type * from './Substitution';
+
+// Owner types
+export type * from './Owner';
+
+// Input types
+export type * from './input.types';
+
+// Offseason types
+export type * from './offseason.types';
+
+// Save types
+export type * from './save.types';
+
+// =============================================================================
+// NEW CARD-GAME TYPES (aliased to avoid conflicts)
+// =============================================================================
+
+// Card Player types (from player.types.ts)
+export type {
+  OffensePosition as CardOffensePosition,
+  DefensePosition as CardDefensePosition,
+  SpecialTeamsPosition as CardSpecialTeamsPosition,
+  Position as CardPosition,
   PlayerRatings,
-
-  // Status
   PlayerCondition,
   PlayerStatus,
-  Contract,
-
-  // Player Entity
-  Player,
+  Contract as CardContract,
+  Player as CardPlayer,
   PersonalityTrait,
   PlayerPersonality,
-
-  // Roster
-  Roster,
-  OLineUnit,
-  DLineUnit,
+  Roster as CardRoster,
+  OLineUnit as CardOLineUnit,
+  DLineUnit as CardDLineUnit,
   ReturnerDesignation,
-
-  // Draft/Signing
-  DraftProspect,
-  FreeAgent,
+  DraftProspect as CardDraftProspect,
+  FreeAgent as CardFreeAgent,
 } from './player.types';
 
 export {
@@ -44,13 +214,13 @@ export {
   getPlayerDisplayName,
   getPlayerShortName,
   isPlayerAvailable,
-  canBeInEvent,
+  canBeInEvent as cardCanBeInEvent,
   getCardQualityModifier,
   POSITION_VALUE_TIER,
 } from './player.types';
 
 // =============================================================================
-// CARD TYPES
+// CARD TYPES (from card.types.ts)
 // =============================================================================
 export type {
   // Rarity & Categories
@@ -59,7 +229,7 @@ export type {
 
   // Offensive
   OffensivePlayType,
-  Formation,
+  Formation as CardFormation,
   OffensiveCard,
 
   // Defensive
@@ -105,20 +275,20 @@ export {
 } from './card.types';
 
 // =============================================================================
-// GAME TYPES
+// CARD GAME TYPES (from game.types.ts - aliased)
 // =============================================================================
 export type {
   // Phase & Clock
   GamePhase,
-  GameClock,
+  GameClock as CardGameClock,
   PlayClock,
 
   // Field Position
-  Down,
-  FieldPosition,
+  Down as CardDown,
+  FieldPosition as CardFieldPosition,
 
   // Team State
-  TeamGameState,
+  TeamGameState as CardTeamGameState,
   GameStats,
 
   // Momentum
@@ -138,7 +308,7 @@ export type {
   FourthDownPhase,
 
   // Live Game
-  LiveGame,
+  LiveGame as CardLiveGame,
   DriveState,
   DriveResult,
 
@@ -147,7 +317,7 @@ export type {
   WeatherEffect,
 
   // Settings
-  GameSettings,
+  GameSettings as CardGameSettings,
   DifficultyLevel,
 
   // Summary
@@ -274,7 +444,7 @@ export {
 } from './event.types';
 
 // =============================================================================
-// SEASON TYPES
+// SEASON TYPES (from season.types.ts)
 // =============================================================================
 export type {
   // Phase
@@ -284,8 +454,8 @@ export type {
   LeagueStructure,
   LeagueTeam,
 
-  // Season
-  Season,
+  // Season (aliased to avoid conflict with Season.ts)
+  Season as CardSeason,
   ScheduledGame,
   GameResult,
 
@@ -314,7 +484,7 @@ export type {
   // Offseason
   OffseasonState,
   OffseasonPhase,
-  DraftPick,
+  DraftPick as SeasonDraftPick,
 } from './season.types';
 
 export {
@@ -383,39 +553,3 @@ export {
   getCorruptionRiskDescription,
   generateEpitaph,
 } from './franchise.types';
-
-// =============================================================================
-// LEGACY EXPORTS (for migration - prefixed to avoid conflicts)
-// =============================================================================
-
-/**
- * MIGRATION NOTE:
- * The old types are being phased out. Use the new types above.
- * Legacy types are available via direct import from their files:
- *
- *   import type { Player as LegacyPlayer } from './types/Player';
- *   import type { Play as LegacyPlay } from './types/Play';
- *
- * Old files that will be removed after migration:
- * - Player.ts (use player.types.ts)
- * - Play.ts (concepts moved to card.types.ts)
- * - Game.ts (use game.types.ts)
- * - Team.ts (integrated into franchise.types.ts)
- * - Season.ts (use season.types.ts)
- * - Events.ts (use event.types.ts)
- *
- * Files still in use by old engine (keep until engine rewrite):
- * - Draft.ts
- * - FreeAgency.ts
- * - CPU.ts
- * - gameplay.types.ts
- * - input.types.ts
- * - Substitution.ts
- * - GameSim.ts
- * - Owner.ts
- */
-
-// Legacy types that don't conflict with new names
-export type * from './Draft';
-export type * from './FreeAgency';
-export type * from './CPU';

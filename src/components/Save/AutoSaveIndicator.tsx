@@ -16,7 +16,7 @@ interface AutoSaveIndicatorProps {
 export const AutoSaveIndicator: React.FC<AutoSaveIndicatorProps> = ({
   position = 'bottom-right',
 }) => {
-  const { isSaving, lastAutoSave, error } = useSaveStore();
+  const { isSaving, lastAutoSave, error: _error } = useSaveStore();
 
   const [showSaved, setShowSaved] = useState(false);
   const [displayError, setDisplayError] = useState<string | null>(null);

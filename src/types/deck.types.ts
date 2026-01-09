@@ -7,7 +7,6 @@
  */
 
 import type { Card, CardRarity, OffensiveCard, DefensiveCard, DirtyCard } from './card.types';
-import type { Player } from './player.types';
 
 // =============================================================================
 // DECK COMPOSITION

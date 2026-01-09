@@ -363,7 +363,7 @@ export function getPhaseDescription(phase: OffseasonPhase): string {
 // =============================================================================
 
 /** Calculate retirement probability based on age */
-export function getRetirementChance(age: number, overall: number): number {
+export function getRetirementChance(age: number, _overall: number): number {
   if (age < 30) return 0;
   if (age < 32) return 0.05;
   if (age < 34) return 0.15;

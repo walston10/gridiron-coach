@@ -11,7 +11,7 @@
  * - Tendencies track patterns for prediction bonuses
  */
 
-import type { Card, CardPlayResult, OffensivePlayType, DefensivePlayType } from './card.types';
+import type { Card, CardPlayResult, OffensivePlayType } from './card.types';
 
 // =============================================================================
 // GAME PHASE

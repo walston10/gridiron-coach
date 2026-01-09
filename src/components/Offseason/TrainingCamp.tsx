@@ -7,7 +7,6 @@
 import React, { useState } from 'react';
 import { useOffseasonStore } from '../../stores/offseasonStore';
 import type { TrainingCampPlayer, RosterCut } from '../../types/offseason.types';
-import type { Position } from '../../types/player.types';
 
 interface TrainingCampProps {
   onContinue: () => void;

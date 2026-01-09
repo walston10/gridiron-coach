@@ -5,7 +5,7 @@
  * Events are the heart of the management layer - creating drama and forcing choices.
  */
 
-import type { FranchiseState, HiddenState, ReputationMeters } from '../types/franchise.types';
+import type { FranchiseState, ReputationMeters } from '../types/franchise.types';
 import type {
   GameEvent,
   EventCategory,
@@ -109,15 +109,6 @@ function weightedRandomSelect<T>(items: T[], weights: number[]): T | null {
   }
 
   return items[items.length - 1];
-}
-
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
 }
 
 // =============================================================================
@@ -245,9 +236,10 @@ function checkEventPrerequisites(
   if (prereqs.minOwnerPatience !== undefined && state.owner.patience < prereqs.minOwnerPatience) return false;
   if (prereqs.maxOwnerPatience !== undefined && state.owner.patience > prereqs.maxOwnerPatience) return false;
 
-  // Record requirements
-  const wins = state.season.record?.wins ?? 0;
-  const losses = state.season.record?.losses ?? 0;
+  // Record requirements - get from standings for user's team
+  const userStanding = state.season.standings?.find(s => s.teamId === state.teamId);
+  const wins = userStanding?.wins ?? 0;
+  const losses = userStanding?.losses ?? 0;
 
   if (prereqs.minWins !== undefined && wins < prereqs.minWins) return false;
   if (prereqs.maxWins !== undefined && wins > prereqs.maxWins) return false;
@@ -352,9 +344,10 @@ function calculateCategoryWeights(
     weights.CORRUPTION = 0;
   }
 
-  // Losing increases drama
-  const losses = state.season.record?.losses ?? 0;
-  const wins = state.season.record?.wins ?? 0;
+  // Losing increases drama - get from standings for user's team
+  const userStanding = state.season.standings?.find(s => s.teamId === state.teamId);
+  const losses = userStanding?.losses ?? 0;
+  const wins = userStanding?.wins ?? 0;
   if (losses > wins + 2) {
     weights.SCANDAL *= config.losingStreakDramaMultiplier;
     weights.PLAYER_ISSUE *= config.losingStreakDramaMultiplier;
