@@ -2,6 +2,7 @@
 // Simplified card game store for immediate gameplay
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 // ============================================
 // TYPES
@@ -443,7 +444,9 @@ function resolveDefensivePlay(
 // STORE
 // ============================================
 
-export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => ({
+export const useSimpleCardGameStore = create<SimpleCardGameState>()(
+  persist(
+    (set, get) => ({
   // Initial state
   gameState: initialGameState,
   offenseDeck: [],
@@ -738,6 +741,11 @@ export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => 
   advanceGame: (_result) => {
     // Handle end of game, transitions, etc.
   },
-}));
+    }),
+    {
+      name: 'illegal-motion-game', // localStorage key
+    }
+  )
+);
 
 export default useSimpleCardGameStore;
