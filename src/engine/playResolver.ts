@@ -34,8 +34,19 @@ import type {
   TargetPosition,
   ShadePosition,
   OffensiveModifier,
+  PenaltyType,
+  RefereeStyle,
 } from '../types/game.types';
-import { DEFAULT_PLAY_TARGETS, MODIFIER_EFFECTS, HARD_COUNT_ODDS, QUICK_COUNT_BONUS } from '../types/game.types';
+import {
+  DEFAULT_PLAY_TARGETS,
+  MODIFIER_EFFECTS,
+  HARD_COUNT_ODDS,
+  QUICK_COUNT_BONUS,
+  PENALTY_CONFIG,
+  REFEREE_STYLES,
+  getApplicablePenalties,
+  DEAD_BALL_PENALTIES,
+} from '../types/game.types';
 
 import type { Roster, OLineUnit, DLineUnit } from '../types/player.types';
 
@@ -115,6 +126,10 @@ export interface PlayContext {
   defenseShade?: ShadePosition;    // Who defense is shading
   offenseStaminaModifier?: number; // Stamina effect modifier for targeted player (-0.1 to 1.0)
   offenseModifier?: OffensiveModifier; // Pre-snap modifier (motion, hard count, etc.)
+  // Penalty system
+  refereeStyle?: RefereeStyle;       // Current referee style
+  isUserHome?: boolean;              // Is user playing as home team
+  lastPenaltyAgainst?: 'OFFENSE' | 'DEFENSE' | null; // For makeup calls
 }
 
 export interface PlayResult {
@@ -690,6 +705,48 @@ export function resolveOffensivePlay(
   context: PlayContext,
   _dirtyCard?: DirtyCard
 ): PlayResult {
+  // Determine if this is a pass play (used for penalty checking)
+  const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
+    offenseCard.playType
+  );
+
+  // === PRE-SNAP: Check for dead ball penalties ===
+  // These prevent the play from happening entirely
+  const preSnapPenalty = checkForPenalty(isPassPlay, context, 0);
+  if (preSnapPenalty.hasPenalty && preSnapPenalty.isDeadBall && preSnapPenalty.penalty) {
+    const breakdown: PlayBreakdown = {
+      baseSuccessChance: 0,
+      counterModifier: 0,
+      situationModifier: 0,
+      tendencyModifier: 0,
+      synergyModifier: 0,
+      weatherModifier: 0,
+      fatigueModifier: 0,
+      momentumModifier: 0,
+      shadeModifier: 0,
+      staminaModifier: 0,
+      modifierBonus: 0,
+      finalSuccessChance: 0,
+      rolls: [],
+    };
+
+    // Dead ball penalty - play never happened
+    return {
+      success: false,
+      yardsGained: 0,
+      bigPlay: false,
+      turnover: false,
+      touchdown: false,
+      safety: false,
+      sack: false,
+      sackYards: 0,
+      penalty: preSnapPenalty.penalty,
+      momentumShift: preSnapPenalty.penalty.team === 'OFFENSE' ? -3 : 3,
+      playByPlay: `${getPenaltyFlavorText()} ${preSnapPenalty.penalty.description}`,
+      breakdown,
+    };
+  }
+
   const breakdown: PlayBreakdown = {
     baseSuccessChance: offenseCard.successChance,
     counterModifier: 0,
@@ -837,9 +894,7 @@ export function resolveOffensivePlay(
   breakdown.finalSuccessChance = Math.max(5, Math.min(95, successChance));
 
   // === Step 12: Check for sack (pass plays only) ===
-  const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
-    offenseCard.playType
-  );
+  // (isPassPlay was determined at the start of the function)
 
   let sack = false;
   let sackYards = 0;
@@ -973,6 +1028,75 @@ export function resolveOffensivePlay(
   else if (bigPlay) momentumShift = 15;
   else if (yardsGained >= context.fieldPosition.yardsToGo) momentumShift = 5;
   else if (yardsGained < 0) momentumShift = -5;
+
+  // === Step 16: Check for live ball penalties ===
+  const liveBallPenalty = checkForPenalty(isPassPlay, context, yardsGained);
+
+  if (liveBallPenalty.hasPenalty && liveBallPenalty.penalty && !liveBallPenalty.isDeadBall) {
+    // Determine if penalty should be declined
+    const decline = shouldDeclinePenalty(
+      liveBallPenalty.penalty,
+      yardsGained,
+      context.fieldPosition.yardsToGo,
+      false, // not a turnover at this point
+      touchdown
+    );
+
+    if (decline) {
+      // Penalty declined - use play result
+      liveBallPenalty.penalty.declined = true;
+    }
+
+    // Generate play by play with penalty
+    let penaltyPlayByPlay = generatePlayByPlay(offenseCard, yardsGained, touchdown, bigPlay);
+
+    if (!decline) {
+      // Penalty accepted - override play result
+      penaltyPlayByPlay = `${penaltyPlayByPlay} ${getPenaltyFlavorText()} ${liveBallPenalty.penalty.description}`;
+
+      // Adjust momentum for penalty
+      if (liveBallPenalty.penalty.team === 'OFFENSE') {
+        momentumShift = Math.min(momentumShift, -3);
+      } else {
+        momentumShift = Math.max(momentumShift, 3);
+      }
+
+      return {
+        success: false, // Play negated by penalty
+        yardsGained: 0, // Penalty yards handled separately
+        bigPlay: false,
+        turnover: false,
+        touchdown: false, // TD negated by offensive penalty if applicable
+        safety: false,
+        sack: false,
+        sackYards: 0,
+        penalty: liveBallPenalty.penalty,
+        momentumShift,
+        playByPlay: penaltyPlayByPlay,
+        breakdown,
+        shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
+      };
+    }
+
+    // Penalty declined - include it in result but use play result
+    const playByPlay = `${generatePlayByPlay(offenseCard, yardsGained, touchdown, bigPlay)} (Penalty declined)`;
+
+    return {
+      success: true,
+      yardsGained,
+      bigPlay,
+      turnover: false,
+      touchdown,
+      safety,
+      sack: false,
+      sackYards: 0,
+      penalty: liveBallPenalty.penalty, // Include declined penalty for display
+      momentumShift,
+      playByPlay,
+      breakdown,
+      shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
+    };
+  }
 
   const playByPlay = generatePlayByPlay(offenseCard, yardsGained, touchdown, bigPlay);
 
@@ -1682,6 +1806,315 @@ export function resolveDirtyCard(
     effect: dirtyCard.effect.type,
     playByPlay: `${dirtyCard.flavorText}`,
   };
+}
+
+// =============================================================================
+// PENALTY RESOLUTION
+// =============================================================================
+
+export interface PenaltyCheckResult {
+  hasPenalty: boolean;
+  penalty: PenaltyResult | null;
+  isDeadBall: boolean;       // If true, play never happened
+}
+
+/**
+ * Check for penalties during a play.
+ * Returns null if no penalty, or a PenaltyResult if one occurred.
+ *
+ * Total penalty rate is ~5% per play by default, adjusted by referee style.
+ */
+export function checkForPenalty(
+  isPassPlay: boolean,
+  context: PlayContext,
+  playYards: number = 0
+): PenaltyCheckResult {
+  const refereeStyle = context.refereeStyle || 'NORMAL';
+  const refereeConfig = REFEREE_STYLES[refereeStyle];
+  const applicablePenalties = getApplicablePenalties(isPassPlay);
+
+  // Calculate total penalty chance
+  let totalChance = 0;
+  const penaltyChances: { type: PenaltyType; chance: number; cumulative: number }[] = [];
+
+  for (const penaltyType of applicablePenalties) {
+    const config = PENALTY_CONFIG[penaltyType];
+    let chance = config.baseChance * refereeConfig.penaltyMultiplier;
+
+    // Apply home team bias for HOME_COOKING style
+    if (refereeConfig.homeTeamBias !== 0) {
+      const isOffensivePenalty = config.team === 'OFFENSE';
+      const userIsOnOffense = context.isUserHome !== undefined;
+
+      // If user is home and this is an offensive penalty, reduce chance
+      // If user is away and this is a defensive penalty, reduce chance
+      if (context.isUserHome && isOffensivePenalty) {
+        chance *= (1 - refereeConfig.homeTeamBias);
+      } else if (context.isUserHome && !isOffensivePenalty) {
+        chance *= (1 + refereeConfig.homeTeamBias);
+      } else if (!context.isUserHome && isOffensivePenalty) {
+        chance *= (1 + refereeConfig.homeTeamBias);
+      } else if (!context.isUserHome && !isOffensivePenalty && userIsOnOffense) {
+        chance *= (1 - refereeConfig.homeTeamBias);
+      }
+    }
+
+    // Apply makeup call logic
+    if (refereeConfig.makeupCallChance > 0 && context.lastPenaltyAgainst) {
+      if (rng.rollPercent(refereeConfig.makeupCallChance * 100)) {
+        // Makeup call: increase chance of penalty against opposite team
+        if (context.lastPenaltyAgainst === 'OFFENSE' && config.team === 'DEFENSE') {
+          chance *= 2; // Double chance of defensive penalty
+        } else if (context.lastPenaltyAgainst === 'DEFENSE' && config.team === 'OFFENSE') {
+          chance *= 2; // Double chance of offensive penalty
+        }
+      }
+    }
+
+    // Increase holding chance on long gains (offense tried hard to block)
+    if (config.type === 'OFFENSIVE_HOLDING' && playYards > 10) {
+      chance *= 1.5;
+    }
+
+    // Increase DPI chance on deep passes
+    if (config.type === 'DEFENSIVE_PASS_INTERFERENCE' && isPassPlay && playYards > 15) {
+      chance *= 1.3;
+    }
+
+    totalChance += chance;
+    penaltyChances.push({
+      type: penaltyType,
+      chance,
+      cumulative: totalChance,
+    });
+  }
+
+  // Roll to see if any penalty occurs
+  const penaltyRoll = rng.next() * 100;
+
+  if (penaltyRoll >= totalChance) {
+    // No penalty
+    return { hasPenalty: false, penalty: null, isDeadBall: false };
+  }
+
+  // Determine which penalty occurred
+  for (const entry of penaltyChances) {
+    if (penaltyRoll < entry.cumulative) {
+      const config = PENALTY_CONFIG[entry.type];
+      const isDeadBall = DEAD_BALL_PENALTIES.includes(entry.type);
+
+      // Calculate actual penalty yards
+      let penaltyYards = config.yards;
+
+      // Spot foul for DPI - use yards to the target or max 15
+      if (config.isSpotFoul && entry.type === 'DEFENSIVE_PASS_INTERFERENCE') {
+        penaltyYards = Math.min(playYards + 10, 40); // Cap at 40 yards
+      }
+
+      // Check if penalty would result in safety
+      const newYardLine = context.fieldPosition.yardLine - penaltyYards;
+      if (newYardLine <= 0 && config.team === 'OFFENSE') {
+        // Safety situation - handled by caller
+      }
+
+      const penalty: PenaltyResult = {
+        type: config.description,
+        team: config.team,
+        yards: penaltyYards,
+        description: generatePenaltyDescription(entry.type, config.team, penaltyYards),
+        declined: false, // Can be changed by caller
+        offsetting: false,
+      };
+
+      return {
+        hasPenalty: true,
+        penalty,
+        isDeadBall,
+      };
+    }
+  }
+
+  return { hasPenalty: false, penalty: null, isDeadBall: false };
+}
+
+/**
+ * Generate descriptive text for a penalty.
+ */
+function generatePenaltyDescription(
+  type: PenaltyType,
+  team: 'OFFENSE' | 'DEFENSE',
+  yards: number
+): string {
+  const config = PENALTY_CONFIG[type];
+  let desc = `FLAG! ${config.description}`;
+
+  if (team === 'OFFENSE') {
+    desc += `, on the offense. ${yards} yard penalty`;
+  } else {
+    desc += `, on the defense. ${yards} yard penalty`;
+    if (config.automaticFirstDown) {
+      desc += ', automatic first down';
+    }
+  }
+
+  return desc + '.';
+}
+
+/**
+ * Determine if offense should decline a defensive penalty.
+ * Offense declines if the play result was better than the penalty.
+ */
+export function shouldDeclinePenalty(
+  penalty: PenaltyResult,
+  playYards: number,
+  yardsToGo: number,
+  wasTurnover: boolean,
+  wasTouchdown: boolean
+): boolean {
+  // Never decline if turnover (take the penalty)
+  if (wasTurnover) return false;
+
+  // Always take a touchdown over penalty
+  if (wasTouchdown) return true;
+
+  // Defensive penalty
+  if (penalty.team === 'DEFENSE') {
+    const config = Object.values(PENALTY_CONFIG).find(c => c.description === penalty.type);
+
+    // If play gained more yards than penalty would give
+    if (playYards > penalty.yards) {
+      // But if it's automatic first down and we didn't get first down...
+      if (config?.automaticFirstDown && playYards < yardsToGo) {
+        return false; // Take the penalty for the first down
+      }
+      return true; // Decline, play result was better
+    }
+
+    return false; // Accept penalty
+  }
+
+  // Offensive penalty - defense chooses
+  // Defense would decline if the play lost yards anyway
+  if (playYards < 0) {
+    return true; // Decline the penalty, they lost yards
+  }
+
+  return false; // Accept penalty
+}
+
+/**
+ * Apply penalty to field position and down/distance.
+ * Returns the new field state after penalty is applied.
+ */
+export function applyPenalty(
+  penalty: PenaltyResult,
+  currentYardLine: number,
+  currentDown: number,
+  currentYardsToGo: number
+): {
+  newYardLine: number;
+  newDown: number;
+  newYardsToGo: number;
+  isSafety: boolean;
+  playByPlay: string;
+} {
+  const config = Object.values(PENALTY_CONFIG).find(c => c.description === penalty.type);
+
+  let newYardLine = currentYardLine;
+  let newDown = currentDown;
+  let newYardsToGo = currentYardsToGo;
+  let isSafety = false;
+
+  if (penalty.team === 'OFFENSE') {
+    // Offensive penalty - move back
+    newYardLine = Math.max(1, currentYardLine - penalty.yards);
+
+    // Check for safety
+    if (newYardLine <= penalty.yards && currentYardLine <= penalty.yards) {
+      // Penalty would put them in their own end zone
+      newYardLine = 1;
+      // Half the distance to goal in this case
+      if (currentYardLine <= penalty.yards) {
+        newYardLine = Math.max(1, Math.floor(currentYardLine / 2));
+      }
+    }
+
+    if (newYardLine <= 0) {
+      isSafety = true;
+      newYardLine = 1;
+    }
+
+    // Add penalty yards to distance
+    newYardsToGo = currentYardsToGo + (currentYardLine - newYardLine);
+
+    // Loss of down for certain penalties
+    if (config?.lossOfDown) {
+      newDown = Math.min(4, currentDown + 1);
+    }
+    // Otherwise replay the down
+  } else {
+    // Defensive penalty - move forward
+    newYardLine = Math.min(99, currentYardLine + penalty.yards);
+
+    // Automatic first down
+    if (config?.automaticFirstDown) {
+      newDown = 1;
+      newYardsToGo = 10;
+      // Cap yards to go at the end zone
+      if (newYardLine + 10 > 100) {
+        newYardsToGo = 100 - newYardLine;
+      }
+    } else {
+      // Subtract from yards to go
+      newYardsToGo = Math.max(1, currentYardsToGo - penalty.yards);
+      // Check for first down
+      if (newYardsToGo <= 0 || penalty.yards >= currentYardsToGo) {
+        newDown = 1;
+        newYardsToGo = Math.min(10, 100 - newYardLine);
+      }
+    }
+  }
+
+  // Generate play by play text
+  let playByPlay = penalty.description;
+  if (isSafety) {
+    playByPlay = `${penalty.description} SAFETY!`;
+  } else if (newDown === 1 && config?.automaticFirstDown) {
+    playByPlay = `${penalty.description} Automatic first down!`;
+  }
+
+  return {
+    newYardLine,
+    newDown,
+    newYardsToGo,
+    isSafety,
+    playByPlay,
+  };
+}
+
+/**
+ * Check for offsetting penalties (both teams penalized).
+ * Returns true if penalties offset, false otherwise.
+ * Rare occurrence (~0.5% of penalized plays).
+ */
+export function checkOffsettingPenalties(): boolean {
+  return rng.rollPercent(0.5);
+}
+
+/**
+ * Get a random penalty play-by-play string for flavor.
+ */
+const PENALTY_FLAVOR_TEXT = [
+  'The yellow flag comes flying in...',
+  'Wait, there\'s a flag on the play.',
+  'Flag down! Let\'s see what we have here...',
+  'And here comes the laundry...',
+  'The ref is reaching for his flag...',
+  'There\'s a marker on the field.',
+];
+
+export function getPenaltyFlavorText(): string {
+  return PENALTY_FLAVOR_TEXT[Math.floor(rng.next() * PENALTY_FLAVOR_TEXT.length)];
 }
 
 // =============================================================================

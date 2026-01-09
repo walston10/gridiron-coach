@@ -355,6 +355,353 @@ export function applyHalftimeRecovery(currentStamina: StaminaState): StaminaStat
 }
 
 // =============================================================================
+// PENALTY SYSTEM
+// =============================================================================
+
+/**
+ * Types of penalties that can occur during play.
+ * Each penalty has specific yard amounts and situational effects.
+ */
+export type PenaltyType =
+  // Offensive Penalties
+  | 'OFFENSIVE_HOLDING'       // 10 yards, replay down
+  | 'FALSE_START'             // 5 yards, dead ball
+  | 'ILLEGAL_FORMATION'       // 5 yards, replay down
+  | 'ILLEGAL_MOTION'          // 5 yards, replay down
+  | 'OFFENSIVE_PASS_INTERFERENCE'  // 10 yards, replay down
+  | 'INTENTIONAL_GROUNDING'   // 10 yards + loss of down (or safety if in end zone)
+  | 'INELIGIBLE_RECEIVER'     // 5 yards, replay down
+  | 'DELAY_OF_GAME'           // 5 yards, replay down
+  // Defensive Penalties
+  | 'OFFSIDES'                // 5 yards, replay or take result
+  | 'ENCROACHMENT'            // 5 yards, dead ball
+  | 'NEUTRAL_ZONE_INFRACTION' // 5 yards, dead ball
+  | 'DEFENSIVE_HOLDING'       // 5 yards + automatic first down
+  | 'DEFENSIVE_PASS_INTERFERENCE'  // Spot foul + automatic first down
+  | 'ROUGHING_THE_PASSER'     // 15 yards + automatic first down
+  | 'UNNECESSARY_ROUGHNESS'   // 15 yards
+  | 'ILLEGAL_CONTACT'         // 5 yards + automatic first down
+  | 'FACE_MASK'               // 15 yards
+;
+
+/**
+ * Penalty configuration including yards, effects, and base frequency.
+ */
+export interface PenaltyConfig {
+  type: PenaltyType;
+  team: 'OFFENSE' | 'DEFENSE';
+  yards: number;
+  isSpotFoul: boolean;         // If true, yards from spot of foul
+  automaticFirstDown: boolean; // Defense penalties can give automatic first down
+  lossOfDown: boolean;         // Some offense penalties lose a down
+  isDeadBall: boolean;         // Penalty stops play before snap
+  baseChance: number;          // Base % chance per play (before modifiers)
+  description: string;
+}
+
+/**
+ * All penalty configurations with their effects.
+ * Base frequency is designed for ~5% total penalty rate per play.
+ */
+export const PENALTY_CONFIG: Record<PenaltyType, PenaltyConfig> = {
+  // Offensive Penalties (~2.5% combined)
+  OFFENSIVE_HOLDING: {
+    type: 'OFFENSIVE_HOLDING',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 1.2,  // Most common offensive penalty
+    description: 'Offensive holding',
+  },
+  FALSE_START: {
+    type: 'FALSE_START',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.5,
+    description: 'False start',
+  },
+  ILLEGAL_FORMATION: {
+    type: 'ILLEGAL_FORMATION',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Illegal formation',
+  },
+  ILLEGAL_MOTION: {
+    type: 'ILLEGAL_MOTION',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Illegal motion',
+  },
+  OFFENSIVE_PASS_INTERFERENCE: {
+    type: 'OFFENSIVE_PASS_INTERFERENCE',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Offensive pass interference',
+  },
+  INTENTIONAL_GROUNDING: {
+    type: 'INTENTIONAL_GROUNDING',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: true,
+    automaticFirstDown: false,
+    lossOfDown: true,
+    isDeadBall: false,
+    baseChance: 0.15,
+    description: 'Intentional grounding',
+  },
+  INELIGIBLE_RECEIVER: {
+    type: 'INELIGIBLE_RECEIVER',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.1,
+    description: 'Ineligible receiver downfield',
+  },
+  DELAY_OF_GAME: {
+    type: 'DELAY_OF_GAME',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.15,
+    description: 'Delay of game',
+  },
+
+  // Defensive Penalties (~2.5% combined)
+  OFFSIDES: {
+    type: 'OFFSIDES',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,  // Only auto 1st if yards gained
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.6,
+    description: 'Offsides',
+  },
+  ENCROACHMENT: {
+    type: 'ENCROACHMENT',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.3,
+    description: 'Encroachment',
+  },
+  NEUTRAL_ZONE_INFRACTION: {
+    type: 'NEUTRAL_ZONE_INFRACTION',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.2,
+    description: 'Neutral zone infraction',
+  },
+  DEFENSIVE_HOLDING: {
+    type: 'DEFENSIVE_HOLDING',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.4,
+    description: 'Defensive holding',
+  },
+  DEFENSIVE_PASS_INTERFERENCE: {
+    type: 'DEFENSIVE_PASS_INTERFERENCE',
+    team: 'DEFENSE',
+    yards: 15,  // Simplified from spot foul, use max 15
+    isSpotFoul: true,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.4,
+    description: 'Defensive pass interference',
+  },
+  ROUGHING_THE_PASSER: {
+    type: 'ROUGHING_THE_PASSER',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Roughing the passer',
+  },
+  UNNECESSARY_ROUGHNESS: {
+    type: 'UNNECESSARY_ROUGHNESS',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.15,
+    description: 'Unnecessary roughness',
+  },
+  ILLEGAL_CONTACT: {
+    type: 'ILLEGAL_CONTACT',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.25,
+    description: 'Illegal contact',
+  },
+  FACE_MASK: {
+    type: 'FACE_MASK',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.1,
+    description: 'Face mask',
+  },
+};
+
+/**
+ * Referee styles affect penalty frequency and bias.
+ * Used in pre-game modifier selection.
+ */
+export type RefereeStyle =
+  | 'NORMAL'        // Standard penalty calling
+  | 'TIGHT'         // Calls everything, more penalties
+  | 'LOOSE'         // Lets them play, fewer penalties
+  | 'HOME_COOKING'  // Favors home team (mild)
+  | 'MAKEUP_CALL'   // After controversial call, more likely to even out
+;
+
+/**
+ * Referee style configurations.
+ */
+export interface RefereeConfig {
+  style: RefereeStyle;
+  penaltyMultiplier: number;      // Multiplier for all penalty chances
+  homeTeamBias: number;           // Positive = favors home (0 = neutral)
+  makeupCallChance: number;       // Chance to trigger makeup call after penalty
+  description: string;
+}
+
+export const REFEREE_STYLES: Record<RefereeStyle, RefereeConfig> = {
+  NORMAL: {
+    style: 'NORMAL',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Calls the game by the book',
+  },
+  TIGHT: {
+    style: 'TIGHT',
+    penaltyMultiplier: 1.6,   // 60% more penalties
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Flag-happy crew, calls everything',
+  },
+  LOOSE: {
+    style: 'LOOSE',
+    penaltyMultiplier: 0.5,   // 50% fewer penalties
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Lets them play, very physical game',
+  },
+  HOME_COOKING: {
+    style: 'HOME_COOKING',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0.25,       // 25% more likely to call against away
+    makeupCallChance: 0.1,
+    description: 'Seems to favor the home team...',
+  },
+  MAKEUP_CALL: {
+    style: 'MAKEUP_CALL',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0,
+    makeupCallChance: 0.4,    // 40% chance of makeup call after penalty
+    description: 'Tries to keep things "even"',
+  },
+};
+
+/**
+ * Penalties that can only occur on pass plays.
+ */
+export const PASS_ONLY_PENALTIES: PenaltyType[] = [
+  'OFFENSIVE_PASS_INTERFERENCE',
+  'INTENTIONAL_GROUNDING',
+  'INELIGIBLE_RECEIVER',
+  'DEFENSIVE_PASS_INTERFERENCE',
+  'ROUGHING_THE_PASSER',
+  'ILLEGAL_CONTACT',
+];
+
+/**
+ * Penalties that can only occur on run plays.
+ */
+export const RUN_ONLY_PENALTIES: PenaltyType[] = [
+  // No strictly run-only penalties, but holding is more common
+];
+
+/**
+ * Dead ball penalties that prevent the play from occurring.
+ */
+export const DEAD_BALL_PENALTIES: PenaltyType[] = [
+  'FALSE_START',
+  'ENCROACHMENT',
+  'NEUTRAL_ZONE_INFRACTION',
+  'DELAY_OF_GAME',
+];
+
+/**
+ * Get all penalties applicable to a play type.
+ */
+export function getApplicablePenalties(isPassPlay: boolean): PenaltyType[] {
+  const allPenalties = Object.keys(PENALTY_CONFIG) as PenaltyType[];
+
+  if (isPassPlay) {
+    // All penalties except run-only
+    return allPenalties.filter(p => !RUN_ONLY_PENALTIES.includes(p));
+  } else {
+    // All penalties except pass-only
+    return allPenalties.filter(p => !PASS_ONLY_PENALTIES.includes(p));
+  }
+}
+
+// =============================================================================
 // GAME PHASE
 // =============================================================================
 
