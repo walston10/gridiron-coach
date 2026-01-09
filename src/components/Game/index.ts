@@ -4,3 +4,4 @@ export { PlaySelector } from './PlaySelector';
 export { GameView } from './GameView';
 export { FullGameView } from './FullGameView';
 export { CardGameController } from './CardGameController';
+export { CardGameView } from './CardGameView';
