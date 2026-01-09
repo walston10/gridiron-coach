@@ -190,7 +190,6 @@ const NARRATION_TEMPLATES = {
 const SNAP_DELAY = 1000;           // 1 second showing "Ball snapped..."
 const DEFENSE_REVEAL_DELAY = 1500; // 1.5 seconds showing defense call
 const TYPEWRITER_SPEED = 25;       // 25ms per character
-const RESULT_DELAY = 500;          // 0.5 second pause before result
 const SECONDARY_EFFECT_DELAY = 300; // Time between secondary effects
 
 // =============================================================================
@@ -211,7 +210,6 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   const [phase, setPhase] = useState<'snap' | 'defense_reveal' | 'narration' | 'result' | 'breakaway' | 'transition' | 'xp_choice'>('snap');
   const [breakawayYard, setBreakawayYard] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<number | null>(null);
 
   // Narration state
   const [narrationText, setNarrationText] = useState('');
@@ -243,14 +241,6 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
 
   // Check if it's a PlayResult (has breakdown) or FourthDownResult
   const isPlayResult = 'breakdown' in result;
-
-  // Calculate display time based on result significance
-  const displayTime = useMemo(() => {
-    if (result.touchdown) return 5000;
-    if (result.turnover) return 4000;
-    if ('bigPlay' in result && result.bigPlay) return 4000;
-    return 2500;
-  }, [result]);
 
   // Generate narration text
   const generatedNarration = useMemo(() => {
@@ -321,23 +311,22 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [isTypingComplete, secondaryEffects.length, visibleEffects]);
 
-  // Phase 3c: Transition to result phase after all effects shown
-  useEffect(() => {
-    if (isTypingComplete && visibleEffects >= secondaryEffects.length && phase === 'narration') {
-      const timer = setTimeout(() => {
-        setPhase('result');
-      }, RESULT_DELAY);
-      return () => clearTimeout(timer);
-    }
-  }, [isTypingComplete, visibleEffects, secondaryEffects.length, phase]);
+  // Phase 3c: Auto-transition to result phase disabled - now requires tap
+  // (No auto-advance - user must tap)
 
-  // Handle tap to skip typewriter
-  const handleSkipTypewriter = useCallback(() => {
-    if (phase === 'narration' && !isTypingComplete) {
-      skipRef.current = true;
-      setDisplayedText(narrationText);
-      setIsTypingComplete(true);
-      setVisibleEffects(secondaryEffects.length);
+  // Handle tap during narration - skip typing OR advance to result
+  const handleNarrationTap = useCallback(() => {
+    if (phase === 'narration') {
+      if (!isTypingComplete) {
+        // Skip typewriter animation
+        skipRef.current = true;
+        setDisplayedText(narrationText);
+        setIsTypingComplete(true);
+        setVisibleEffects(secondaryEffects.length);
+      } else {
+        // Typing complete, advance to result
+        setPhase('result');
+      }
     }
   }, [phase, isTypingComplete, narrationText, secondaryEffects.length]);
 
@@ -371,26 +360,8 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [result, fieldPosition, phase]);
 
-  // Auto-advance timer
-  useEffect(() => {
-    if (phase === 'result' && !result.touchdown && !transitionType) {
-      const timer = window.setTimeout(() => {
-        onContinue();
-      }, displayTime);
-      setAutoAdvanceTimer(displayTime);
-      return () => window.clearTimeout(timer);
-    }
-  }, [phase, result, transitionType, displayTime, onContinue]);
-
-  // Countdown timer display
-  useEffect(() => {
-    if (autoAdvanceTimer && autoAdvanceTimer > 0) {
-      const interval = setInterval(() => {
-        setAutoAdvanceTimer(prev => (prev ? prev - 100 : null));
-      }, 100);
-      return () => clearInterval(interval);
-    }
-  }, [autoAdvanceTimer]);
+  // Auto-advance disabled - user must tap to continue
+  // (Removed auto-advance timer for better user control)
 
   // Handle continue
   const handleContinue = useCallback(() => {
@@ -426,12 +397,14 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     );
   }
 
-  // Phase: DEFENSE REVEAL - Show what defense called
+  // Phase: OPPONENT PLAY REVEAL - Show what opponent called
   if (phase === 'defense_reveal') {
     // Get shade result from PlayResult if available
     const shadeResult = isPlayResult ? (result as PlayResult).shadeResult : undefined;
     return (
-      <DefenseRevealDisplay
+      <OpponentPlayRevealDisplay
+        isPlayerOffense={isPlayerOffense}
+        offensePlayType={offensePlayType}
         defenseCard={defenseCard}
         defenseShade={defenseShade}
         targetPosition={targetPosition}
@@ -448,7 +421,7 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
         isTypingComplete={isTypingComplete}
         secondaryEffects={secondaryEffects}
         visibleEffects={visibleEffects}
-        onTap={handleSkipTypewriter}
+        onTap={handleNarrationTap}
       />
     );
   }
@@ -576,14 +549,9 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
         <div className="p-4 bg-gray-900/50 border-t border-gray-800">
           <button
             onClick={handleContinue}
-            className="w-full py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-white font-medium transition-colors"
+            className="w-full py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-white font-medium transition-colors animate-pulse"
           >
-            {transitionType ? 'Continue' : 'Next Play'}
-            {autoAdvanceTimer && !transitionType && (
-              <span className="ml-2 text-gray-500 text-sm">
-                ({Math.ceil(autoAdvanceTimer / 1000)}s)
-              </span>
-            )}
+            {transitionType ? 'TAP TO CONTINUE' : 'TAP FOR NEXT PLAY'}
           </button>
         </div>
       </div>
@@ -1156,15 +1124,30 @@ const SnapPhaseDisplay: React.FC = () => {
 };
 
 // =============================================================================
-// DEFENSE REVEAL DISPLAY
+// OPPONENT PLAY REVEAL DISPLAY
 // =============================================================================
 
-interface DefenseRevealDisplayProps {
+interface OpponentPlayRevealDisplayProps {
+  isPlayerOffense: boolean;
+  offensePlayType?: OffensivePlayType;
   defenseCard?: DefensiveCard;
   defenseShade?: ShadePosition;
   targetPosition?: TargetPosition;
   shadeResult?: ShadeResult;
 }
+
+const OFFENSE_PLAY_LABELS: Record<string, string> = {
+  INSIDE_RUN: 'Inside Run',
+  OUTSIDE_RUN: 'Outside Run',
+  POWER_RUN: 'Power Run',
+  DRAW: 'Draw Play',
+  QB_RUN: 'QB Run',
+  SHORT_PASS: 'Short Pass',
+  MEDIUM_PASS: 'Medium Pass',
+  DEEP_PASS: 'Deep Pass',
+  SCREEN: 'Screen Pass',
+  PLAY_ACTION: 'Play Action',
+};
 
 const DEFENSE_PLAY_LABELS: Record<string, string> = {
   MAN_COVERAGE: 'Man Coverage',
@@ -1178,16 +1161,70 @@ const DEFENSE_PLAY_LABELS: Record<string, string> = {
   COVER_3: 'Cover 3',
 };
 
-const DefenseRevealDisplay: React.FC<DefenseRevealDisplayProps> = ({
+const OpponentPlayRevealDisplay: React.FC<OpponentPlayRevealDisplayProps> = ({
+  isPlayerOffense,
+  offensePlayType,
   defenseCard,
   defenseShade,
   targetPosition,
   shadeResult,
 }) => {
-  // Determine if shade was correct
+  // When player is on OFFENSE, show opponent's DEFENSE
+  // When player is on DEFENSE, show opponent's OFFENSE
+  const showingOpponentOffense = !isPlayerOffense;
+
+  // Determine if shade was correct (only relevant when player is on offense)
   const shadeMatched = shadeResult?.shadeMatched || shadeResult?.runShadeBonus;
   const shadeLabel = defenseShade && defenseShade !== 'NONE' ? defenseShade : null;
 
+  if (showingOpponentOffense) {
+    // Player is on defense - show what opponent's offense called
+    return (
+      <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
+        <div className="w-full max-w-md">
+          {/* Title */}
+          <div className="text-center mb-6">
+            <div className="text-sm text-gray-500 uppercase tracking-widest mb-2">
+              Opponent's Play Call
+            </div>
+            <div className="text-4xl">🏈</div>
+          </div>
+
+          {/* Offense Play Info */}
+          <div className="bg-gray-900/80 rounded-xl border-2 border-amber-500/50 p-6 animate-fadeIn">
+            {offensePlayType ? (
+              <div className="text-center">
+                <div className="text-2xl font-bold text-amber-400">
+                  {OFFENSE_PLAY_LABELS[offensePlayType] || offensePlayType.replace(/_/g, ' ')}
+                </div>
+                <div className="text-sm text-gray-500 mt-2">
+                  {offensePlayType.includes('RUN') || offensePlayType === 'DRAW' || offensePlayType === 'QB_RUN'
+                    ? 'Running Play'
+                    : 'Passing Play'}
+                </div>
+                {targetPosition && (
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <span className="text-gray-400">Target: </span>
+                    <span className="text-amber-400 font-bold">{targetPosition}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center text-gray-400">
+                Offense is running...
+              </div>
+            )}
+          </div>
+
+          {/* Flash animation overlay */}
+          <div className="absolute inset-0 bg-amber-500/10 animate-ping pointer-events-none"
+               style={{ animationDuration: '0.5s', animationIterationCount: '1' }} />
+        </div>
+      </div>
+    );
+  }
+
+  // Player is on offense - show opponent's defense (original behavior)
   return (
     <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
       <div className="w-full max-w-md">
