@@ -7,7 +7,7 @@
  * - PlayResultDisplay (after play resolves)
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useCardGameStore } from '../../stores/cardGameStore';
 import { useGameStore } from '../../stores/gameStore';
 import { useSeasonStore } from '../../stores/seasonStore';
@@ -36,6 +36,10 @@ import {
   getSchemesForAnticipation,
   getModifiersForScheme,
 } from '../../types/game.types';
+
+// Universal Playbook
+import { UNIVERSAL_OFFENSIVE_PLAYS } from '../../data/universalPlaybook';
+import { calculateRosterBuffs, applyRosterBuffs, type ModifiedPlay } from '../../engine/rosterBuffs';
 
 // Lazy load the heavy game components
 import { PlayResultDisplay } from './PlayResult';
@@ -207,41 +211,87 @@ interface CardGameControllerProps {
 }
 
 // =============================================================================
-// PLAY CARD BUTTON (reusable card in playbook)
+// PLAY BUTTON (Universal Playbook)
 // =============================================================================
 
-interface PlayCardButtonProps {
-  card: OffensiveCard;
+interface PlayButtonProps {
+  play: ModifiedPlay;
   isSelected: boolean;
-  onSelect: (card: OffensiveCard) => void;
-  accentColor: 'green' | 'blue' | 'amber' | 'purple';
+  onSelect: (play: ModifiedPlay) => void;
 }
 
-const PlayCardButton: React.FC<PlayCardButtonProps> = ({ card, isSelected, onSelect, accentColor }) => {
-  const colorClasses = {
-    green: isSelected ? 'border-green-500 bg-green-900/30' : 'border-gray-700 bg-gray-800 hover:border-green-700',
-    blue: isSelected ? 'border-blue-500 bg-blue-900/30' : 'border-gray-700 bg-gray-800 hover:border-blue-700',
-    amber: isSelected ? 'border-amber-500 bg-amber-900/30' : 'border-gray-700 bg-gray-800 hover:border-amber-700',
-    purple: isSelected ? 'border-purple-500 bg-purple-900/30' : 'border-gray-700 bg-gray-800 hover:border-purple-700',
+const PlayButton: React.FC<PlayButtonProps> = ({ play, isSelected, onSelect }) => {
+  const categoryColors: Record<string, { selected: string; default: string }> = {
+    RUN: { selected: 'border-green-500 bg-green-900/30', default: 'border-gray-700 bg-gray-800 hover:border-green-700' },
+    SHORT: { selected: 'border-blue-500 bg-blue-900/30', default: 'border-gray-700 bg-gray-800 hover:border-blue-700' },
+    MEDIUM: { selected: 'border-amber-500 bg-amber-900/30', default: 'border-gray-700 bg-gray-800 hover:border-amber-700' },
+    DEEP: { selected: 'border-purple-500 bg-purple-900/30', default: 'border-gray-700 bg-gray-800 hover:border-purple-700' },
+    TRICK: { selected: 'border-pink-500 bg-pink-900/30', default: 'border-gray-700 bg-gray-800 hover:border-pink-700' },
+    SPECIAL: { selected: 'border-gray-500 bg-gray-900/30', default: 'border-gray-700 bg-gray-800 hover:border-gray-600' },
+  };
+
+  const colors = categoryColors[play.category] || categoryColors.SPECIAL;
+
+  return (
+    <button
+      onClick={() => onSelect(play)}
+      className={`p-3 rounded-lg border-2 transition-all text-left ${isSelected ? colors.selected : colors.default}`}
+    >
+      <div className="flex items-center gap-2">
+        <div className="font-bold text-white text-sm truncate flex-1">{play.name}</div>
+        {play.buffIndicator === 'boosted' && <span className="text-green-400 text-xs">▲</span>}
+        {play.buffIndicator === 'weak' && <span className="text-red-400 text-xs">▼</span>}
+      </div>
+      <div className="text-gray-400 text-xs mt-0.5 truncate">{play.description}</div>
+      <div className="flex justify-between mt-2 text-xs">
+        <span className="text-green-400">{play.successChance}%</span>
+        <span className="text-blue-400">{play.yards} yds</span>
+        {play.bigPlayChance > 15 && <span className="text-yellow-400">💥{play.bigPlayChance}%</span>}
+      </div>
+      {play.buffReason && (
+        <div className={`text-xs mt-1 ${play.buffIndicator === 'boosted' ? 'text-green-400' : 'text-red-400'}`}>
+          {play.buffReason}
+        </div>
+      )}
+    </button>
+  );
+};
+
+// Category Tab Button
+const CategoryTab: React.FC<{
+  category: string;
+  isActive: boolean;
+  count: number;
+  onClick: () => void;
+}> = ({ category, isActive, count, onClick }) => {
+  const colors: Record<string, string> = {
+    RUN: 'bg-green-600',
+    SHORT: 'bg-blue-600',
+    MEDIUM: 'bg-amber-600',
+    DEEP: 'bg-purple-600',
+    TRICK: 'bg-pink-600',
   };
 
   return (
     <button
-      onClick={() => onSelect(card)}
-      className={`p-3 rounded-lg border-2 transition-all text-left ${colorClasses[accentColor]}`}
+      onClick={onClick}
+      className={`px-3 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-1 ${
+        isActive
+          ? `${colors[category] || 'bg-gray-600'} text-white`
+          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+      }`}
     >
-      <div className="font-bold text-white text-sm truncate">{card.name}</div>
-      <div className="flex justify-between mt-1 text-xs">
-        <span className="text-green-400">{card.successChance}%</span>
-        <span className="text-blue-400">{card.baseYards} yds</span>
-      </div>
+      {category}
+      <span className={`text-xs ${isActive ? 'text-white/70' : 'text-gray-500'}`}>({count})</span>
     </button>
   );
 };
 
 // =============================================================================
-// OFFENSIVE PLAY UI (Inline for now - the full component)
+// OFFENSIVE PLAY UI - UNIVERSAL PLAYBOOK WITH TABS
 // =============================================================================
+
+type PlayCategory = 'RUN' | 'SHORT' | 'MEDIUM' | 'DEEP' | 'TRICK';
 
 const OffensivePlayUI: React.FC<{
   onSnapBall: (card: OffensiveCard, target: TargetPosition, modifier: OffensiveModifier) => void;
@@ -254,36 +304,84 @@ const OffensivePlayUI: React.FC<{
     clock,
     playerState,
     opponentState,
-    offensiveMomentum,
-    getAvailableOffensiveCards,
+    playerRoster,
   } = useCardGameStore();
 
-  const cards = getAvailableOffensiveCards();
-  const [selectedCard, setSelectedCard] = useState<OffensiveCard | null>(null);
+  const { draftedRoster } = useGameStore();
+
+  // Calculate roster buffs (memoized)
+  const rosterBuffs = useMemo(() => {
+    const roster = playerRoster || draftedRoster;
+    if (!roster) return null;
+    return calculateRosterBuffs(roster);
+  }, [playerRoster, draftedRoster]);
+
+  // Apply buffs to all plays (memoized)
+  const allPlays = useMemo(() => {
+    if (!rosterBuffs) {
+      // Fallback: return plays with base stats
+      return UNIVERSAL_OFFENSIVE_PLAYS.filter(p => p.category !== 'SPECIAL').map(play => ({
+        id: play.id,
+        name: play.name,
+        description: play.description,
+        playType: play.playType,
+        category: play.category,
+        formation: play.formation,
+        successChance: play.baseSuccessChance,
+        yards: play.baseYards,
+        bigPlayChance: play.baseBigPlayChance,
+        turnoverRisk: play.baseTurnoverRisk,
+        buffIndicator: 'neutral' as const,
+      }));
+    }
+    return UNIVERSAL_OFFENSIVE_PLAYS
+      .filter(p => p.category !== 'SPECIAL')
+      .map(play => applyRosterBuffs(play, rosterBuffs));
+  }, [rosterBuffs]);
+
+  // Group plays by category
+  const playsByCategory = useMemo(() => {
+    const categories: Record<PlayCategory, ModifiedPlay[]> = {
+      RUN: [],
+      SHORT: [],
+      MEDIUM: [],
+      DEEP: [],
+      TRICK: [],
+    };
+    allPlays.forEach(play => {
+      if (play.category in categories) {
+        categories[play.category as PlayCategory].push(play);
+      }
+    });
+    return categories;
+  }, [allPlays]);
+
+  const [activeCategory, setActiveCategory] = useState<PlayCategory>('RUN');
+  const [selectedPlay, setSelectedPlay] = useState<ModifiedPlay | null>(null);
   const [selectedTarget, setSelectedTarget] = useState<TargetPosition | null>(null);
   const [selectedModifier, setSelectedModifier] = useState<OffensiveModifier>('NONE');
   const [showHelp, setShowHelp] = useState(false);
 
   // Helper to check if play is a pass
-  const isPassPlay = (playType: OffensivePlayType) => {
+  const isPassPlay = (playType: string) => {
     return ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(playType);
   };
 
-  // Get locked target for the selected card
-  const lockedTarget = selectedCard ? LOCKED_TARGET_PLAYS[selectedCard.playType] : undefined;
-  const defaultTarget = selectedCard ? DEFAULT_PLAY_TARGETS[selectedCard.playType] : undefined;
+  // Get locked target for the selected play
+  const lockedTarget = selectedPlay ? LOCKED_TARGET_PLAYS[selectedPlay.playType as OffensivePlayType] : undefined;
+  const defaultTarget = selectedPlay ? DEFAULT_PLAY_TARGETS[selectedPlay.playType as OffensivePlayType] : undefined;
   const effectiveTarget = lockedTarget || selectedTarget || defaultTarget || 'WR1';
 
-  // Get available modifiers for the selected card
-  const availableModifiers = selectedCard
-    ? getAvailableModifiers(isPassPlay(selectedCard.playType), selectedCard.playType === 'PLAY_ACTION')
+  // Get available modifiers for the selected play
+  const availableModifiers = selectedPlay
+    ? getAvailableModifiers(isPassPlay(selectedPlay.playType), selectedPlay.playType === 'PLAY_ACTION')
     : [];
 
   // Get available targets based on play type
   const getAvailableTargets = (): TargetPosition[] => {
-    if (!selectedCard) return [];
+    if (!selectedPlay) return [];
     if (lockedTarget) return [lockedTarget]; // Locked, no choice
-    if (isPassPlay(selectedCard.playType)) {
+    if (isPassPlay(selectedPlay.playType)) {
       return ['WR1', 'WR2', 'TE', 'RB'];
     }
     return ['RB']; // Runs target RB
@@ -291,24 +389,48 @@ const OffensivePlayUI: React.FC<{
 
   const availableTargets = getAvailableTargets();
 
-  // Reset selections when card changes
-  const handleCardSelect = (card: OffensiveCard) => {
-    setSelectedCard(card);
+  // Reset selections when play changes
+  const handlePlaySelect = (play: ModifiedPlay) => {
+    setSelectedPlay(play);
     setSelectedTarget(null);
     setSelectedModifier('NONE');
   };
 
+  // Convert ModifiedPlay to OffensiveCard for the game engine
+  const convertToCard = useCallback((play: ModifiedPlay): OffensiveCard => {
+    return {
+      id: play.id,
+      category: 'OFFENSIVE',
+      name: play.name,
+      description: play.description,
+      playType: play.playType as OffensivePlayType,
+      formation: play.formation as any,
+      rarity: 'COMMON',
+      baseYards: play.yards,
+      successChance: play.successChance,
+      bigPlayChance: play.bigPlayChance,
+      turnoverRisk: play.turnoverRisk,
+      situationBonuses: [],
+      staminaCost: 1,
+      requiresLead: false,
+      requiresDeficit: false,
+      strongAgainst: [],
+      weakAgainst: [],
+      generatedBy: 'universal',
+    };
+  }, []);
+
   const handleSnap = useCallback(() => {
-    if (selectedCard) {
-      onSnapBall(selectedCard, effectiveTarget, selectedModifier);
-      setSelectedCard(null);
+    if (selectedPlay) {
+      const card = convertToCard(selectedPlay);
+      onSnapBall(card, effectiveTarget, selectedModifier);
+      setSelectedPlay(null);
       setSelectedTarget(null);
       setSelectedModifier('NONE');
     }
-  }, [selectedCard, effectiveTarget, selectedModifier, onSnapBall]);
+  }, [selectedPlay, effectiveTarget, selectedModifier, onSnapBall, convertToCard]);
 
   // Fourth down decision screen
-  // Show 4th down decision only when on 4th down and NOT already waiting for defense response
   if ((phase === 'FOURTH_DOWN_DECISION' || fieldPosition.down === 4) && phase !== 'FOURTH_DOWN_DEFENSE') {
     return (
       <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -370,7 +492,7 @@ const OffensivePlayUI: React.FC<{
       </div>
 
       {/* Field Position */}
-      <div className="bg-green-900/30 border-b border-green-800/50 p-4 text-center">
+      <div className="bg-green-900/30 border-b border-green-800/50 p-3 text-center">
         <div className="text-amber-400 font-bold text-lg">
           {fieldPosition.down === 1 ? '1st' : fieldPosition.down === 2 ? '2nd' : fieldPosition.down === 3 ? '3rd' : '4th'} & {fieldPosition.yardsToGo}
         </div>
@@ -379,18 +501,31 @@ const OffensivePlayUI: React.FC<{
         </div>
       </div>
 
-      {/* Momentum */}
-      <div className="bg-gray-900 border-b border-gray-800 p-2">
-        <div className="flex items-center justify-center gap-2">
-          <span className="text-gray-500 text-sm">Momentum:</span>
-          <div className="flex gap-1">
-            {[...Array(6)].map((_, i) => (
-              <div
-                key={i}
-                className={`w-4 h-4 rounded ${i < offensiveMomentum ? 'bg-amber-500' : 'bg-gray-700'}`}
-              />
+      {/* Team Buffs Summary */}
+      {rosterBuffs && rosterBuffs.teamStrengths.length > 0 && (
+        <div className="bg-gray-900/50 border-b border-gray-800 px-4 py-2">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-500">Team:</span>
+            {rosterBuffs.teamStrengths.slice(0, 3).map((s, i) => (
+              <span key={i} className="bg-green-900/50 text-green-400 px-2 py-0.5 rounded">{s}</span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Category Tabs */}
+      <div className="bg-gray-900 border-b border-gray-800 p-2">
+        <div className="flex gap-2 overflow-x-auto">
+          {(['RUN', 'SHORT', 'MEDIUM', 'DEEP', 'TRICK'] as PlayCategory[]).map(cat => (
+            <CategoryTab
+              key={cat}
+              category={cat}
+              isActive={activeCategory === cat}
+              count={playsByCategory[cat].length}
+              onClick={() => setActiveCategory(cat)}
+            />
+          ))}
+          <button onClick={() => setShowHelp(true)} className="ml-auto text-blue-400 text-sm hover:text-blue-300 px-2">?</button>
         </div>
       </div>
 
@@ -399,102 +534,48 @@ const OffensivePlayUI: React.FC<{
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-gray-900 rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
             <div className="p-4 border-b border-gray-800 flex justify-between items-center">
-              <h3 className="text-white font-bold">How Plays Work</h3>
+              <h3 className="text-white font-bold">Universal Playbook</h3>
               <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-white">✕</button>
             </div>
             <div className="p-4 space-y-4 text-sm">
               <div>
-                <h4 className="text-amber-400 font-bold mb-1">Success Rate</h4>
-                <p className="text-gray-300">The % shown is your chance to gain the expected yards. Even failed plays can gain 1-2 yards (runs) or result in incompletions (passes).</p>
+                <h4 className="text-amber-400 font-bold mb-1">How It Works</h4>
+                <p className="text-gray-300">All teams have access to the same plays. Your roster provides buffs that modify each play's effectiveness.</p>
               </div>
               <div>
-                <h4 className="text-amber-400 font-bold mb-1">Runs vs Passes</h4>
-                <p className="text-gray-300">Runs have a higher floor (failed runs still gain some yards) but lower ceiling. Passes have higher variance - bigger gains possible, but incompletions = 0 yards.</p>
+                <h4 className="text-green-400 font-bold mb-1">▲ Boosted Plays</h4>
+                <p className="text-gray-300">Green arrow means your roster is good at this play type. Better success rate!</p>
               </div>
               <div>
-                <h4 className="text-amber-400 font-bold mb-1">Modifiers</h4>
-                <p className="text-gray-300">Pre-snap adjustments that affect your play. Some are pass-only (Max Protect), some are run-only (Heavy Set).</p>
+                <h4 className="text-red-400 font-bold mb-1">▼ Weak Plays</h4>
+                <p className="text-gray-300">Red arrow means your roster struggles here. Consider other options.</p>
               </div>
               <div>
-                <h4 className="text-amber-400 font-bold mb-1">Targets</h4>
-                <p className="text-gray-300">For passes, pick who to throw to. Runs automatically target the RB. Defense can shade a receiver - if they guess right, you're penalized.</p>
+                <h4 className="text-amber-400 font-bold mb-1">Targets & Modifiers</h4>
+                <p className="text-gray-300">After picking a play, choose who to target (passes) and optional pre-snap adjustments.</p>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Playbook - Categorized Cards */}
+      {/* Playbook - All plays in active category */}
       <div className="flex-1 p-4 overflow-y-auto">
-        <div className="flex justify-between items-center mb-3">
-          <div className="text-gray-400 text-sm">1. Select a play:</div>
-          <button onClick={() => setShowHelp(true)} className="text-blue-400 text-xs hover:text-blue-300">? Help</button>
+        <div className="grid grid-cols-2 gap-2">
+          {playsByCategory[activeCategory].map(play => (
+            <PlayButton
+              key={play.id}
+              play={play}
+              isSelected={selectedPlay?.id === play.id}
+              onSelect={handlePlaySelect}
+            />
+          ))}
         </div>
 
-        {/* Run Plays */}
-        {cards.filter(c => ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(c.playType)).length > 0 && (
-          <div className="mb-4">
-            <div className="text-green-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
-              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-              Run Plays
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {cards.filter(c => ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(c.playType)).map(card => (
-                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="green" />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Short Pass Plays */}
-        {cards.filter(c => ['SHORT_PASS', 'SCREEN'].includes(c.playType)).length > 0 && (
-          <div className="mb-4">
-            <div className="text-blue-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
-              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-              Short Pass
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {cards.filter(c => ['SHORT_PASS', 'SCREEN'].includes(c.playType)).map(card => (
-                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="blue" />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Medium Pass Plays */}
-        {cards.filter(c => ['MEDIUM_PASS', 'PLAY_ACTION'].includes(c.playType)).length > 0 && (
-          <div className="mb-4">
-            <div className="text-amber-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
-              <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
-              Medium Pass
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {cards.filter(c => ['MEDIUM_PASS', 'PLAY_ACTION'].includes(c.playType)).map(card => (
-                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="amber" />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Deep Pass Plays */}
-        {cards.filter(c => c.playType === 'DEEP_PASS').length > 0 && (
-          <div className="mb-4">
-            <div className="text-purple-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
-              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-              Deep Pass
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {cards.filter(c => c.playType === 'DEEP_PASS').map(card => (
-                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="purple" />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Target Selection (when card is selected) */}
-        {selectedCard && availableTargets.length > 0 && (
-          <div className="mb-4">
-            <div className="text-gray-400 text-sm mb-2">2. Target:</div>
+        {/* Target Selection (when play is selected) */}
+        {selectedPlay && availableTargets.length > 0 && (
+          <div className="mt-4 p-3 bg-gray-900/50 rounded-lg border border-gray-800">
+            <div className="text-gray-400 text-sm mb-2">Target:</div>
             <div className="flex gap-2 flex-wrap">
               {availableTargets.map(target => (
                 <button
@@ -517,10 +598,10 @@ const OffensivePlayUI: React.FC<{
           </div>
         )}
 
-        {/* Modifier Selection (when card is selected) */}
-        {selectedCard && availableModifiers.length > 1 && (
-          <div className="mb-4">
-            <div className="text-gray-400 text-sm mb-2">3. Modifier:</div>
+        {/* Modifier Selection (when play is selected) */}
+        {selectedPlay && availableModifiers.length > 1 && (
+          <div className="mt-3 p-3 bg-gray-900/50 rounded-lg border border-gray-800">
+            <div className="text-gray-400 text-sm mb-2">Modifier:</div>
             <div className="flex gap-2 flex-wrap">
               {availableModifiers.map(mod => {
                 const effect = MODIFIER_EFFECTS[mod];
@@ -541,32 +622,8 @@ const OffensivePlayUI: React.FC<{
               })}
             </div>
             {selectedModifier !== 'NONE' && (
-              <div className="mt-2 p-2 bg-purple-900/30 rounded-lg border border-purple-800/50">
-                <div className="text-xs text-purple-300 mb-1">
-                  {MODIFIER_EFFECTS[selectedModifier].description}
-                </div>
-                <div className="flex gap-3 text-xs">
-                  {MODIFIER_EFFECTS[selectedModifier].successBonus !== 0 && (
-                    <span className={MODIFIER_EFFECTS[selectedModifier].successBonus > 0 ? 'text-green-400' : 'text-red-400'}>
-                      {MODIFIER_EFFECTS[selectedModifier].successBonus > 0 ? '+' : ''}{MODIFIER_EFFECTS[selectedModifier].successBonus}% success
-                    </span>
-                  )}
-                  {MODIFIER_EFFECTS[selectedModifier].protectionBonus !== 0 && (
-                    <span className="text-blue-400">
-                      +{MODIFIER_EFFECTS[selectedModifier].protectionBonus}% protection
-                    </span>
-                  )}
-                  {MODIFIER_EFFECTS[selectedModifier].yardsBonus !== 0 && (
-                    <span className="text-amber-400">
-                      +{MODIFIER_EFFECTS[selectedModifier].yardsBonus} yds
-                    </span>
-                  )}
-                  {MODIFIER_EFFECTS[selectedModifier].turnoverRisk !== 0 && (
-                    <span className="text-red-400">
-                      +{MODIFIER_EFFECTS[selectedModifier].turnoverRisk}% TO risk
-                    </span>
-                  )}
-                </div>
+              <div className="mt-2 text-xs text-purple-300">
+                {MODIFIER_EFFECTS[selectedModifier].description}
               </div>
             )}
           </div>
@@ -575,24 +632,26 @@ const OffensivePlayUI: React.FC<{
 
       {/* Action Buttons */}
       <div className="bg-gray-900 border-t border-gray-800 p-4 space-y-3">
-        <button
-          onClick={onTimeout}
-          disabled={playerState.timeoutsRemaining === 0}
-          className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 disabled:opacity-50"
-        >
-          Timeout ({playerState.timeoutsRemaining})
-        </button>
-        <button
-          onClick={handleSnap}
-          disabled={!selectedCard}
-          className={`w-full py-4 rounded-lg text-lg font-bold transition-all ${
-            selectedCard
-              ? 'bg-amber-600 hover:bg-amber-500 text-white'
-              : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          SNAP BALL
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={onTimeout}
+            disabled={playerState.timeoutsRemaining === 0}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 disabled:opacity-50 text-sm"
+          >
+            TO ({playerState.timeoutsRemaining})
+          </button>
+          <button
+            onClick={handleSnap}
+            disabled={!selectedPlay}
+            className={`flex-1 py-3 rounded-lg text-lg font-bold transition-all ${
+              selectedPlay
+                ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            {selectedPlay ? `SNAP: ${selectedPlay.name}` : 'SELECT A PLAY'}
+          </button>
+        </div>
       </div>
     </div>
   );
