@@ -616,8 +616,12 @@ export function getActiveSynergies(
 ): Synergy[] {
   const synergies: Synergy[] = [];
 
-  // Play Action synergy - bonus if you've been running
-  if (card.playType === 'PLAY_ACTION') {
+  // Minimum plays required for tendency-based synergies
+  const MIN_PLAYS_FOR_SYNERGY = 5;
+  const hasSufficientPlays = tendencies.recentPlays.length >= MIN_PLAYS_FOR_SYNERGY;
+
+  // Play Action synergy - bonus if you've been running (requires play history)
+  if (card.playType === 'PLAY_ACTION' && hasSufficientPlays) {
     if (tendencies.runPassRatio < 40) {
       // Heavy run = PA bonus
       const bonus = Math.round((40 - tendencies.runPassRatio) * 0.5);
@@ -643,8 +647,8 @@ export function getActiveSynergies(
     }
   }
 
-  // Deep shot synergy - bonus after short pass heavy
-  if (card.playType === 'DEEP_PASS') {
+  // Deep shot synergy - bonus after short pass heavy (requires play history)
+  if (card.playType === 'DEEP_PASS' && hasSufficientPlays) {
     if (tendencies.shortDeepRatio < 20) {
       synergies.push({
         name: 'Caught Sleeping',
@@ -713,11 +717,16 @@ export function resolveOffensivePlay(
   successChance += situationMod;
 
   // === Step 4: Apply prediction penalty (if defense guessed right) ===
-  const predictionMod = getPredictionBonus(
-    offenseCard.playType,
-    context.defenseTendencies.recentPlays[0] || null, // Last play as proxy for prediction
-    context.defenseTendencies.predictionStreak
-  );
+  // Only apply tendency-based prediction after 5+ plays to establish pattern
+  const MIN_PLAYS_FOR_TENDENCY = 5;
+  let predictionMod = 0;
+  if (context.offenseTendencies.recentPlays.length >= MIN_PLAYS_FOR_TENDENCY) {
+    predictionMod = getPredictionBonus(
+      offenseCard.playType,
+      context.defenseTendencies.recentPlays[0] || null, // Last play as proxy for prediction
+      context.defenseTendencies.predictionStreak
+    );
+  }
   breakdown.tendencyModifier = -predictionMod; // Negative for offense
   successChance -= predictionMod;
 
