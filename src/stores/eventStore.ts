@@ -73,6 +73,9 @@ interface EventStoreState {
 
   // Initialization flag
   isInitialized: boolean;
+
+  // Special events tracking
+  hasSeenOwnerWelcome: boolean;
 }
 
 interface EventStoreActions {
@@ -118,6 +121,9 @@ interface EventStoreActions {
   addDelayedEvent: (event: DelayedEvent) => void;
   removeDelayedEvent: (eventId: string) => void;
   getTriggeredDelayedEvents: () => DelayedEvent[];
+
+  // Special events
+  completeOwnerWelcome: (slushFund: number, risk: number, patience: number, reputation: number) => void;
 }
 
 type EventStore = EventStoreState & EventStoreActions;
@@ -151,6 +157,7 @@ function getInitialState(): EventStoreState {
     decisionHistory: [],
     pendingEventId: null,
     isInitialized: false,
+    hasSeenOwnerWelcome: false,
   };
 }
 
@@ -187,6 +194,7 @@ export const useEventStore = create<EventStore>()(
           decisionHistory: [],
           pendingEventId: null,
           isInitialized: true,
+          hasSeenOwnerWelcome: false,
         });
       },
 
@@ -402,6 +410,24 @@ export const useEventStore = create<EventStore>()(
       getTriggeredDelayedEvents: () => {
         const { hidden, currentWeek } = get();
         return hidden.delayedEvents.filter(e => e.triggersAtWeek <= currentWeek);
+      },
+
+      // Special events
+      completeOwnerWelcome: (slushFund: number, risk: number, patience: number, reputation: number) => {
+        const { hidden, meters } = get();
+        set({
+          hasSeenOwnerWelcome: true,
+          hidden: {
+            ...hidden,
+            slushFund: hidden.slushFund + slushFund,
+            ownerPatience: clamp(hidden.ownerPatience + patience, 0, 100),
+          },
+          meters: {
+            ...meters,
+            risk: clamp(meters.risk + risk, 0, 100),
+            reputation: clamp(meters.reputation + reputation, 0, 100),
+          },
+        });
       },
     }),
     {

@@ -16,6 +16,8 @@ import {
   type PrepChoice,
   type PassiveAlert,
 } from '../../stores/managementStore';
+import { useEventStore } from '../../stores/eventStore';
+import { OwnerWelcomeEvent, type ChoiceResult } from '../Events/OwnerWelcomeEvent';
 
 // =============================================================================
 // TYPES
@@ -74,6 +76,17 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     getInvestigationWarning,
   } = useManagementStore();
 
+  // Event store for special events
+  const {
+    hasSeenOwnerWelcome,
+    getOwner,
+    completeOwnerWelcome,
+    currentWeek: eventWeek,
+  } = useEventStore();
+
+  const owner = getOwner();
+  const showOwnerWelcome = eventWeek === 1 && !hasSeenOwnerWelcome;
+
   const mandatoryEvents = getMandatoryEvents();
   const optionalEvents = getOptionalEvents();
   const alerts = getActiveAlerts();
@@ -115,6 +128,26 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     togglePrepChoice('PRACTICE_FOCUS', position);
     setShowPracticeModal(false);
   }, [togglePrepChoice]);
+
+  // Handle owner welcome event choice
+  const handleOwnerWelcomeChoice = useCallback((_choice: 'take' | 'refuse' | 'ask_more', result: ChoiceResult) => {
+    completeOwnerWelcome(
+      result.slushFundChange,
+      result.riskChange,
+      result.ownerPatienceChange,
+      result.reputationChange
+    );
+  }, [completeOwnerWelcome]);
+
+  // Show owner welcome event first if applicable
+  if (showOwnerWelcome) {
+    return (
+      <OwnerWelcomeEvent
+        owner={owner}
+        onChoice={handleOwnerWelcomeChoice}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
