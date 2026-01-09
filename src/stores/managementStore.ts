@@ -55,6 +55,7 @@ export interface ManagementEvent {
   description: string;
   detailedDescription: string;
   icon: string;
+  imageUrl?: string;     // Optional event image (place in /public/images/events/)
   choices: EventChoice[];
   resolved: boolean;
   chosenOption?: string;

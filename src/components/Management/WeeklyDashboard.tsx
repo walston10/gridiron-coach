@@ -434,25 +434,46 @@ const EventResolutionModal: React.FC<EventResolutionModalProps> = ({
   onClose,
 }) => {
   return (
-    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4">
-      <div className="w-full max-w-lg bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
-        {/* Header */}
-        <div className="p-6 bg-gradient-to-b from-gray-800 to-transparent">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">{event.icon}</span>
-            <div>
-              <div className="text-xs text-gray-500 uppercase">{event.type.replace(/_/g, ' ')}</div>
-              <div className="text-xl font-bold text-white">{event.title}</div>
-            </div>
+    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="w-full max-w-lg my-4 bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
+        {/* Image header (if available) */}
+        {event.imageUrl ? (
+          <div className="relative w-full h-48 overflow-hidden">
+            <img
+              src={event.imageUrl}
+              alt={event.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent" />
           </div>
-          <p className="text-gray-300 leading-relaxed">{event.detailedDescription}</p>
+        ) : (
+          <div className="relative w-full h-24 bg-gradient-to-br from-amber-900/30 via-gray-800 to-gray-900 flex items-center justify-center">
+            <span className="text-6xl opacity-50">{event.icon}</span>
+            <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent" />
+          </div>
+        )}
+
+        {/* Character type label */}
+        <div className="px-6 pt-4">
+          <div className="text-xs text-gray-500 uppercase tracking-widest">
+            {event.type.replace(/_/g, ' ')}
+          </div>
         </div>
 
-        {/* Choices */}
-        <div className="p-4 space-y-3">
-          <div className="text-sm text-gray-500 uppercase mb-2">Your Options</div>
+        {/* Title */}
+        <div className="px-6 pt-1 pb-2">
+          <h2 className="text-2xl font-black text-white">{event.title}</h2>
+        </div>
+
+        {/* Description */}
+        <div className="px-6 pb-4">
+          <p className="text-gray-300 italic leading-relaxed">"{event.detailedDescription}"</p>
+        </div>
+
+        {/* Choices - grid layout like screenshot */}
+        <div className="px-4 pb-4 grid grid-cols-2 gap-2">
           {event.choices.map(choice => (
-            <ChoiceOption
+            <ChoiceOptionGrid
               key={choice.id}
               choice={choice}
               corruptionLevel={corruptionLevel}
@@ -485,7 +506,8 @@ interface ChoiceOptionProps {
   onSelect: () => void;
 }
 
-const ChoiceOption: React.FC<ChoiceOptionProps> = ({
+// Original full-width choice option (kept for reference/alternate layouts)
+const _ChoiceOption: React.FC<ChoiceOptionProps> = ({
   choice,
   corruptionLevel,
   onSelect,
@@ -528,6 +550,77 @@ const ChoiceOption: React.FC<ChoiceOptionProps> = ({
             )}
           </div>
         ))}
+      </div>
+
+      {/* Locked Reason */}
+      {isLocked && (
+        <div className="mt-2 text-xs text-purple-400">
+          🔒 Requires more... experience
+        </div>
+      )}
+    </button>
+  );
+};
+void _ChoiceOption; // Suppress unused warning
+
+// =============================================================================
+// CHOICE OPTION GRID (Screenshot-style layout with tags)
+// =============================================================================
+
+const ChoiceOptionGrid: React.FC<ChoiceOptionProps> = ({
+  choice,
+  corruptionLevel,
+  onSelect,
+}) => {
+  const isLocked = choice.requiresCorruption !== undefined && corruptionLevel < choice.requiresCorruption;
+  const isDirty = choice.requiresCorruption !== undefined;
+
+  // Determine tags based on consequences
+  const tags: { label: string; color: string }[] = [];
+
+  const hasExpensiveCost = choice.consequences.some(c => c.type === 'MONEY' && c.value < -50000);
+  const hasHeatRisk = choice.consequences.some(c => c.type === 'HEAT' && c.value > 0);
+  const hasReputationGain = choice.consequences.some(c => c.type === 'REPUTATION' && c.value > 0);
+  const hasMoraleGain = choice.consequences.some(c => c.type === 'MORALE' && c.value > 0);
+  const hasRisk = choice.hiddenConsequences || choice.consequences.some(c => c.hidden);
+
+  if (hasExpensiveCost) tags.push({ label: 'EXPENSIVE', color: 'bg-amber-700/50 text-amber-300' });
+  if (isDirty || hasHeatRisk) tags.push({ label: 'SHADY', color: 'bg-purple-700/50 text-purple-300' });
+  if (hasReputationGain || hasMoraleGain) tags.push({ label: 'MORAL', color: 'bg-blue-700/50 text-blue-300' });
+  if (!isDirty && !hasHeatRisk && !hasRisk) tags.push({ label: 'SAFE', color: 'bg-green-700/50 text-green-300' });
+  if (hasRisk) tags.push({ label: 'RISKY', color: 'bg-red-700/50 text-red-300' });
+
+  // Check for money cost to display
+  const moneyCost = choice.consequences.find(c => c.type === 'MONEY' && c.value < 0);
+
+  return (
+    <button
+      onClick={onSelect}
+      disabled={isLocked}
+      className={`p-3 rounded-lg border text-left transition-all ${
+        isLocked
+          ? 'border-gray-700 bg-gray-800/30 opacity-50 cursor-not-allowed'
+          : isDirty
+          ? 'border-purple-700/50 bg-purple-900/20 hover:bg-purple-900/40 hover:border-purple-500'
+          : 'border-gray-600 bg-gray-800/50 hover:bg-gray-700 hover:border-gray-500'
+      }`}
+    >
+      <div className="font-medium text-white text-sm mb-2">
+        {choice.text}
+      </div>
+
+      {/* Tags */}
+      <div className="flex flex-wrap gap-1">
+        {tags.map((tag, i) => (
+          <span key={i} className={`text-xs px-2 py-0.5 rounded ${tag.color}`}>
+            {tag.label}
+          </span>
+        ))}
+        {moneyCost && (
+          <span className="text-xs text-amber-400">
+            ${Math.abs(moneyCost.value).toLocaleString()}
+          </span>
+        )}
       </div>
 
       {/* Locked Reason */}
