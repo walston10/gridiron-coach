@@ -14,6 +14,52 @@
 import type { Card, CardPlayResult, OffensivePlayType } from './card.types';
 
 // =============================================================================
+// TARGET/SHADE POSITIONS
+// =============================================================================
+
+/**
+ * Positions that can be targeted by offense or shaded by defense.
+ * WR1, WR2, TE, RB are the primary receiving options.
+ * QB is used for QB sneaks/keepers.
+ */
+export type TargetPosition = 'WR1' | 'WR2' | 'TE' | 'RB' | 'QB';
+
+/**
+ * Shade position for defense - who they think offense is targeting.
+ * 'NONE' means no shade (no guess).
+ */
+export type ShadePosition = TargetPosition | 'NONE';
+
+/**
+ * Plays that lock to a specific target and cannot be changed.
+ */
+export const LOCKED_TARGET_PLAYS: Partial<Record<OffensivePlayType, TargetPosition>> = {
+  QB_RUN: 'QB',
+  KNEEL: 'QB',
+  SPIKE: 'QB',
+  // Note: TRICK_PLAY with reverse would lock to WR2 but that's handled in card metadata
+};
+
+/**
+ * Default targets for play types when no explicit selection is made.
+ */
+export const DEFAULT_PLAY_TARGETS: Partial<Record<OffensivePlayType, TargetPosition>> = {
+  INSIDE_RUN: 'RB',
+  OUTSIDE_RUN: 'RB',
+  POWER_RUN: 'RB',
+  DRAW: 'RB',
+  QB_RUN: 'QB',
+  KNEEL: 'QB',
+  SPIKE: 'QB',
+  SHORT_PASS: 'WR1',
+  MEDIUM_PASS: 'WR1',
+  DEEP_PASS: 'WR1',
+  SCREEN: 'RB',
+  PLAY_ACTION: 'TE',
+  TRICK_PLAY: 'WR2',
+};
+
+// =============================================================================
 // GAME PHASE
 // =============================================================================
 
@@ -230,9 +276,11 @@ export interface PlaySelection {
   // Defense selection (hidden from offense until reveal)
   defenseCard: Card | null;
   defensePrediction: OffensivePlayType | null;  // What they think offense will do
+  defenseShade: ShadePosition;                  // Who defense thinks offense targets
 
   // Offense selection (sees defense, picks counter)
   offenseCard: Card | null;
+  offenseTarget: TargetPosition | null;         // Who offense is targeting
 
   // Dirty card (either side can play alongside main card)
   dirtyCard: Card | null;

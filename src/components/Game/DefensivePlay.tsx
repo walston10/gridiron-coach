@@ -16,7 +16,7 @@ import type {
   CardRarity,
   OffensivePlayType,
 } from '../../types/card.types';
-import type { FourthDownDefenseResponse } from '../../types/game.types';
+import type { FourthDownDefenseResponse, ShadePosition } from '../../types/game.types';
 
 // =============================================================================
 // TYPES
@@ -92,6 +92,14 @@ const PLAY_TYPE_PREDICTIONS: { type: OffensivePlayType; label: string; category:
   { type: 'DRAW', label: 'Draw Play', category: 'run' },
 ];
 
+const SHADE_OPTIONS: { position: ShadePosition; label: string; icon: string; description: string }[] = [
+  { position: 'NONE', label: 'None', icon: '⚖️', description: 'Base - no shade' },
+  { position: 'WR1', label: 'WR1', icon: '📡', description: 'Shade primary WR' },
+  { position: 'WR2', label: 'WR2', icon: '📶', description: 'Shade secondary WR' },
+  { position: 'TE', label: 'TE', icon: '🎯', description: 'Shade tight end' },
+  { position: 'RB', label: 'RB', icon: '🏃', description: 'Shade running back' },
+];
+
 const DEFENSE_PLAY_TYPE_LABELS: Record<DefensivePlayType, string> = {
   MAN_COVERAGE: 'Man Coverage',
   ZONE_COVERAGE: 'Zone Coverage',
@@ -119,6 +127,7 @@ export const DefensivePlay: React.FC<DefensivePlayProps> = ({
   const [selectedCoverage, setSelectedCoverage] = useState<CoverageType | null>(null);
   const [selectedAdjustments, setSelectedAdjustments] = useState<AdjustmentType[]>([]);
   const [selectedPrediction, setSelectedPrediction] = useState<OffensivePlayType | null>(null);
+  const [selectedShade, setSelectedShade] = useState<ShadePosition>('NONE');
   const [showPredictionPicker, setShowPredictionPicker] = useState(false);
 
   const {
@@ -191,10 +200,10 @@ export const DefensivePlay: React.FC<DefensivePlayProps> = ({
   // Handle set defense
   const handleSetDefense = useCallback(() => {
     if (matchingCard) {
-      selectDefensiveCard(matchingCard, selectedPrediction || undefined);
+      selectDefensiveCard(matchingCard, selectedPrediction || undefined, selectedShade);
       onSetDefense(matchingCard, selectedPrediction || undefined);
     }
-  }, [matchingCard, selectedPrediction, selectDefensiveCard, onSetDefense]);
+  }, [matchingCard, selectedPrediction, selectedShade, selectDefensiveCard, onSetDefense]);
 
   // Is 4th down?
   const isFourthDown = fieldPosition.down === 4;
@@ -282,12 +291,19 @@ export const DefensivePlay: React.FC<DefensivePlayProps> = ({
           totalCost={totalMomentumCost}
         />
 
+        {/* Shade Selection */}
+        <ShadeSection
+          selectedShade={selectedShade}
+          onSelect={setSelectedShade}
+        />
+
         {/* Selected Combo Preview */}
         {selectedCoverage && matchingCard && (
           <ComboPreview
             coverage={selectedCoverage}
             adjustments={selectedAdjustments}
             prediction={selectedPrediction}
+            shade={selectedShade}
             card={matchingCard}
             momentumCost={totalMomentumCost}
             canAfford={canAffordAdjustments}
@@ -781,6 +797,61 @@ const AdjustmentSection: React.FC<AdjustmentSectionProps> = ({
 };
 
 // =============================================================================
+// SHADE SECTION
+// =============================================================================
+
+interface ShadeSectionProps {
+  selectedShade: ShadePosition;
+  onSelect: (shade: ShadePosition) => void;
+}
+
+const ShadeSection: React.FC<ShadeSectionProps> = ({
+  selectedShade,
+  onSelect,
+}) => {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Shade Target</h3>
+        <span className="text-xs text-gray-600">Who do you think they're targeting?</span>
+      </div>
+
+      <div className="flex gap-2">
+        {SHADE_OPTIONS.map((opt) => {
+          const isSelected = selectedShade === opt.position;
+
+          return (
+            <button
+              key={opt.position}
+              onClick={() => onSelect(opt.position)}
+              className={`flex-1 py-2 px-2 rounded-lg border-2 transition-all ${
+                isSelected
+                  ? opt.position === 'NONE'
+                    ? 'border-gray-500 bg-gray-700/50 text-gray-300'
+                    : 'border-red-500 bg-red-900/40 text-red-400'
+                  : 'border-gray-700 bg-gray-800/50 text-gray-400 hover:border-red-700'
+              }`}
+            >
+              <div className="text-center">
+                <div className="text-sm">{opt.icon}</div>
+                <div className="text-xs font-bold">{opt.label}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Shade Info */}
+      {selectedShade !== 'NONE' && (
+        <div className="p-2 bg-red-900/20 rounded text-xs text-red-400 border border-red-900/30">
+          <span className="font-bold">+15%</span> if they target {selectedShade} • <span className="font-bold">+10%</span> if {selectedShade === 'RB' ? 'they run' : `they target ${selectedShade} on a run`}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// =============================================================================
 // COMBO PREVIEW
 // =============================================================================
 
@@ -788,6 +859,7 @@ interface ComboPreviewProps {
   coverage: CoverageType;
   adjustments: AdjustmentType[];
   prediction: OffensivePlayType | null;
+  shade: ShadePosition;
   card: DefensiveCard;
   momentumCost: number;
   canAfford: boolean;
@@ -798,6 +870,7 @@ const ComboPreview: React.FC<ComboPreviewProps> = ({
   coverage,
   adjustments,
   prediction,
+  shade,
   card,
   momentumCost,
   canAfford,
@@ -857,6 +930,16 @@ const ComboPreview: React.FC<ComboPreviewProps> = ({
           <span className="text-gray-400">Predicting:</span>
           <span className="text-white font-bold">{prediction.replace(/_/g, ' ')}</span>
           <span className="text-green-500 text-xs">(+15% if correct)</span>
+        </div>
+      )}
+
+      {/* Shade Tag */}
+      {shade !== 'NONE' && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-orange-500">👁️</span>
+          <span className="text-gray-400">Shading:</span>
+          <span className="text-white font-bold">{shade}</span>
+          <span className="text-green-500 text-xs">(+15% if match, +10% if RB shade & run)</span>
         </div>
       )}
 

@@ -24,6 +24,8 @@ import type {
   FourthDownPhase,
   PlaySelection,
   GameStats,
+  TargetPosition,
+  ShadePosition,
 } from '../types/game.types';
 import type {
   Card,
@@ -280,7 +282,9 @@ const createInitialPlaySelection = (): PlaySelection => ({
   phase: 'DEFENSE_SELECTING',
   defenseCard: null,
   defensePrediction: null,
+  defenseShade: 'NONE',
   offenseCard: null,
+  offenseTarget: null,
   dirtyCard: null,
   dirtyCardSide: null,
   selectionTimeRemaining: 30,
@@ -354,8 +358,8 @@ interface CardGameActions {
   endDrive: (result: DriveResult) => void;
 
   // === Play Execution ===
-  selectOffensiveCard: (card: OffensiveCard, dirtyCard?: DirtyCard) => void;
-  selectDefensiveCard: (card: DefensiveCard, prediction?: OffensivePlayType, dirtyCard?: DirtyCard) => void;
+  selectOffensiveCard: (card: OffensiveCard, target?: TargetPosition, dirtyCard?: DirtyCard) => void;
+  selectDefensiveCard: (card: DefensiveCard, prediction?: OffensivePlayType, shade?: ShadePosition, dirtyCard?: DirtyCard) => void;
   executePlay: () => PlayResult | null;
   executeFourthDown: (
     offenseChoice: FourthDownCategory | 'FAKE_FG' | 'FAKE_PUNT',
@@ -786,11 +790,12 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   // PLAY EXECUTION
   // =========================================================================
 
-  selectOffensiveCard: (card, dirtyCard) => {
+  selectOffensiveCard: (card, target, dirtyCard) => {
     set((state) => ({
       playSelection: {
         ...state.playSelection,
         offenseCard: card,
+        offenseTarget: target || null,
         dirtyCard: dirtyCard || state.playSelection.dirtyCard,
         dirtyCardSide: dirtyCard ? 'OFFENSE' : state.playSelection.dirtyCardSide,
         phase: state.playSelection.defenseCard ? 'BOTH_SELECTED' : 'OFFENSE_SELECTING',
@@ -798,12 +803,13 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     }));
   },
 
-  selectDefensiveCard: (card, prediction, dirtyCard) => {
+  selectDefensiveCard: (card, prediction, shade, dirtyCard) => {
     set((state) => ({
       playSelection: {
         ...state.playSelection,
         defenseCard: card,
         defensePrediction: prediction || null,
+        defenseShade: shade || 'NONE',
         dirtyCard: dirtyCard || state.playSelection.dirtyCard,
         dirtyCardSide: dirtyCard ? 'DEFENSE' : state.playSelection.dirtyCardSide,
         phase: state.playSelection.offenseCard ? 'BOTH_SELECTED' : 'DEFENSE_SELECTING',
@@ -1374,6 +1380,8 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       offenseFatigue: isPlayerOffense ? state.playerState.fatigue : state.opponentState.fatigue,
       defenseFatigue: isPlayerOffense ? state.opponentState.fatigue : state.playerState.fatigue,
       scoreDifferential: isPlayerOffense ? get().getScoreDifferential() : -get().getScoreDifferential(),
+      offenseTarget: state.playSelection.offenseTarget || undefined,
+      defenseShade: state.playSelection.defenseShade || 'NONE',
     };
   },
 }));

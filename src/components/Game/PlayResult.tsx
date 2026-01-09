@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useCardGameStore, MOMENTUM_CONFIG } from '../../stores/cardGameStore';
-import type { PlayResult, FourthDownResult, PlayBreakdown } from '../../engine/playResolver';
+import type { PlayResult, FourthDownResult, PlayBreakdown, ShadeResult } from '../../engine/playResolver';
 import type { OffensivePlayType } from '../../types/card.types';
 
 // =============================================================================
@@ -282,6 +282,11 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
           <div className="mt-3 text-sm text-gray-300 italic">
             "{result.playByPlay}"
           </div>
+
+          {/* Shade Result */}
+          {isPlayResult && (result as PlayResult).shadeResult && (
+            <ShadeResultDisplay shadeResult={(result as PlayResult).shadeResult!} />
+          )}
         </div>
 
         {/* Yard Line Movement */}
@@ -802,6 +807,40 @@ const PenaltyDisplay: React.FC<PenaltyDisplayProps> = ({ penalty }) => {
 };
 
 // =============================================================================
+// SHADE RESULT DISPLAY
+// =============================================================================
+
+interface ShadeResultDisplayProps {
+  shadeResult: ShadeResult;
+}
+
+const ShadeResultDisplay: React.FC<ShadeResultDisplayProps> = ({ shadeResult }) => {
+  const isSuccess = shadeResult.shadeMatched || shadeResult.runShadeBonus;
+
+  return (
+    <div className={`mt-3 p-2 rounded-lg border ${
+      isSuccess
+        ? 'bg-green-900/30 border-green-800/50'
+        : 'bg-gray-800/30 border-gray-700/50'
+    }`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{isSuccess ? '👁️' : '❌'}</span>
+          <span className={`text-sm font-medium ${isSuccess ? 'text-green-400' : 'text-gray-400'}`}>
+            {shadeResult.message}
+          </span>
+        </div>
+        {shadeResult.bonusApplied > 0 && (
+          <span className="text-xs font-bold text-green-400 bg-green-900/50 px-2 py-0.5 rounded">
+            +{shadeResult.bonusApplied}% DEF
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
 // BREAKDOWN PANEL
 // =============================================================================
 
@@ -837,6 +876,14 @@ const BreakdownPanel: React.FC<BreakdownPanelProps> = ({ breakdown }) => {
           <span className="text-gray-500">Momentum</span>
           <span className={breakdown.momentumModifier > 0 ? 'text-green-400' : 'text-red-400'}>
             {breakdown.momentumModifier > 0 ? '+' : ''}{breakdown.momentumModifier}%
+          </span>
+        </div>
+      )}
+      {breakdown.shadeModifier !== 0 && (
+        <div className="flex justify-between">
+          <span className="text-gray-500">Shade</span>
+          <span className={breakdown.shadeModifier > 0 ? 'text-green-400' : 'text-red-400'}>
+            {breakdown.shadeModifier > 0 ? '+' : ''}{breakdown.shadeModifier}%
           </span>
         </div>
       )}
