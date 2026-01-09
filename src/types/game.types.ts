@@ -107,6 +107,153 @@ export const BIG_HIT_CHANCE = 20;
 /** Yards required for breakaway bonus drain */
 export const BREAKAWAY_YARDS = 15;
 
+// =============================================================================
+// OFFENSIVE MODIFIERS
+// =============================================================================
+
+/**
+ * Pre-snap modifiers that can be applied to offensive plays.
+ * Each modifier has specific play type restrictions and effects.
+ */
+export type OffensiveModifier =
+  | 'NONE'           // No modifier
+  | 'MAX_PROTECT'    // Extra blockers, fewer routes (PASS ONLY)
+  | 'MOTION'         // Pre-snap receiver motion (ANY)
+  | 'HARD_COUNT'     // Try to draw offsides, risk false start (ANY)
+  | 'PLAY_ACTION'    // Fake handoff before pass (PASS ONLY, non-PA cards)
+  | 'QUICK_COUNT'    // Fast snap, defense may be unprepared (ANY)
+  | 'HEAVY_SET'      // Extra blockers/TEs, telegraphs run (RUN ONLY)
+;
+
+/**
+ * Modifier availability based on play type.
+ * true = allowed, false = not allowed
+ */
+export const MODIFIER_AVAILABILITY: Record<OffensiveModifier, { pass: boolean; run: boolean }> = {
+  NONE: { pass: true, run: true },
+  MAX_PROTECT: { pass: true, run: false },
+  MOTION: { pass: true, run: true },
+  HARD_COUNT: { pass: true, run: true },
+  PLAY_ACTION: { pass: true, run: false },  // Only non-PA pass cards
+  QUICK_COUNT: { pass: true, run: true },
+  HEAVY_SET: { pass: false, run: true },
+};
+
+/**
+ * Effects of each modifier on play success/outcomes.
+ */
+export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
+  successBonus: number;      // % bonus to success chance
+  protectionBonus: number;   // % bonus to pass protection
+  yardsBonus: number;        // Bonus yards on success
+  turnoverRisk: number;      // Additional turnover risk %
+  description: string;       // UI description
+  specialEffect?: 'HARD_COUNT' | 'QUICK_COUNT';  // Special resolution
+}> = {
+  NONE: {
+    successBonus: 0,
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: 'Standard play',
+  },
+  MAX_PROTECT: {
+    successBonus: 5,
+    protectionBonus: 20,
+    yardsBonus: 0,
+    turnoverRisk: -3,  // Less risk due to better protection
+    description: 'Extra blockers stay in. +20% protection, fewer routes.',
+  },
+  MOTION: {
+    successBonus: 8,
+    protectionBonus: 0,
+    yardsBonus: 1,
+    turnoverRisk: 0,
+    description: 'Pre-snap motion confuses defense. +8% success.',
+  },
+  HARD_COUNT: {
+    successBonus: 0,  // Bonus only if offsides drawn
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: '~15% offsides (free play), ~15% false start, 70% normal snap.',
+    specialEffect: 'HARD_COUNT',
+  },
+  PLAY_ACTION: {
+    successBonus: 12,
+    protectionBonus: -10,  // More vulnerable during fake
+    yardsBonus: 3,
+    turnoverRisk: 2,
+    description: 'Fake handoff freezes linebackers. +12% success, +3 yards.',
+  },
+  QUICK_COUNT: {
+    successBonus: 10,
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: 'Fast snap catches defense substituting. +10% success.',
+    specialEffect: 'QUICK_COUNT',
+  },
+  HEAVY_SET: {
+    successBonus: 5,
+    protectionBonus: 15,
+    yardsBonus: 2,
+    turnoverRisk: -2,
+    description: 'Extra blockers for power running. +15% blocking, +2 yards.',
+  },
+};
+
+/**
+ * Hard count resolution probabilities.
+ */
+export const HARD_COUNT_ODDS = {
+  OFFSIDES: 15,      // 15% chance defense jumps
+  FALSE_START: 15,   // 15% chance offense jumps
+  NORMAL_SNAP: 70,   // 70% normal play
+} as const;
+
+/**
+ * Quick count bonus when defense is caught off guard.
+ * Applied randomly based on game situation.
+ */
+export const QUICK_COUNT_BONUS = {
+  CHANCE: 40,        // 40% chance defense is caught
+  SUCCESS_BONUS: 15, // +15% success when caught
+} as const;
+
+/**
+ * Check if a modifier is available for a given play type.
+ */
+export function isModifierAvailable(
+  modifier: OffensiveModifier,
+  isPassPlay: boolean,
+  isAlreadyPlayAction: boolean = false
+): boolean {
+  if (modifier === 'NONE') return true;
+
+  const availability = MODIFIER_AVAILABILITY[modifier];
+  const typeAllowed = isPassPlay ? availability.pass : availability.run;
+
+  // PLAY_ACTION modifier can't be used on cards that are already play action
+  if (modifier === 'PLAY_ACTION' && isAlreadyPlayAction) return false;
+
+  return typeAllowed;
+}
+
+/**
+ * Get available modifiers for a play type.
+ */
+export function getAvailableModifiers(
+  isPassPlay: boolean,
+  isAlreadyPlayAction: boolean = false
+): OffensiveModifier[] {
+  const allModifiers: OffensiveModifier[] = [
+    'NONE', 'MAX_PROTECT', 'MOTION', 'HARD_COUNT', 'PLAY_ACTION', 'QUICK_COUNT', 'HEAVY_SET'
+  ];
+
+  return allModifiers.filter(mod => isModifierAvailable(mod, isPassPlay, isAlreadyPlayAction));
+}
+
 /**
  * Calculate stamina effect modifier for a player's effectiveness.
  * Returns a multiplier: 1.0 = full, 0.5 = half bonus, 0 = no bonus, -0.1 = penalty
@@ -205,6 +352,353 @@ export function applyHalftimeRecovery(currentStamina: StaminaState): StaminaStat
   }
 
   return newStamina;
+}
+
+// =============================================================================
+// PENALTY SYSTEM
+// =============================================================================
+
+/**
+ * Types of penalties that can occur during play.
+ * Each penalty has specific yard amounts and situational effects.
+ */
+export type PenaltyType =
+  // Offensive Penalties
+  | 'OFFENSIVE_HOLDING'       // 10 yards, replay down
+  | 'FALSE_START'             // 5 yards, dead ball
+  | 'ILLEGAL_FORMATION'       // 5 yards, replay down
+  | 'ILLEGAL_MOTION'          // 5 yards, replay down
+  | 'OFFENSIVE_PASS_INTERFERENCE'  // 10 yards, replay down
+  | 'INTENTIONAL_GROUNDING'   // 10 yards + loss of down (or safety if in end zone)
+  | 'INELIGIBLE_RECEIVER'     // 5 yards, replay down
+  | 'DELAY_OF_GAME'           // 5 yards, replay down
+  // Defensive Penalties
+  | 'OFFSIDES'                // 5 yards, replay or take result
+  | 'ENCROACHMENT'            // 5 yards, dead ball
+  | 'NEUTRAL_ZONE_INFRACTION' // 5 yards, dead ball
+  | 'DEFENSIVE_HOLDING'       // 5 yards + automatic first down
+  | 'DEFENSIVE_PASS_INTERFERENCE'  // Spot foul + automatic first down
+  | 'ROUGHING_THE_PASSER'     // 15 yards + automatic first down
+  | 'UNNECESSARY_ROUGHNESS'   // 15 yards
+  | 'ILLEGAL_CONTACT'         // 5 yards + automatic first down
+  | 'FACE_MASK'               // 15 yards
+;
+
+/**
+ * Penalty configuration including yards, effects, and base frequency.
+ */
+export interface PenaltyConfig {
+  type: PenaltyType;
+  team: 'OFFENSE' | 'DEFENSE';
+  yards: number;
+  isSpotFoul: boolean;         // If true, yards from spot of foul
+  automaticFirstDown: boolean; // Defense penalties can give automatic first down
+  lossOfDown: boolean;         // Some offense penalties lose a down
+  isDeadBall: boolean;         // Penalty stops play before snap
+  baseChance: number;          // Base % chance per play (before modifiers)
+  description: string;
+}
+
+/**
+ * All penalty configurations with their effects.
+ * Base frequency is designed for ~5% total penalty rate per play.
+ */
+export const PENALTY_CONFIG: Record<PenaltyType, PenaltyConfig> = {
+  // Offensive Penalties (~2.5% combined)
+  OFFENSIVE_HOLDING: {
+    type: 'OFFENSIVE_HOLDING',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 1.2,  // Most common offensive penalty
+    description: 'Offensive holding',
+  },
+  FALSE_START: {
+    type: 'FALSE_START',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.5,
+    description: 'False start',
+  },
+  ILLEGAL_FORMATION: {
+    type: 'ILLEGAL_FORMATION',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Illegal formation',
+  },
+  ILLEGAL_MOTION: {
+    type: 'ILLEGAL_MOTION',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Illegal motion',
+  },
+  OFFENSIVE_PASS_INTERFERENCE: {
+    type: 'OFFENSIVE_PASS_INTERFERENCE',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Offensive pass interference',
+  },
+  INTENTIONAL_GROUNDING: {
+    type: 'INTENTIONAL_GROUNDING',
+    team: 'OFFENSE',
+    yards: 10,
+    isSpotFoul: true,
+    automaticFirstDown: false,
+    lossOfDown: true,
+    isDeadBall: false,
+    baseChance: 0.15,
+    description: 'Intentional grounding',
+  },
+  INELIGIBLE_RECEIVER: {
+    type: 'INELIGIBLE_RECEIVER',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.1,
+    description: 'Ineligible receiver downfield',
+  },
+  DELAY_OF_GAME: {
+    type: 'DELAY_OF_GAME',
+    team: 'OFFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.15,
+    description: 'Delay of game',
+  },
+
+  // Defensive Penalties (~2.5% combined)
+  OFFSIDES: {
+    type: 'OFFSIDES',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,  // Only auto 1st if yards gained
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.6,
+    description: 'Offsides',
+  },
+  ENCROACHMENT: {
+    type: 'ENCROACHMENT',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.3,
+    description: 'Encroachment',
+  },
+  NEUTRAL_ZONE_INFRACTION: {
+    type: 'NEUTRAL_ZONE_INFRACTION',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: true,
+    baseChance: 0.2,
+    description: 'Neutral zone infraction',
+  },
+  DEFENSIVE_HOLDING: {
+    type: 'DEFENSIVE_HOLDING',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.4,
+    description: 'Defensive holding',
+  },
+  DEFENSIVE_PASS_INTERFERENCE: {
+    type: 'DEFENSIVE_PASS_INTERFERENCE',
+    team: 'DEFENSE',
+    yards: 15,  // Simplified from spot foul, use max 15
+    isSpotFoul: true,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.4,
+    description: 'Defensive pass interference',
+  },
+  ROUGHING_THE_PASSER: {
+    type: 'ROUGHING_THE_PASSER',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.2,
+    description: 'Roughing the passer',
+  },
+  UNNECESSARY_ROUGHNESS: {
+    type: 'UNNECESSARY_ROUGHNESS',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.15,
+    description: 'Unnecessary roughness',
+  },
+  ILLEGAL_CONTACT: {
+    type: 'ILLEGAL_CONTACT',
+    team: 'DEFENSE',
+    yards: 5,
+    isSpotFoul: false,
+    automaticFirstDown: true,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.25,
+    description: 'Illegal contact',
+  },
+  FACE_MASK: {
+    type: 'FACE_MASK',
+    team: 'DEFENSE',
+    yards: 15,
+    isSpotFoul: false,
+    automaticFirstDown: false,
+    lossOfDown: false,
+    isDeadBall: false,
+    baseChance: 0.1,
+    description: 'Face mask',
+  },
+};
+
+/**
+ * Referee styles affect penalty frequency and bias.
+ * Used in pre-game modifier selection.
+ */
+export type RefereeStyle =
+  | 'NORMAL'        // Standard penalty calling
+  | 'TIGHT'         // Calls everything, more penalties
+  | 'LOOSE'         // Lets them play, fewer penalties
+  | 'HOME_COOKING'  // Favors home team (mild)
+  | 'MAKEUP_CALL'   // After controversial call, more likely to even out
+;
+
+/**
+ * Referee style configurations.
+ */
+export interface RefereeConfig {
+  style: RefereeStyle;
+  penaltyMultiplier: number;      // Multiplier for all penalty chances
+  homeTeamBias: number;           // Positive = favors home (0 = neutral)
+  makeupCallChance: number;       // Chance to trigger makeup call after penalty
+  description: string;
+}
+
+export const REFEREE_STYLES: Record<RefereeStyle, RefereeConfig> = {
+  NORMAL: {
+    style: 'NORMAL',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Calls the game by the book',
+  },
+  TIGHT: {
+    style: 'TIGHT',
+    penaltyMultiplier: 1.6,   // 60% more penalties
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Flag-happy crew, calls everything',
+  },
+  LOOSE: {
+    style: 'LOOSE',
+    penaltyMultiplier: 0.5,   // 50% fewer penalties
+    homeTeamBias: 0,
+    makeupCallChance: 0,
+    description: 'Lets them play, very physical game',
+  },
+  HOME_COOKING: {
+    style: 'HOME_COOKING',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0.25,       // 25% more likely to call against away
+    makeupCallChance: 0.1,
+    description: 'Seems to favor the home team...',
+  },
+  MAKEUP_CALL: {
+    style: 'MAKEUP_CALL',
+    penaltyMultiplier: 1.0,
+    homeTeamBias: 0,
+    makeupCallChance: 0.4,    // 40% chance of makeup call after penalty
+    description: 'Tries to keep things "even"',
+  },
+};
+
+/**
+ * Penalties that can only occur on pass plays.
+ */
+export const PASS_ONLY_PENALTIES: PenaltyType[] = [
+  'OFFENSIVE_PASS_INTERFERENCE',
+  'INTENTIONAL_GROUNDING',
+  'INELIGIBLE_RECEIVER',
+  'DEFENSIVE_PASS_INTERFERENCE',
+  'ROUGHING_THE_PASSER',
+  'ILLEGAL_CONTACT',
+];
+
+/**
+ * Penalties that can only occur on run plays.
+ */
+export const RUN_ONLY_PENALTIES: PenaltyType[] = [
+  // No strictly run-only penalties, but holding is more common
+];
+
+/**
+ * Dead ball penalties that prevent the play from occurring.
+ */
+export const DEAD_BALL_PENALTIES: PenaltyType[] = [
+  'FALSE_START',
+  'ENCROACHMENT',
+  'NEUTRAL_ZONE_INFRACTION',
+  'DELAY_OF_GAME',
+];
+
+/**
+ * Get all penalties applicable to a play type.
+ */
+export function getApplicablePenalties(isPassPlay: boolean): PenaltyType[] {
+  const allPenalties = Object.keys(PENALTY_CONFIG) as PenaltyType[];
+
+  if (isPassPlay) {
+    // All penalties except run-only
+    return allPenalties.filter(p => !RUN_ONLY_PENALTIES.includes(p));
+  } else {
+    // All penalties except pass-only
+    return allPenalties.filter(p => !PASS_ONLY_PENALTIES.includes(p));
+  }
 }
 
 // =============================================================================
@@ -429,6 +923,7 @@ export interface PlaySelection {
   // Offense selection (sees defense, picks counter)
   offenseCard: Card | null;
   offenseTarget: TargetPosition | null;         // Who offense is targeting
+  offenseModifier: OffensiveModifier;           // Pre-snap modifier (motion, hard count, etc.)
 
   // Dirty card (either side can play alongside main card)
   dirtyCard: Card | null;
@@ -682,6 +1177,396 @@ export interface WeatherEffect {
   runModifier: number;
   kickModifier: number;
   staminaDrain: number;         // Extra fatigue per play
+}
+
+// =============================================================================
+// STADIUM EVENTS (Pregame Modifier)
+// =============================================================================
+
+/**
+ * Stadium events that affect game atmosphere and mechanics.
+ * Selected during pregame card reveal.
+ */
+export type StadiumEvent =
+  | 'REGULAR_GAME'        // Standard game, no special effects
+  | 'PRIMETIME'           // National TV spotlight, momentum swings amplified
+  | 'PACKED_HOUSE'        // Full stadium, home team bonus
+  | 'EMPTY_STADIUM'       // Empty stands, no crowd noise advantage
+  | 'HOSTILE_ENVIRONMENT' // Hostile road crowd, offense penalties more likely
+  | 'THURSDAY_NIGHT'      // Short week, all fatigue starts higher
+  | 'LONDON_GAME'         // International, both teams slightly fatigued
+  | 'PLAYOFF_ATMOSPHERE'  // High stakes, clutch moments amplified
+  | 'NEUTRAL_SITE'        // No home field advantage
+;
+
+/**
+ * Stadium event configuration with effects on gameplay.
+ */
+export interface StadiumConfig {
+  event: StadiumEvent;
+  description: string;
+  flavorText: string;
+  homeBonus: number;           // % bonus for home team (negative = penalty)
+  awayBonus: number;           // % bonus for away team
+  momentumMultiplier: number;  // How much momentum swings are amplified (1.0 = normal)
+  fatigueModifier: number;     // Starting fatigue adjustment (0 = none)
+  clutchMultiplier: number;    // Multiplier for clutch play bonuses (1.0 = normal)
+  falseStartRisk: number;      // Additional false start chance for away team
+}
+
+export const STADIUM_CONFIGS: Record<StadiumEvent, StadiumConfig> = {
+  REGULAR_GAME: {
+    event: 'REGULAR_GAME',
+    description: 'Standard Game',
+    flavorText: 'A regular season matchup under the lights.',
+    homeBonus: 3,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 0,
+  },
+  PRIMETIME: {
+    event: 'PRIMETIME',
+    description: 'Primetime Spotlight',
+    flavorText: 'The whole nation is watching. Every play matters more.',
+    homeBonus: 5,
+    awayBonus: 0,
+    momentumMultiplier: 1.4,  // 40% bigger momentum swings
+    fatigueModifier: 0,
+    clutchMultiplier: 1.3,    // Clutch plays worth 30% more
+    falseStartRisk: 2,
+  },
+  PACKED_HOUSE: {
+    event: 'PACKED_HOUSE',
+    description: 'Sold Out Stadium',
+    flavorText: 'The 12th man is here. Defense feeds off the energy.',
+    homeBonus: 8,
+    awayBonus: -2,
+    momentumMultiplier: 1.2,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 4,        // Crowd noise causes communication issues
+  },
+  EMPTY_STADIUM: {
+    event: 'EMPTY_STADIUM',
+    description: 'Empty Stadium',
+    flavorText: 'Echo of cleats on concrete. No crowd energy.',
+    homeBonus: 0,
+    awayBonus: 0,
+    momentumMultiplier: 0.7,  // Momentum swings reduced
+    fatigueModifier: 0,
+    clutchMultiplier: 0.8,    // Less pressure = less clutch moments
+    falseStartRisk: 0,
+  },
+  HOSTILE_ENVIRONMENT: {
+    event: 'HOSTILE_ENVIRONMENT',
+    description: 'Hostile Road Crowd',
+    flavorText: 'The crowd is ruthless. Every mistake will be punished.',
+    homeBonus: 10,
+    awayBonus: -5,
+    momentumMultiplier: 1.5,
+    fatigueModifier: 5,       // Mental fatigue for away team
+    clutchMultiplier: 1.2,
+    falseStartRisk: 6,        // Very loud crowd
+  },
+  THURSDAY_NIGHT: {
+    event: 'THURSDAY_NIGHT',
+    description: 'Thursday Night Football',
+    flavorText: 'Short week. Both teams are running on fumes.',
+    homeBonus: 3,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 15,      // Both teams start fatigued
+    clutchMultiplier: 1.0,
+    falseStartRisk: 2,
+  },
+  LONDON_GAME: {
+    event: 'LONDON_GAME',
+    description: 'London International',
+    flavorText: 'Across the pond. Jet lag affects everyone.',
+    homeBonus: 0,             // No home team in London
+    awayBonus: 0,
+    momentumMultiplier: 0.9,
+    fatigueModifier: 10,      // Travel fatigue
+    clutchMultiplier: 1.0,
+    falseStartRisk: 3,        // Unfamiliar venue
+  },
+  PLAYOFF_ATMOSPHERE: {
+    event: 'PLAYOFF_ATMOSPHERE',
+    description: 'Playoff Atmosphere',
+    flavorText: 'Win or go home. Every possession is crucial.',
+    homeBonus: 5,
+    awayBonus: 0,
+    momentumMultiplier: 1.6,  // Huge momentum swings
+    fatigueModifier: 0,
+    clutchMultiplier: 1.5,    // Clutch plays massively rewarded
+    falseStartRisk: 3,
+  },
+  NEUTRAL_SITE: {
+    event: 'NEUTRAL_SITE',
+    description: 'Neutral Site',
+    flavorText: 'Even playing field. Pure football.',
+    homeBonus: 0,
+    awayBonus: 0,
+    momentumMultiplier: 1.0,
+    fatigueModifier: 0,
+    clutchMultiplier: 1.0,
+    falseStartRisk: 0,
+  },
+};
+
+// =============================================================================
+// PREGAME MODIFIERS (Combined State)
+// =============================================================================
+
+/**
+ * All pregame modifiers selected before kickoff.
+ * Replaces coin toss with card reveal mechanic.
+ */
+export interface PregameModifiers {
+  stadium: StadiumEvent;
+  weather: WeatherCondition;
+  referee: RefereeStyle;
+
+  // Who receives first (determined after reveals)
+  receivingFirst: 'HOME' | 'AWAY';
+}
+
+/**
+ * Pregame card for UI presentation.
+ * Each category shows as a face-down card that flips to reveal.
+ */
+export interface PregameCard {
+  category: 'STADIUM' | 'WEATHER' | 'REFEREE';
+  value: StadiumEvent | WeatherCondition | RefereeStyle;
+  isRevealed: boolean;
+  description: string;
+  effectsSummary: string[];
+}
+
+/**
+ * Create pregame cards for the reveal sequence.
+ */
+export function createPregameCards(modifiers: PregameModifiers): PregameCard[] {
+  const stadiumConfig = STADIUM_CONFIGS[modifiers.stadium];
+  const weatherEffect = WEATHER_EFFECTS[modifiers.weather];
+  const refereeConfig = REFEREE_STYLES[modifiers.referee];
+
+  return [
+    {
+      category: 'STADIUM',
+      value: modifiers.stadium,
+      isRevealed: false,
+      description: stadiumConfig.description,
+      effectsSummary: getStadiumEffectsSummary(stadiumConfig),
+    },
+    {
+      category: 'WEATHER',
+      value: modifiers.weather,
+      isRevealed: false,
+      description: getWeatherDescription(modifiers.weather),
+      effectsSummary: getWeatherEffectsSummary(weatherEffect, modifiers.weather),
+    },
+    {
+      category: 'REFEREE',
+      value: modifiers.referee,
+      isRevealed: false,
+      description: refereeConfig.description,
+      effectsSummary: getRefereeEffectsSummary(refereeConfig),
+    },
+  ];
+}
+
+/**
+ * Get summary strings for stadium effects.
+ */
+function getStadiumEffectsSummary(config: StadiumConfig): string[] {
+  const effects: string[] = [];
+
+  if (config.homeBonus > 0) effects.push(`Home +${config.homeBonus}% success`);
+  if (config.homeBonus < 0) effects.push(`Home ${config.homeBonus}% success`);
+  if (config.awayBonus !== 0) effects.push(`Away ${config.awayBonus > 0 ? '+' : ''}${config.awayBonus}% success`);
+  if (config.momentumMultiplier !== 1.0) {
+    const pct = Math.round((config.momentumMultiplier - 1.0) * 100);
+    effects.push(`Momentum swings ${pct > 0 ? '+' : ''}${pct}%`);
+  }
+  if (config.fatigueModifier > 0) effects.push(`+${config.fatigueModifier} starting fatigue`);
+  if (config.clutchMultiplier !== 1.0) {
+    const pct = Math.round((config.clutchMultiplier - 1.0) * 100);
+    effects.push(`Clutch bonus ${pct > 0 ? '+' : ''}${pct}%`);
+  }
+  if (config.falseStartRisk > 0) effects.push(`+${config.falseStartRisk}% false start risk (away)`);
+
+  if (effects.length === 0) effects.push('No special effects');
+  return effects;
+}
+
+/**
+ * Get human-readable weather description.
+ */
+function getWeatherDescription(weather: WeatherCondition): string {
+  const descriptions: Record<WeatherCondition, string> = {
+    CLEAR: 'Clear Skies',
+    RAIN: 'Rainy Conditions',
+    SNOW: 'Snow Game',
+    WIND: 'High Winds',
+    EXTREME_COLD: 'Freezing Cold',
+    EXTREME_HEAT: 'Extreme Heat',
+    DOME: 'Indoor Dome',
+  };
+  return descriptions[weather];
+}
+
+/**
+ * Get summary strings for weather effects.
+ */
+function getWeatherEffectsSummary(effect: WeatherEffect, weather: WeatherCondition): string[] {
+  const effects: string[] = [];
+
+  if (effect.passModifier !== 0) effects.push(`${effect.passModifier > 0 ? '+' : ''}${effect.passModifier}% passing`);
+  if (effect.runModifier !== 0) effects.push(`${effect.runModifier > 0 ? '+' : ''}${effect.runModifier}% rushing`);
+  if (effect.kickModifier !== 0) effects.push(`${effect.kickModifier > 0 ? '+' : ''}${effect.kickModifier}% kicking`);
+  if (effect.staminaDrain > 0) effects.push(`+${effect.staminaDrain}% stamina drain`);
+
+  if (effects.length === 0) {
+    if (weather === 'DOME') effects.push('Perfect conditions');
+    else effects.push('No weather effects');
+  }
+  return effects;
+}
+
+/**
+ * Get summary strings for referee effects.
+ */
+function getRefereeEffectsSummary(config: RefereeConfig): string[] {
+  const effects: string[] = [];
+
+  if (config.penaltyMultiplier !== 1.0) {
+    const pct = Math.round((config.penaltyMultiplier - 1.0) * 100);
+    effects.push(`${pct > 0 ? '+' : ''}${pct}% penalty frequency`);
+  }
+  if (config.homeTeamBias > 0) effects.push(`${Math.round(config.homeTeamBias * 100)}% home team bias`);
+  if (config.makeupCallChance > 0) effects.push(`${Math.round(config.makeupCallChance * 100)}% makeup call chance`);
+
+  if (effects.length === 0) effects.push('Calls the game straight');
+  return effects;
+}
+
+/**
+ * Randomly generate pregame modifiers.
+ * Weighted to make dramatic games more common.
+ */
+export function generateRandomPregameModifiers(): PregameModifiers {
+  // Stadium weights (dramatic events slightly less common)
+  const stadiumWeights: [StadiumEvent, number][] = [
+    ['REGULAR_GAME', 40],
+    ['PRIMETIME', 15],
+    ['PACKED_HOUSE', 12],
+    ['EMPTY_STADIUM', 3],
+    ['HOSTILE_ENVIRONMENT', 8],
+    ['THURSDAY_NIGHT', 8],
+    ['LONDON_GAME', 4],
+    ['PLAYOFF_ATMOSPHERE', 5],
+    ['NEUTRAL_SITE', 5],
+  ];
+
+  // Weather weights (clear most common)
+  const weatherWeights: [WeatherCondition, number][] = [
+    ['CLEAR', 35],
+    ['DOME', 25],
+    ['RAIN', 12],
+    ['WIND', 10],
+    ['SNOW', 6],
+    ['EXTREME_COLD', 6],
+    ['EXTREME_HEAT', 6],
+  ];
+
+  // Referee weights (normal most common)
+  const refereeWeights: [RefereeStyle, number][] = [
+    ['NORMAL', 50],
+    ['TIGHT', 15],
+    ['LOOSE', 15],
+    ['HOME_COOKING', 10],
+    ['MAKEUP_CALL', 10],
+  ];
+
+  return {
+    stadium: weightedRandomSelect(stadiumWeights),
+    weather: weightedRandomSelect(weatherWeights),
+    referee: weightedRandomSelect(refereeWeights),
+    receivingFirst: Math.random() < 0.5 ? 'HOME' : 'AWAY',
+  };
+}
+
+/**
+ * Helper for weighted random selection.
+ */
+function weightedRandomSelect<T>(weights: [T, number][]): T {
+  const totalWeight = weights.reduce((sum, [, w]) => sum + w, 0);
+  let random = Math.random() * totalWeight;
+
+  for (const [value, weight] of weights) {
+    random -= weight;
+    if (random <= 0) return value;
+  }
+
+  return weights[0][0]; // Fallback
+}
+
+/**
+ * Calculate combined effects from all pregame modifiers.
+ * Used by play resolver to apply bonuses/penalties.
+ */
+export interface CombinedPregameEffects {
+  // Success modifiers
+  homePassBonus: number;
+  homeRunBonus: number;
+  awayPassBonus: number;
+  awayRunBonus: number;
+
+  // Kicking
+  kickModifier: number;
+
+  // Fatigue/stamina
+  staminaDrainMultiplier: number;
+  startingFatigue: number;
+
+  // Momentum
+  momentumMultiplier: number;
+  clutchMultiplier: number;
+
+  // Penalties
+  penaltyMultiplier: number;
+  homeTeamPenaltyBias: number;  // Positive = more penalties on away team
+  makeupCallChance: number;
+  extraFalseStartRisk: number;
+}
+
+export function calculateCombinedEffects(modifiers: PregameModifiers): CombinedPregameEffects {
+  const stadium = STADIUM_CONFIGS[modifiers.stadium];
+  const weather = WEATHER_EFFECTS[modifiers.weather];
+  const referee = REFEREE_STYLES[modifiers.referee];
+
+  return {
+    homePassBonus: stadium.homeBonus + weather.passModifier,
+    homeRunBonus: stadium.homeBonus + weather.runModifier,
+    awayPassBonus: stadium.awayBonus + weather.passModifier,
+    awayRunBonus: stadium.awayBonus + weather.runModifier,
+
+    kickModifier: weather.kickModifier,
+
+    staminaDrainMultiplier: 1 + (weather.staminaDrain / 100),
+    startingFatigue: stadium.fatigueModifier,
+
+    momentumMultiplier: stadium.momentumMultiplier,
+    clutchMultiplier: stadium.clutchMultiplier,
+
+    penaltyMultiplier: referee.penaltyMultiplier,
+    homeTeamPenaltyBias: referee.homeTeamBias,
+    makeupCallChance: referee.makeupCallChance,
+    extraFalseStartRisk: stadium.falseStartRisk,
+  };
 }
 
 // =============================================================================

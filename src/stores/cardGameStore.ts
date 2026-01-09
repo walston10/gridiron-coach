@@ -27,6 +27,12 @@ import type {
   TargetPosition,
   ShadePosition,
   StaminaState,
+  OffensiveModifier,
+  RefereeStyle,
+  PregameModifiers,
+  PregameCard,
+  StadiumEvent,
+  CombinedPregameEffects,
 } from '../types/game.types';
 import {
   INITIAL_STAMINA,
@@ -34,6 +40,10 @@ import {
   updateStaminaAfterPlay,
   applyHalftimeRecovery,
   getStaminaEffectModifier,
+  generateRandomPregameModifiers,
+  createPregameCards,
+  calculateCombinedEffects,
+  STADIUM_CONFIGS,
 } from '../types/game.types';
 import type {
   Card,
@@ -47,6 +57,7 @@ import type { Roster } from '../types/player.types';
 import {
   resolveOffensivePlay,
   resolveFourthDown,
+  applyPenalty,
   updateTendencies,
   type PlayContext,
   type PlayResult,
@@ -232,10 +243,21 @@ export interface CardGameState {
   // === Settings ===
   weather: WeatherCondition;
   quarterMinutes: number;
+  refereeStyle: RefereeStyle;
+  playerIsHome: boolean;
+
+  // === Pregame System ===
+  pregameModifiers: PregameModifiers | null;
+  pregameCards: PregameCard[];
+  pregameEffects: CombinedPregameEffects | null;
+  pregamePhase: 'NOT_STARTED' | 'REVEALING' | 'COMPLETE';
 
   // === Stamina System ===
   playerStamina: StaminaState;
   opponentStamina: StaminaState;
+
+  // === Penalty Tracking ===
+  lastPenaltyAgainst: 'OFFENSE' | 'DEFENSE' | null;
 }
 
 // =============================================================================
@@ -298,6 +320,7 @@ const createInitialPlaySelection = (): PlaySelection => ({
   defenseShade: 'NONE',
   offenseCard: null,
   offenseTarget: null,
+  offenseModifier: 'NONE',
   dirtyCard: null,
   dirtyCardSide: null,
   selectionTimeRemaining: 30,
@@ -371,7 +394,7 @@ interface CardGameActions {
   endDrive: (result: DriveResult) => void;
 
   // === Play Execution ===
-  selectOffensiveCard: (card: OffensiveCard, target?: TargetPosition, dirtyCard?: DirtyCard) => void;
+  selectOffensiveCard: (card: OffensiveCard, target?: TargetPosition, modifier?: OffensiveModifier, dirtyCard?: DirtyCard) => void;
   selectDefensiveCard: (card: DefensiveCard, prediction?: OffensivePlayType, shade?: ShadePosition, dirtyCard?: DirtyCard) => void;
   executePlay: () => PlayResult | null;
   executeFourthDown: (
@@ -407,6 +430,12 @@ interface CardGameActions {
   initiateFourthDown: () => void;
   setFourthDownOffenseChoice: (choice: FourthDownCategory, isFaking?: boolean) => void;
   setFourthDownDefenseResponse: (response: FourthDownDefenseResponse) => void;
+
+  // === Pregame ===
+  initializePregame: () => void;
+  revealPregameCard: (index: number) => void;
+  completePregame: () => void;
+  getPregameEffects: () => CombinedPregameEffects | null;
 
   // === UI ===
   showTransition: (screen: TransitionScreen) => void;
@@ -471,8 +500,15 @@ const initialState: CardGameState = {
   isPaused: false,
   weather: 'CLEAR',
   quarterMinutes: QUARTER_CONFIG.DEFAULT_MINUTES,
+  refereeStyle: 'NORMAL',
+  playerIsHome: true,
+  pregameModifiers: null,
+  pregameCards: [],
+  pregameEffects: null,
+  pregamePhase: 'NOT_STARTED',
   playerStamina: { ...INITIAL_STAMINA },
   opponentStamina: { ...INITIAL_STAMINA },
+  lastPenaltyAgainst: null,
 };
 
 // =============================================================================
@@ -818,12 +854,13 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   // PLAY EXECUTION
   // =========================================================================
 
-  selectOffensiveCard: (card, target, dirtyCard) => {
+  selectOffensiveCard: (card, target, modifier, dirtyCard) => {
     set((state) => ({
       playSelection: {
         ...state.playSelection,
         offenseCard: card,
         offenseTarget: target || null,
+        offenseModifier: modifier || 'NONE',
         dirtyCard: dirtyCard || state.playSelection.dirtyCard,
         dirtyCardSide: dirtyCard ? 'OFFENSE' : state.playSelection.dirtyCardSide,
         phase: state.playSelection.defenseCard ? 'BOTH_SELECTED' : 'OFFENSE_SELECTING',
@@ -862,8 +899,58 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     const isPlayerOffense = get().isPlayerOnOffense();
     const isThirdDown = state.fieldPosition.down === 3;
 
-    // Update field position
-    get().updateFieldPosition(result.yardsGained);
+    // Handle penalty if present and accepted
+    if (result.penalty && !result.penalty.declined) {
+      // Apply penalty to field position
+      const penaltyResult = applyPenalty(
+        result.penalty,
+        state.fieldPosition.yardLine,
+        state.fieldPosition.down,
+        state.fieldPosition.yardsToGo
+      );
+
+      // Set field position directly (penalty handles down logic)
+      get().setFieldPosition(
+        penaltyResult.newYardLine,
+        penaltyResult.newDown as Down,
+        penaltyResult.newYardsToGo
+      );
+
+      // Track penalty stats
+      const penaltyTeamKey = result.penalty.team === 'OFFENSE'
+        ? (isPlayerOffense ? 'playerState' : 'opponentState')
+        : (isPlayerOffense ? 'opponentState' : 'playerState');
+
+      const penaltyTeam = state[penaltyTeamKey];
+      set({
+        [penaltyTeamKey]: {
+          ...penaltyTeam,
+          stats: {
+            ...penaltyTeam.stats,
+            penalties: penaltyTeam.stats.penalties + 1,
+            penaltyYards: penaltyTeam.stats.penaltyYards + result.penalty.yards,
+          },
+        },
+      });
+
+      // Apply momentum shift for penalty
+      const penaltyForPlayer = result.penalty.team === 'DEFENSE' ? isPlayerOffense : !isPlayerOffense;
+      get().applyMomentumEvent('PENALTY', penaltyForPlayer);
+
+      // Track last penalty for makeup call logic
+      set({ lastPenaltyAgainst: result.penalty.team });
+
+      // Handle safety from penalty
+      if (penaltyResult.isSafety) {
+        get().addScore(isPlayerOffense ? 'opponent' : 'player', 2);
+        get().switchPossession('SAFETY');
+      }
+    } else {
+      // Clear last penalty tracking if no penalty this play
+      set({ lastPenaltyAgainst: null });
+      // No penalty or penalty declined - update field position normally
+      get().updateFieldPosition(result.yardsGained);
+    }
 
     // Update tendencies
     if (isPlayerOffense) {
@@ -1344,6 +1431,82 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   },
 
   // =========================================================================
+  // PREGAME
+  // =========================================================================
+
+  initializePregame: () => {
+    // Generate random pregame modifiers
+    const modifiers = generateRandomPregameModifiers();
+
+    // Create face-down cards for reveal sequence
+    const cards = createPregameCards(modifiers);
+
+    // Calculate combined effects
+    const effects = calculateCombinedEffects(modifiers);
+
+    set({
+      pregameModifiers: modifiers,
+      pregameCards: cards,
+      pregameEffects: effects,
+      pregamePhase: 'REVEALING',
+      phase: 'PREGAME',
+      // Pre-set weather and referee from modifiers
+      weather: modifiers.weather,
+      refereeStyle: modifiers.referee,
+    });
+  },
+
+  revealPregameCard: (index) => {
+    set((state) => {
+      const newCards = [...state.pregameCards];
+      if (newCards[index]) {
+        newCards[index] = { ...newCards[index], isRevealed: true };
+      }
+      return { pregameCards: newCards };
+    });
+  },
+
+  completePregame: () => {
+    const state = get();
+    if (!state.pregameModifiers || !state.pregameEffects) return;
+
+    const modifiers = state.pregameModifiers;
+    const effects = state.pregameEffects;
+
+    // Apply starting fatigue from stadium effects
+    const startingFatigue = effects.startingFatigue;
+
+    set({
+      pregamePhase: 'COMPLETE',
+      phase: 'KICKOFF',
+      // Apply starting fatigue if any (Thursday Night, London Game, etc.)
+      playerState: {
+        ...state.playerState,
+        fatigue: startingFatigue,
+      },
+      opponentState: {
+        ...state.opponentState,
+        fatigue: startingFatigue,
+      },
+      // Set who receives first (determined during pregame)
+      possessionState: {
+        ...state.possessionState,
+        possession: modifiers.receivingFirst === 'HOME'
+          ? (state.playerIsHome ? 'player' : 'opponent')
+          : (state.playerIsHome ? 'opponent' : 'player'),
+        kickoffPending: true,
+        receivingNextHalf: modifiers.receivingFirst === 'HOME'
+          ? (state.playerIsHome ? 'opponent' : 'player')
+          : (state.playerIsHome ? 'player' : 'opponent'),
+      },
+    });
+  },
+
+  getPregameEffects: () => {
+    return get().pregameEffects;
+  },
+
+  // =========================================================================
   // UI
   // =========================================================================
 
@@ -1466,6 +1629,14 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
         : get().getOpponentStaminaModifier(targetPosition);
     }
 
+    // Determine if user is on offense for home/away penalty bias
+    const isUserHome = state.playerIsHome;
+    const userOnOffense = isPlayerOffense;
+
+    // Get pregame effects if available
+    const pregameEffects = state.pregameEffects;
+    const isHomeTeamOnOffense = state.playerIsHome === isPlayerOffense;
+
     return {
       offenseRoster: isPlayerOffense ? state.playerRoster : state.opponentRoster,
       defenseRoster: isPlayerOffense ? state.opponentRoster : state.playerRoster,
@@ -1481,6 +1652,14 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       offenseTarget: state.playSelection.offenseTarget || undefined,
       defenseShade: state.playSelection.defenseShade || 'NONE',
       offenseStaminaModifier,
+      offenseModifier: state.playSelection.offenseModifier || 'NONE',
+      // Penalty system context
+      refereeStyle: state.refereeStyle,
+      isUserHome: isUserHome && userOnOffense, // User is home AND on offense
+      lastPenaltyAgainst: state.lastPenaltyAgainst,
+      // Pregame effects context
+      pregameEffects: pregameEffects || undefined,
+      isHomeTeamOnOffense,
     };
   },
 }));

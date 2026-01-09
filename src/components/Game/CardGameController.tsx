@@ -16,10 +16,12 @@ import { generateAIRoster } from '../../utils/playerGenerator';
 import { buildDeck } from '../../engine/cardGenerator';
 import type { OffensiveCard, DefensiveCard, OffensivePlayType } from '../../types/card.types';
 import type { PlayResult, FourthDownResult } from '../../engine/playResolver';
-import type { FourthDownCategory, FourthDownDefenseResponse } from '../../types/game.types';
+import type { FourthDownCategory, FourthDownDefenseResponse, TargetPosition, OffensiveModifier } from '../../types/game.types';
+import { getAvailableModifiers, MODIFIER_EFFECTS, LOCKED_TARGET_PLAYS, DEFAULT_PLAY_TARGETS } from '../../types/game.types';
 
 // Lazy load the heavy game components
 import { PlayResultDisplay } from './PlayResult';
+import { PregamePresentation } from './PregamePresentation';
 
 // =============================================================================
 // TYPES
@@ -35,7 +37,7 @@ interface CardGameControllerProps {
 // =============================================================================
 
 const OffensivePlayUI: React.FC<{
-  onSnapBall: (card: OffensiveCard) => void;
+  onSnapBall: (card: OffensiveCard, target: TargetPosition, modifier: OffensiveModifier) => void;
   onTimeout: () => void;
   onFourthDownChoice: (choice: FourthDownCategory | 'FAKE_FG' | 'FAKE_PUNT') => void;
 }> = ({ onSnapBall, onTimeout, onFourthDownChoice }) => {
@@ -51,13 +53,52 @@ const OffensivePlayUI: React.FC<{
 
   const cards = getAvailableOffensiveCards();
   const [selectedCard, setSelectedCard] = useState<OffensiveCard | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<TargetPosition | null>(null);
+  const [selectedModifier, setSelectedModifier] = useState<OffensiveModifier>('NONE');
+  const [showHelp, setShowHelp] = useState(false);
+
+  // Helper to check if play is a pass
+  const isPassPlay = (playType: OffensivePlayType) => {
+    return ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(playType);
+  };
+
+  // Get locked target for the selected card
+  const lockedTarget = selectedCard ? LOCKED_TARGET_PLAYS[selectedCard.playType] : undefined;
+  const defaultTarget = selectedCard ? DEFAULT_PLAY_TARGETS[selectedCard.playType] : undefined;
+  const effectiveTarget = lockedTarget || selectedTarget || defaultTarget || 'WR1';
+
+  // Get available modifiers for the selected card
+  const availableModifiers = selectedCard
+    ? getAvailableModifiers(isPassPlay(selectedCard.playType), selectedCard.playType === 'PLAY_ACTION')
+    : [];
+
+  // Get available targets based on play type
+  const getAvailableTargets = (): TargetPosition[] => {
+    if (!selectedCard) return [];
+    if (lockedTarget) return [lockedTarget]; // Locked, no choice
+    if (isPassPlay(selectedCard.playType)) {
+      return ['WR1', 'WR2', 'TE', 'RB'];
+    }
+    return ['RB']; // Runs target RB
+  };
+
+  const availableTargets = getAvailableTargets();
+
+  // Reset selections when card changes
+  const handleCardSelect = (card: OffensiveCard) => {
+    setSelectedCard(card);
+    setSelectedTarget(null);
+    setSelectedModifier('NONE');
+  };
 
   const handleSnap = useCallback(() => {
     if (selectedCard) {
-      onSnapBall(selectedCard);
+      onSnapBall(selectedCard, effectiveTarget, selectedModifier);
       setSelectedCard(null);
+      setSelectedTarget(null);
+      setSelectedModifier('NONE');
     }
-  }, [selectedCard, onSnapBall]);
+  }, [selectedCard, effectiveTarget, selectedModifier, onSnapBall]);
 
   // Fourth down decision screen
   // Show 4th down decision only when on 4th down and NOT already waiting for defense response
@@ -146,14 +187,47 @@ const OffensivePlayUI: React.FC<{
         </div>
       </div>
 
+      {/* Help Modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-4 border-b border-gray-800 flex justify-between items-center">
+              <h3 className="text-white font-bold">How Plays Work</h3>
+              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <div className="p-4 space-y-4 text-sm">
+              <div>
+                <h4 className="text-amber-400 font-bold mb-1">Success Rate</h4>
+                <p className="text-gray-300">The % shown is your chance to gain the expected yards. Even failed plays can gain 1-2 yards (runs) or result in incompletions (passes).</p>
+              </div>
+              <div>
+                <h4 className="text-amber-400 font-bold mb-1">Runs vs Passes</h4>
+                <p className="text-gray-300">Runs have a higher floor (failed runs still gain some yards) but lower ceiling. Passes have higher variance - bigger gains possible, but incompletions = 0 yards.</p>
+              </div>
+              <div>
+                <h4 className="text-amber-400 font-bold mb-1">Modifiers</h4>
+                <p className="text-gray-300">Pre-snap adjustments that affect your play. Some are pass-only (Max Protect), some are run-only (Heavy Set).</p>
+              </div>
+              <div>
+                <h4 className="text-amber-400 font-bold mb-1">Targets</h4>
+                <p className="text-gray-300">For passes, pick who to throw to. Runs automatically target the RB. Defense can shade a receiver - if they guess right, you're penalized.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Card Hand */}
       <div className="flex-1 p-4 overflow-y-auto">
-        <div className="text-gray-400 text-sm mb-3">Select a play:</div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex justify-between items-center mb-3">
+          <div className="text-gray-400 text-sm">1. Select a play:</div>
+          <button onClick={() => setShowHelp(true)} className="text-blue-400 text-xs hover:text-blue-300">? Help</button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-4">
           {cards.map(card => (
             <button
               key={card.id}
-              onClick={() => setSelectedCard(card)}
+              onClick={() => handleCardSelect(card)}
               className={`p-4 rounded-lg border-2 transition-all text-left ${
                 selectedCard?.id === card.id
                   ? 'border-amber-500 bg-amber-900/30'
@@ -169,6 +243,60 @@ const OffensivePlayUI: React.FC<{
             </button>
           ))}
         </div>
+
+        {/* Target Selection (when card is selected) */}
+        {selectedCard && availableTargets.length > 0 && (
+          <div className="mb-4">
+            <div className="text-gray-400 text-sm mb-2">2. Target:</div>
+            <div className="flex gap-2 flex-wrap">
+              {availableTargets.map(target => (
+                <button
+                  key={target}
+                  onClick={() => !lockedTarget && setSelectedTarget(target)}
+                  disabled={!!lockedTarget}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    effectiveTarget === target
+                      ? 'bg-blue-600 text-white'
+                      : lockedTarget
+                        ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  {target}
+                </button>
+              ))}
+              {lockedTarget && <span className="text-gray-500 text-xs self-center ml-2">(locked)</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Modifier Selection (when card is selected) */}
+        {selectedCard && availableModifiers.length > 1 && (
+          <div className="mb-4">
+            <div className="text-gray-400 text-sm mb-2">3. Modifier:</div>
+            <div className="flex gap-2 flex-wrap">
+              {availableModifiers.map(mod => (
+                <button
+                  key={mod}
+                  onClick={() => setSelectedModifier(mod)}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    selectedModifier === mod
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  }`}
+                  title={MODIFIER_EFFECTS[mod].description}
+                >
+                  {mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+            {selectedModifier !== 'NONE' && (
+              <div className="mt-2 text-xs text-purple-300">
+                {MODIFIER_EFFECTS[selectedModifier].description}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action Buttons */}
@@ -394,6 +522,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     opponentState,
     lastPlayedSelection,
     fourthDownState,
+    opponentDeck,
     startGame,
     resetGame,
     selectOffensiveCard,
@@ -404,6 +533,14 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isPlayerOnOffense,
     setFourthDownOffenseChoice,
     setFourthDownDefenseResponse,
+    // Pregame
+    pregameModifiers,
+    pregameCards,
+    pregamePhase,
+    playerIsHome,
+    initializePregame,
+    revealPregameCard,
+    completePregame,
   } = useCardGameStore();
 
   const { draftedRoster, draftedDeck, userTeamId } = useGameStore();
@@ -411,54 +548,96 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   const [lastResult, setLastResult] = useState<PlayResult | FourthDownResult | null>(null);
 
-  // Initialize game on mount
+  // Track if we've started initialization
+  const [initStarted, setInitStarted] = useState(false);
+
+  // Initialize pregame on mount
   useEffect(() => {
-    if (!isInitialized && draftedRoster && draftedDeck) {
-      // Get opponent info
-      const currentGame = getCurrentUserGame();
-      const opponentId = currentGame
-        ? (currentGame.homeTeamId === userTeamId ? currentGame.awayTeamId : currentGame.homeTeamId)
-        : DEFAULT_TEAMS[0].info.id;
-
-      // Generate opponent roster and deck
-      const opponentRoster = generateAIRoster(opponentId, 'AVERAGE');
-      const opponentDeck = buildDeck(opponentRoster);
-
-      // Start the game (coin toss decides who receives)
-      const playerReceivesFirst = Math.random() > 0.5;
-
-      startGame(
-        draftedRoster,
-        opponentRoster,
-        draftedDeck,
-        opponentDeck,
-        playerReceivesFirst
-      );
+    if (!initStarted && !isInitialized && draftedRoster && draftedDeck && pregamePhase === 'NOT_STARTED') {
+      setInitStarted(true);
+      initializePregame();
     }
-  }, [isInitialized, draftedRoster, draftedDeck, userTeamId, getCurrentUserGame, startGame]);
+  }, [initStarted, isInitialized, draftedRoster, draftedDeck, pregamePhase, initializePregame]);
+
+  // Handle pregame completion - now start the actual game
+  const handlePregameComplete = useCallback(() => {
+    if (!draftedRoster || !draftedDeck || !pregameModifiers) return;
+
+    // Get opponent info
+    const currentGame = getCurrentUserGame();
+    const opponentId = currentGame
+      ? (currentGame.homeTeamId === userTeamId ? currentGame.awayTeamId : currentGame.homeTeamId)
+      : DEFAULT_TEAMS[0].info.id;
+
+    // Generate opponent roster and deck
+    const opponentRoster = generateAIRoster(opponentId, 'AVERAGE');
+    const generatedOpponentDeck = buildDeck(opponentRoster);
+
+    // Determine who receives based on pregame coin toss
+    const playerReceivesFirst = (pregameModifiers.receivingFirst === 'HOME') === playerIsHome;
+
+    // Complete pregame (applies starting fatigue etc)
+    completePregame();
+
+    // Start the game with pregame modifiers already applied
+    startGame(
+      draftedRoster,
+      opponentRoster,
+      draftedDeck,
+      generatedOpponentDeck,
+      playerReceivesFirst
+    );
+  }, [draftedRoster, draftedDeck, pregameModifiers, userTeamId, getCurrentUserGame, playerIsHome, completePregame, startGame]);
 
   // Handle snap ball (offensive play)
-  const handleSnapBall = useCallback((card: OffensiveCard) => {
-    selectOffensiveCard(card);
-    // Execute the play after card selection
+  const handleSnapBall = useCallback((card: OffensiveCard, target: TargetPosition, modifier: OffensiveModifier) => {
+    selectOffensiveCard(card, target, modifier);
+
+    // CPU selects a random defense card
+    const cpuDefenseCards = opponentDeck?.hand.defensiveCards || [];
+    if (cpuDefenseCards.length > 0) {
+      const randomDefense = cpuDefenseCards[Math.floor(Math.random() * cpuDefenseCards.length)];
+      // CPU randomly picks a shade (who they think offense targets)
+      const shades: Array<'WR1' | 'WR2' | 'TE' | 'RB' | 'NONE'> = ['WR1', 'WR2', 'TE', 'RB', 'NONE'];
+      const randomShade = shades[Math.floor(Math.random() * shades.length)];
+      selectDefensiveCard(randomDefense, undefined, randomShade);
+    }
+
+    // Execute the play after both cards are selected
     const result = executePlay();
     if (result) {
       setLastResult(result);
       setPhase('PLAY_RESULT');
     }
-  }, [selectOffensiveCard, executePlay, setPhase]);
+  }, [selectOffensiveCard, selectDefensiveCard, opponentDeck, executePlay, setPhase]);
 
   // Handle set defense
   const handleSetDefense = useCallback((card: DefensiveCard, prediction?: OffensivePlayType) => {
     selectDefensiveCard(card, prediction);
-    // CPU selects offense, then execute
-    // For now, CPU play is auto-selected in executePlay
+
+    // CPU selects a random offense card, target, and modifier
+    const cpuOffenseCards = opponentDeck?.hand.offensiveCards || [];
+    if (cpuOffenseCards.length > 0) {
+      const randomOffense = cpuOffenseCards[Math.floor(Math.random() * cpuOffenseCards.length)];
+      // CPU randomly picks a target based on play type
+      const isPass = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(randomOffense.playType);
+      const targets: TargetPosition[] = isPass ? ['WR1', 'WR2', 'TE', 'RB'] : ['RB'];
+      const randomTarget = targets[Math.floor(Math.random() * targets.length)];
+      // CPU randomly picks a modifier (30% chance to use one)
+      const cpuModifiers = getAvailableModifiers(isPass, randomOffense.playType === 'PLAY_ACTION');
+      const randomModifier = Math.random() < 0.3 && cpuModifiers.length > 1
+        ? cpuModifiers[Math.floor(Math.random() * cpuModifiers.length)]
+        : 'NONE';
+      selectOffensiveCard(randomOffense, randomTarget, randomModifier);
+    }
+
+    // Execute the play after both cards are selected
     const result = executePlay();
     if (result) {
       setLastResult(result);
       setPhase('PLAY_RESULT');
     }
-  }, [selectDefensiveCard, executePlay, setPhase]);
+  }, [selectDefensiveCard, selectOffensiveCard, opponentDeck, executePlay, setPhase]);
 
   // Handle timeout
   const handleTimeout = useCallback(() => {
@@ -533,6 +712,19 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     console.log('XP choice:', choice);
     handleContinue();
   }, [handleContinue]);
+
+  // Pregame presentation
+  if (phase === 'PREGAME' && pregameCards.length > 0 && pregameModifiers) {
+    return (
+      <PregamePresentation
+        cards={pregameCards}
+        onReveal={revealPregameCard}
+        onComplete={handlePregameComplete}
+        receivingFirst={pregameModifiers.receivingFirst}
+        playerIsHome={playerIsHome}
+      />
+    );
+  }
 
   // Loading state
   if (!isInitialized) {
