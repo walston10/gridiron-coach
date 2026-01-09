@@ -10,6 +10,7 @@ import {
 } from '../../stores/simpleCardGameStore';
 import { useGameStore } from '../../stores/gameStore';
 import { generateAIRoster } from '../../utils/playerGenerator';
+import { HelpModal } from './HelpModal';
 
 export const CardGameView: React.FC = () => {
   const { draftedRoster, userTeamId } = useGameStore();
@@ -57,6 +58,7 @@ export const CardGameView: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [showModifiers, setShowModifiers] = useState(false);
   const [showDirtyModifiers, setShowDirtyModifiers] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Initialize game on mount
   useEffect(() => {
@@ -130,10 +132,25 @@ export const CardGameView: React.FC = () => {
   // Get plays for current category
   const currentPlays = playbook[selectedCategory] || [];
 
+  // Help button component (reused across views)
+  const helpButton = (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        setShowHelp(true);
+      }}
+      className="fixed top-4 right-4 w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-amber-400 font-bold text-lg hover:bg-slate-700 hover:border-amber-500 transition-all z-40 shadow-lg"
+    >
+      ?
+    </button>
+  );
+
   // Loading state
   if (!isInitialized) {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
+      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6 relative">
+        {helpButton}
+        <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
         <div className="text-amber-500 text-2xl font-bold mb-4">KICKOFF</div>
         <div className="text-gray-400">Preparing game...</div>
       </div>
@@ -144,7 +161,9 @@ export const CardGameView: React.FC = () => {
   if (gameState.isGameOver) {
     const playerWon = gameState.playerScore > gameState.opponentScore;
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
+      <div className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6 relative">
+        {helpButton}
+        <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
         <div className={`text-4xl font-bold mb-4 ${playerWon ? 'text-green-400' : 'text-red-400'}`}>
           {playerWon ? 'VICTORY!' : 'DEFEAT'}
         </div>
@@ -160,9 +179,11 @@ export const CardGameView: React.FC = () => {
   if (showingResult && lastPlayResult) {
     return (
       <div
-        className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6 cursor-pointer"
+        className="w-full max-w-md mx-auto min-h-screen bg-black flex flex-col items-center justify-center text-white p-6 cursor-pointer relative"
         onClick={dismissResult}
       >
+        {helpButton}
+        <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
         <div className={`text-center ${lastPlayResult.success ? 'text-green-400' : 'text-red-400'}`}>
           <div className="text-6xl mb-4">
             {lastPlayResult.touchdown ? '🏈🎉' : lastPlayResult.turnover ? '😱' : lastPlayResult.success ? '✓' : '✗'}
@@ -196,7 +217,9 @@ export const CardGameView: React.FC = () => {
   // OFFENSE VIEW
   if (isPlayerOnOffense) {
     return (
-      <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden">
+      <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden relative">
+        {helpButton}
+        <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
         {/* Top Bar */}
         <div className="bg-black/90 px-3 py-2 flex justify-between items-center border-b border-amber-600/30">
           <div className="text-center">
@@ -482,7 +505,9 @@ export const CardGameView: React.FC = () => {
 
   // DEFENSE VIEW
   return (
-    <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden">
+    <div className="w-full max-w-md mx-auto min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-black flex flex-col text-white overflow-hidden relative">
+      {helpButton}
+      <HelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
       {/* Top Bar */}
       <div className="bg-black/90 px-3 py-2 flex justify-between items-center border-b border-red-600/30">
         <div className="text-center">
