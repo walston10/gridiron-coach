@@ -12,8 +12,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useCardGameStore, MOMENTUM_CONFIG } from '../../stores/cardGameStore';
 import type { PlayResult, FourthDownResult, PlayBreakdown, ShadeResult } from '../../engine/playResolver';
-import type { OffensivePlayType } from '../../types/card.types';
-import type { TargetPosition } from '../../types/game.types';
+import type { OffensivePlayType, DefensiveCard } from '../../types/card.types';
+import type { TargetPosition, ShadePosition } from '../../types/game.types';
 
 // =============================================================================
 // TYPES
@@ -23,6 +23,8 @@ interface PlayResultDisplayProps {
   result: PlayResult | FourthDownResult;
   offensePlayType?: OffensivePlayType;
   targetPosition?: TargetPosition;
+  defenseCard?: DefensiveCard;
+  defenseShade?: ShadePosition;
   isPlayerOffense: boolean;
   onContinue: () => void;
   onXPChoice?: (choice: 'XP' | 'TWO_POINT') => void;
@@ -186,6 +188,7 @@ const NARRATION_TEMPLATES = {
 
 // Timing constants
 const SNAP_DELAY = 1000;           // 1 second showing "Ball snapped..."
+const DEFENSE_REVEAL_DELAY = 1500; // 1.5 seconds showing defense call
 const TYPEWRITER_SPEED = 25;       // 25ms per character
 const RESULT_DELAY = 500;          // 0.5 second pause before result
 const SECONDARY_EFFECT_DELAY = 300; // Time between secondary effects
@@ -198,12 +201,14 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   result,
   offensePlayType,
   targetPosition,
+  defenseCard,
+  defenseShade,
   isPlayerOffense,
   onContinue,
   onXPChoice,
 }) => {
-  // Phase flow: snap -> narration -> result -> (breakaway) -> (transition) -> (xp_choice)
-  const [phase, setPhase] = useState<'snap' | 'narration' | 'result' | 'breakaway' | 'transition' | 'xp_choice'>('snap');
+  // Phase flow: snap -> defense_reveal -> narration -> result -> (breakaway) -> (transition) -> (xp_choice)
+  const [phase, setPhase] = useState<'snap' | 'defense_reveal' | 'narration' | 'result' | 'breakaway' | 'transition' | 'xp_choice'>('snap');
   const [breakawayYard, setBreakawayYard] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<number | null>(null);
@@ -261,15 +266,25 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   useEffect(() => {
     if (phase === 'snap') {
       const timer = setTimeout(() => {
+        setPhase('defense_reveal');
+      }, SNAP_DELAY);
+      return () => clearTimeout(timer);
+    }
+  }, [phase]);
+
+  // Phase 2: Defense reveal (1.5 seconds)
+  useEffect(() => {
+    if (phase === 'defense_reveal') {
+      const timer = setTimeout(() => {
         setNarrationText(generatedNarration);
         setSecondaryEffects(generatedEffects);
         setPhase('narration');
-      }, SNAP_DELAY);
+      }, DEFENSE_REVEAL_DELAY);
       return () => clearTimeout(timer);
     }
   }, [phase, generatedNarration, generatedEffects]);
 
-  // Phase 2: Typewriter effect for narration
+  // Phase 3: Typewriter effect for narration
   useEffect(() => {
     if (phase === 'narration' && narrationText) {
       let index = 0;
@@ -296,7 +311,7 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [phase, narrationText]);
 
-  // Phase 2b: Show secondary effects one at a time after typing
+  // Phase 3b: Show secondary effects one at a time after typing
   useEffect(() => {
     if (isTypingComplete && secondaryEffects.length > 0 && visibleEffects < secondaryEffects.length) {
       const timer = setTimeout(() => {
@@ -306,7 +321,7 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     }
   }, [isTypingComplete, secondaryEffects.length, visibleEffects]);
 
-  // Phase 2c: Transition to result phase after all effects shown
+  // Phase 3c: Transition to result phase after all effects shown
   useEffect(() => {
     if (isTypingComplete && visibleEffects >= secondaryEffects.length && phase === 'narration') {
       const timer = setTimeout(() => {
@@ -408,6 +423,20 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   if (phase === 'snap') {
     return (
       <SnapPhaseDisplay />
+    );
+  }
+
+  // Phase: DEFENSE REVEAL - Show what defense called
+  if (phase === 'defense_reveal') {
+    // Get shade result from PlayResult if available
+    const shadeResult = isPlayResult ? (result as PlayResult).shadeResult : undefined;
+    return (
+      <DefenseRevealDisplay
+        defenseCard={defenseCard}
+        defenseShade={defenseShade}
+        targetPosition={targetPosition}
+        shadeResult={shadeResult}
+      />
     );
   }
 
@@ -1121,6 +1150,108 @@ const SnapPhaseDisplay: React.FC = () => {
           <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
           <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
         </div>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// DEFENSE REVEAL DISPLAY
+// =============================================================================
+
+interface DefenseRevealDisplayProps {
+  defenseCard?: DefensiveCard;
+  defenseShade?: ShadePosition;
+  targetPosition?: TargetPosition;
+  shadeResult?: ShadeResult;
+}
+
+const DEFENSE_PLAY_LABELS: Record<string, string> = {
+  MAN_COVERAGE: 'Man Coverage',
+  ZONE_COVERAGE: 'Zone Coverage',
+  BLITZ: 'Blitz',
+  PREVENT: 'Prevent Defense',
+  GOAL_LINE: 'Goal Line',
+  RUN_STUFF: 'Run Stuff',
+  SPY: 'Spy',
+  COVER_2: 'Cover 2',
+  COVER_3: 'Cover 3',
+};
+
+const DefenseRevealDisplay: React.FC<DefenseRevealDisplayProps> = ({
+  defenseCard,
+  defenseShade,
+  targetPosition,
+  shadeResult,
+}) => {
+  // Determine if shade was correct
+  const shadeMatched = shadeResult?.shadeMatched || shadeResult?.runShadeBonus;
+  const shadeLabel = defenseShade && defenseShade !== 'NONE' ? defenseShade : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
+      <div className="w-full max-w-md">
+        {/* Title */}
+        <div className="text-center mb-6">
+          <div className="text-sm text-gray-500 uppercase tracking-widest mb-2">
+            Defense Called
+          </div>
+          <div className="text-4xl">🛡️</div>
+        </div>
+
+        {/* Defense Card Info */}
+        <div className="bg-gray-900/80 rounded-xl border-2 border-red-500/50 p-6 animate-fadeIn">
+          {defenseCard ? (
+            <>
+              {/* Coverage Type */}
+              <div className="text-center mb-4">
+                <div className="text-2xl font-bold text-red-400">
+                  {defenseCard.name}
+                </div>
+                <div className="text-sm text-gray-500 mt-1">
+                  {DEFENSE_PLAY_LABELS[defenseCard.playType] || defenseCard.playType.replace(/_/g, ' ')}
+                </div>
+              </div>
+
+              {/* Shade Info */}
+              {shadeLabel && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-gray-400">Shading:</span>
+                    <span className={`text-xl font-bold ${
+                      shadeMatched ? 'text-green-400' : 'text-gray-400'
+                    }`}>
+                      {shadeLabel}
+                      {shadeMatched ? (
+                        <span className="ml-2 text-green-400">✓</span>
+                      ) : (
+                        <span className="ml-2 text-red-400/50">✗</span>
+                      )}
+                    </span>
+                  </div>
+                  {shadeMatched && (
+                    <div className="text-center mt-2 text-sm text-green-400 animate-pulse">
+                      Defense read the play!
+                    </div>
+                  )}
+                  {!shadeMatched && targetPosition && (
+                    <div className="text-center mt-2 text-sm text-gray-500">
+                      You targeted: {targetPosition}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center text-gray-400">
+              Defense is set...
+            </div>
+          )}
+        </div>
+
+        {/* Flash animation overlay */}
+        <div className="absolute inset-0 bg-red-500/10 animate-ping pointer-events-none"
+             style={{ animationDuration: '0.5s', animationIterationCount: '1' }} />
       </div>
     </div>
   );
