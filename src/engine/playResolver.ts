@@ -31,7 +31,10 @@ import type {
   GameClock,
   FourthDownCategory,
   FourthDownDefenseResponse,
+  TargetPosition,
+  ShadePosition,
 } from '../types/game.types';
+import { DEFAULT_PLAY_TARGETS } from '../types/game.types';
 
 import type { Roster, OLineUnit, DLineUnit } from '../types/player.types';
 
@@ -107,6 +110,9 @@ export interface PlayContext {
   offenseFatigue: number;
   defenseFatigue: number;
   scoreDifferential: number; // Positive = offense leading
+  offenseTarget?: TargetPosition;  // Who offense is targeting
+  defenseShade?: ShadePosition;    // Who defense is shading
+  offenseStaminaModifier?: number; // Stamina effect modifier for targeted player (-0.1 to 1.0)
 }
 
 export interface PlayResult {
@@ -124,6 +130,17 @@ export interface PlayResult {
   momentumShift: number;
   playByPlay: string;
   breakdown: PlayBreakdown;
+  // Shade result information
+  shadeResult?: ShadeResult;
+}
+
+export interface ShadeResult {
+  defenseShade: ShadePosition;
+  offenseTarget: TargetPosition;
+  shadeMatched: boolean;           // Exact match
+  runShadeBonus: boolean;          // RB shade on run play
+  bonusApplied: number;            // Total bonus (negative for offense)
+  message: string;                 // Display message
 }
 
 export interface PlayBreakdown {
@@ -135,6 +152,8 @@ export interface PlayBreakdown {
   weatherModifier: number;
   fatigueModifier: number;
   momentumModifier: number;
+  shadeModifier: number;
+  staminaModifier: number;
   finalSuccessChance: number;
   rolls: { name: string; target: number; result: number; success: boolean }[];
 }
@@ -368,6 +387,70 @@ export function getPredictionBonus(
   }
 
   return 0;
+}
+
+/**
+ * Calculate shade bonus for defense
+ * Returns a ShadeResult with bonus and message
+ *
+ * Rules:
+ * - Exact match (shade = target): +15% defense bonus
+ * - RB shade on run play: +10% defense bonus
+ * - Miss: 0 bonus (no penalty)
+ */
+export function calculateShadeBonus(
+  defenseShade: ShadePosition,
+  offenseTarget: TargetPosition,
+  offensePlayType: OffensivePlayType
+): ShadeResult {
+  // No shade selected - no bonus
+  if (defenseShade === 'NONE') {
+    return {
+      defenseShade,
+      offenseTarget,
+      shadeMatched: false,
+      runShadeBonus: false,
+      bonusApplied: 0,
+      message: '',
+    };
+  }
+
+  // Check if it's a run play
+  const isRun = ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(offensePlayType);
+
+  // Exact match - defense correctly shaded the target
+  if (defenseShade === offenseTarget) {
+    return {
+      defenseShade,
+      offenseTarget,
+      shadeMatched: true,
+      runShadeBonus: false,
+      bonusApplied: 15,
+      message: `Defense shaded ${defenseShade} - CORRECT!`,
+    };
+  }
+
+  // RB shade on run play - defense gets partial bonus
+  if (defenseShade === 'RB' && isRun) {
+    return {
+      defenseShade,
+      offenseTarget,
+      shadeMatched: false,
+      runShadeBonus: true,
+      bonusApplied: 10,
+      message: `Defense shaded RB on run play - good read!`,
+    };
+  }
+
+  // Shade missed - no bonus or penalty
+  return {
+    defenseShade,
+    offenseTarget,
+    shadeMatched: false,
+    runShadeBonus: false,
+    bonusApplied: 0,
+    message: `Defense shaded ${defenseShade} - wrong read`,
+  };
 }
 
 // =============================================================================
@@ -609,6 +692,8 @@ export function resolveOffensivePlay(
     weatherModifier: 0,
     fatigueModifier: 0,
     momentumModifier: 0,
+    shadeModifier: 0,
+    staminaModifier: 0,
     finalSuccessChance: 0,
     rolls: [],
   };
@@ -663,10 +748,29 @@ export function resolveOffensivePlay(
   breakdown.momentumModifier = momentumMod;
   successChance += momentumMod;
 
+  // === Step 9: Apply stamina modifier ===
+  // Stamina modifier ranges from -0.1 (exhausted, penalty) to 1.0 (fresh, full bonus)
+  // Convert to success chance modifier: -0.1 = -5%, 0 = 0%, 0.5 = +2.5%, 1.0 = +5%
+  const staminaModifier = context.offenseStaminaModifier ?? 1.0;
+  const staminaMod = Math.round(staminaModifier * 5); // -0.5 to +5 range
+  breakdown.staminaModifier = staminaMod;
+  successChance += staminaMod;
+
+  // === Step 10: Calculate shade result ===
+  // Determine effective target (use context or default based on play type)
+  const effectiveTarget: TargetPosition = context.offenseTarget ||
+    DEFAULT_PLAY_TARGETS[offenseCard.playType] || 'WR1';
+  const defenseShade: ShadePosition = context.defenseShade || 'NONE';
+
+  const shadeResult = calculateShadeBonus(defenseShade, effectiveTarget, offenseCard.playType);
+  const shadePenalty = -shadeResult.bonusApplied; // Negative for offense (helps defense)
+  breakdown.shadeModifier = shadePenalty;
+  successChance += shadePenalty;
+
   // Clamp success chance
   breakdown.finalSuccessChance = Math.max(5, Math.min(95, successChance));
 
-  // === Step 9: Check for sack (pass plays only) ===
+  // === Step 11: Check for sack (pass plays only) ===
   const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
     offenseCard.playType
   );
@@ -711,10 +815,11 @@ export function resolveOffensivePlay(
       momentumShift: -10,
       playByPlay: `SACK! ${safety ? 'SAFETY!' : `Loss of ${sackYards} yards.`}`,
       breakdown,
+      shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
     };
   }
 
-  // === Step 10: Main success roll ===
+  // === Step 11: Main success roll ===
   const successRoll = rng.next() * 100;
   const success = successRoll < breakdown.finalSuccessChance;
 
@@ -733,13 +838,14 @@ export function resolveOffensivePlay(
       sack: false,
       sackYards: 0,
       breakdown,
+      shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
     };
   }
 
-  // === Step 11: Calculate yards gained ===
+  // === Step 12: Calculate yards gained ===
   let yardsGained = calculateYardsGained(offenseCard, defenseCard, context);
 
-  // === Step 12: Check for big play ===
+  // === Step 13: Check for big play ===
   const bigPlayRoll = rng.next() * 100;
   const bigPlay = bigPlayRoll < offenseCard.bigPlayChance;
 
@@ -755,7 +861,7 @@ export function resolveOffensivePlay(
     });
   }
 
-  // === Step 13: Check for fumble ===
+  // === Step 14: Check for fumble ===
   const fumbleChance = offenseCard.turnoverRisk * 0.3; // 30% of turnover risk is fumble
   const fumbleRoll = rng.next() * 100;
   const fumble = fumbleRoll < fumbleChance;
@@ -781,10 +887,11 @@ export function resolveOffensivePlay(
       momentumShift: -20,
       playByPlay: `Fumble! The ball is loose and recovered by the defense!`,
       breakdown,
+      shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
     };
   }
 
-  // === Step 14: Calculate final field position ===
+  // === Step 15: Calculate final field position ===
   const newYardLine = context.fieldPosition.yardLine + yardsGained;
   const touchdown = newYardLine >= 100;
   const safety = newYardLine <= 0;
@@ -815,6 +922,7 @@ export function resolveOffensivePlay(
     momentumShift,
     playByPlay,
     breakdown,
+    shadeResult: shadeResult.bonusApplied > 0 ? shadeResult : undefined,
   };
 }
 

@@ -2,16 +2,18 @@
  * ILLEGAL MOTION - Play Result Display
  *
  * Shows what happened after a play resolves.
- * Quick but satisfying - punchy text with emphasis on big moments.
+ * Dramatic presentation with delayed reveals and typewriter narration.
  *
+ * Phases: SNAP -> NARRATION -> RESULT -> (BREAKAWAY) -> (TRANSITION)
  * Handles: completions, runs, sacks, turnovers, TDs, penalties
  * Plus: momentum changes, breakaway sequences, possession transitions
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useCardGameStore, MOMENTUM_CONFIG } from '../../stores/cardGameStore';
-import type { PlayResult, FourthDownResult, PlayBreakdown } from '../../engine/playResolver';
-import type { OffensivePlayType } from '../../types/card.types';
+import type { PlayResult, FourthDownResult, PlayBreakdown, ShadeResult } from '../../engine/playResolver';
+import type { OffensivePlayType, DefensiveCard } from '../../types/card.types';
+import type { TargetPosition, ShadePosition } from '../../types/game.types';
 
 // =============================================================================
 // TYPES
@@ -20,9 +22,19 @@ import type { OffensivePlayType } from '../../types/card.types';
 interface PlayResultDisplayProps {
   result: PlayResult | FourthDownResult;
   offensePlayType?: OffensivePlayType;
+  targetPosition?: TargetPosition;
+  defenseCard?: DefensiveCard;
+  defenseShade?: ShadePosition;
   isPlayerOffense: boolean;
   onContinue: () => void;
   onXPChoice?: (choice: 'XP' | 'TWO_POINT') => void;
+}
+
+// Secondary effects shown after narration
+interface SecondaryEffect {
+  icon: string;
+  text: string;
+  color: string;
 }
 
 type ResultType =
@@ -85,10 +97,101 @@ const KEY_MOMENTS = [
 const PLAYER_NAMES = {
   QB: ['Smith', 'Johnson', 'Williams', 'Jones', 'Brown'],
   WR: ['Jackson', 'Davis', 'Miller', 'Wilson', 'Moore'],
+  WR1: ['Jackson', 'Davis', 'Miller', 'Wilson', 'Moore'],
+  WR2: ['Jefferson', 'Hill', 'Adams', 'Diggs', 'Chase'],
   RB: ['Taylor', 'Anderson', 'Thomas', 'Harris', 'Martin'],
   TE: ['Kelce', 'Andrews', 'Kittle', 'Waller', 'Pitts'],
   DEF: ['Adams', 'Howard', 'Diggs', 'Ward', 'Ramsey'],
 };
+
+// =============================================================================
+// NARRATION TEMPLATES
+// =============================================================================
+
+const NARRATION_TEMPLATES = {
+  // Pass completions
+  PASS_COMPLETE: [
+    '{qb} drops back... finds {target} on the curl for {yards}!',
+    '{target} breaks inside, {qb} hits him in stride - {yards} yard gain!',
+    'Quick throw to {target}, he makes a man miss... picks up {yards}!',
+    '{qb} fires to {target}, complete! {yards} yards on the play.',
+    '{target} runs a perfect route, {qb} delivers - {yards} yard pickup!',
+    'Play action fake, {qb} finds {target} wide open for {yards}!',
+  ],
+  // Pass completions - big play additions
+  PASS_COMPLETE_BIG: [
+    '{target} has room! He\'s got the first and more - {yards} yards!',
+    'LOOK AT HIM GO! {target} breaks free for {yards}!',
+    '{qb} drops it in the bucket! {target} takes it {yards} yards!',
+  ],
+  // Pass incomplete
+  PASS_INCOMPLETE: [
+    '{qb} fires to {target}... just out of reach. Incomplete.',
+    '{target} can\'t hang on! Pass falls incomplete.',
+    'Thrown behind {target}, no chance. Incomplete.',
+    '{qb} overthrows {target}, pass sails out of bounds.',
+    'Tight coverage! {target} can\'t come up with it.',
+    'Dropped! {target} had it and let it slip away.',
+  ],
+  // Run plays - positive
+  RUN_GAIN: [
+    '{rb} takes the handoff left, {yards} yards before being dragged down.',
+    '{rb} hits the hole, finds some room - {yards} yard gain.',
+    '{rb} bounces outside, breaks a tackle - {yards} yard pickup!',
+    'Good push up front! {rb} barrels forward for {yards}.',
+    '{rb} follows his blockers, picks up {yards} on the ground.',
+  ],
+  // Run plays - big gain additions
+  RUN_BIG: [
+    'He\'s got room! {rb} bursts through for {yards}!',
+    'BREAKAWAY! {rb} finds a seam and takes off - {yards} yards!',
+    '{rb} makes them miss and he\'s GONE! {yards} yard run!',
+  ],
+  // Run plays - loss/stuffed
+  RUN_LOSS: [
+    '{rb} hits the hole... stuffed for a loss of {yards}. Nowhere to go.',
+    'Nowhere to run! {rb} dragged down for a {yards} yard loss.',
+    'Defense blows it up! {rb} loses {yards} yards.',
+    '{rb} tries to bounce outside but gets swallowed up. Loss of {yards}.',
+  ],
+  // Sacks
+  SACK: [
+    '{qb} is SACKED! {yards} yard loss!',
+    'Pressure gets there! {qb} goes down for a loss of {yards}!',
+    '{qb} holds the ball too long... SACKED for a loss of {yards}!',
+    'The pocket collapses! {qb} taken down, loses {yards}!',
+    'Blitz gets home! {qb} sacked for a {yards} yard loss!',
+  ],
+  // Interceptions
+  INTERCEPTION: [
+    '{qb} throws into coverage... INTERCEPTED!',
+    'Picked off! {target} was blanketed!',
+    '{qb} didn\'t see the defender - INTERCEPTION!',
+    'BAD DECISION! {qb}\'s pass is picked off!',
+    'Jumped the route! That pass is INTERCEPTED!',
+  ],
+  // Fumbles
+  FUMBLE: [
+    'AND HE\'S LOST IT! Ball on the ground!',
+    'Big hit and the ball comes loose! FUMBLE!',
+    'The ball is OUT! Defenders pounce on it!',
+    'Stripped! The defense recovers the fumble!',
+  ],
+  // Touchdowns
+  TOUCHDOWN: [
+    '{player} walks in! TOUCHDOWN!',
+    'Into the endzone! TOUCHDOWN {team}!',
+    '{player} punches it in! SIX POINTS!',
+    'HOUSE CALL! {player} scores!',
+  ],
+};
+
+// Timing constants
+const SNAP_DELAY = 1000;           // 1 second showing "Ball snapped..."
+const DEFENSE_REVEAL_DELAY = 1500; // 1.5 seconds showing defense call
+const TYPEWRITER_SPEED = 25;       // 25ms per character
+const RESULT_DELAY = 500;          // 0.5 second pause before result
+const SECONDARY_EFFECT_DELAY = 300; // Time between secondary effects
 
 // =============================================================================
 // MAIN COMPONENT
@@ -97,14 +200,26 @@ const PLAYER_NAMES = {
 export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   result,
   offensePlayType,
+  targetPosition,
+  defenseCard,
+  defenseShade,
   isPlayerOffense,
   onContinue,
   onXPChoice,
 }) => {
-  const [phase, setPhase] = useState<'result' | 'breakaway' | 'transition' | 'xp_choice'>('result');
+  // Phase flow: snap -> defense_reveal -> narration -> result -> (breakaway) -> (transition) -> (xp_choice)
+  const [phase, setPhase] = useState<'snap' | 'defense_reveal' | 'narration' | 'result' | 'breakaway' | 'transition' | 'xp_choice'>('snap');
   const [breakawayYard, setBreakawayYard] = useState<number | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [autoAdvanceTimer, setAutoAdvanceTimer] = useState<number | null>(null);
+
+  // Narration state
+  const [narrationText, setNarrationText] = useState('');
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTypingComplete, setIsTypingComplete] = useState(false);
+  const [secondaryEffects, setSecondaryEffects] = useState<SecondaryEffect[]>([]);
+  const [visibleEffects, setVisibleEffects] = useState(0);
+  const skipRef = useRef(false);
 
   const {
     fieldPosition,
@@ -136,6 +251,95 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
     if ('bigPlay' in result && result.bigPlay) return 4000;
     return 2500;
   }, [result]);
+
+  // Generate narration text
+  const generatedNarration = useMemo(() => {
+    return generateNarration(result, resultType, offensePlayType, targetPosition);
+  }, [result, resultType, offensePlayType, targetPosition]);
+
+  // Generate secondary effects
+  const generatedEffects = useMemo(() => {
+    return generateSecondaryEffects(result, resultType, targetPosition, isPlayerOffense);
+  }, [result, resultType, targetPosition, isPlayerOffense]);
+
+  // Phase 1: Snap delay (1 second)
+  useEffect(() => {
+    if (phase === 'snap') {
+      const timer = setTimeout(() => {
+        setPhase('defense_reveal');
+      }, SNAP_DELAY);
+      return () => clearTimeout(timer);
+    }
+  }, [phase]);
+
+  // Phase 2: Defense reveal (1.5 seconds)
+  useEffect(() => {
+    if (phase === 'defense_reveal') {
+      const timer = setTimeout(() => {
+        setNarrationText(generatedNarration);
+        setSecondaryEffects(generatedEffects);
+        setPhase('narration');
+      }, DEFENSE_REVEAL_DELAY);
+      return () => clearTimeout(timer);
+    }
+  }, [phase, generatedNarration, generatedEffects]);
+
+  // Phase 3: Typewriter effect for narration
+  useEffect(() => {
+    if (phase === 'narration' && narrationText) {
+      let index = 0;
+      skipRef.current = false;
+
+      const typeInterval = setInterval(() => {
+        if (skipRef.current) {
+          setDisplayedText(narrationText);
+          setIsTypingComplete(true);
+          clearInterval(typeInterval);
+          return;
+        }
+
+        if (index < narrationText.length) {
+          setDisplayedText(narrationText.slice(0, index + 1));
+          index++;
+        } else {
+          setIsTypingComplete(true);
+          clearInterval(typeInterval);
+        }
+      }, TYPEWRITER_SPEED);
+
+      return () => clearInterval(typeInterval);
+    }
+  }, [phase, narrationText]);
+
+  // Phase 3b: Show secondary effects one at a time after typing
+  useEffect(() => {
+    if (isTypingComplete && secondaryEffects.length > 0 && visibleEffects < secondaryEffects.length) {
+      const timer = setTimeout(() => {
+        setVisibleEffects(prev => prev + 1);
+      }, SECONDARY_EFFECT_DELAY);
+      return () => clearTimeout(timer);
+    }
+  }, [isTypingComplete, secondaryEffects.length, visibleEffects]);
+
+  // Phase 3c: Transition to result phase after all effects shown
+  useEffect(() => {
+    if (isTypingComplete && visibleEffects >= secondaryEffects.length && phase === 'narration') {
+      const timer = setTimeout(() => {
+        setPhase('result');
+      }, RESULT_DELAY);
+      return () => clearTimeout(timer);
+    }
+  }, [isTypingComplete, visibleEffects, secondaryEffects.length, phase]);
+
+  // Handle tap to skip typewriter
+  const handleSkipTypewriter = useCallback(() => {
+    if (phase === 'narration' && !isTypingComplete) {
+      skipRef.current = true;
+      setDisplayedText(narrationText);
+      setIsTypingComplete(true);
+      setVisibleEffects(secondaryEffects.length);
+    }
+  }, [phase, isTypingComplete, narrationText, secondaryEffects.length]);
 
   // Handle breakaway sequence
   useEffect(() => {
@@ -215,6 +419,40 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   const momentumChange = isPlayResult ? (result as PlayResult).momentumShift : 0;
 
   // Render based on phase
+  // Phase: SNAP - "Ball snapped..."
+  if (phase === 'snap') {
+    return (
+      <SnapPhaseDisplay />
+    );
+  }
+
+  // Phase: DEFENSE REVEAL - Show what defense called
+  if (phase === 'defense_reveal') {
+    // Get shade result from PlayResult if available
+    const shadeResult = isPlayResult ? (result as PlayResult).shadeResult : undefined;
+    return (
+      <DefenseRevealDisplay
+        defenseCard={defenseCard}
+        defenseShade={defenseShade}
+        targetPosition={targetPosition}
+        shadeResult={shadeResult}
+      />
+    );
+  }
+
+  // Phase: NARRATION - Typewriter effect with play-by-play
+  if (phase === 'narration') {
+    return (
+      <NarrationPhaseDisplay
+        displayedText={displayedText}
+        isTypingComplete={isTypingComplete}
+        secondaryEffects={secondaryEffects}
+        visibleEffects={visibleEffects}
+        onTap={handleSkipTypewriter}
+      />
+    );
+  }
+
   if (phase === 'breakaway') {
     return (
       <BreakawaySequence
@@ -278,10 +516,15 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
             </div>
           )}
 
-          {/* Play-by-Play */}
+          {/* Narrated Play-by-Play */}
           <div className="mt-3 text-sm text-gray-300 italic">
-            "{result.playByPlay}"
+            "{narrationText || result.playByPlay}"
           </div>
+
+          {/* Shade Result */}
+          {isPlayResult && (result as PlayResult).shadeResult && (
+            <ShadeResultDisplay shadeResult={(result as PlayResult).shadeResult!} />
+          )}
         </div>
 
         {/* Yard Line Movement */}
@@ -802,6 +1045,40 @@ const PenaltyDisplay: React.FC<PenaltyDisplayProps> = ({ penalty }) => {
 };
 
 // =============================================================================
+// SHADE RESULT DISPLAY
+// =============================================================================
+
+interface ShadeResultDisplayProps {
+  shadeResult: ShadeResult;
+}
+
+const ShadeResultDisplay: React.FC<ShadeResultDisplayProps> = ({ shadeResult }) => {
+  const isSuccess = shadeResult.shadeMatched || shadeResult.runShadeBonus;
+
+  return (
+    <div className={`mt-3 p-2 rounded-lg border ${
+      isSuccess
+        ? 'bg-green-900/30 border-green-800/50'
+        : 'bg-gray-800/30 border-gray-700/50'
+    }`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{isSuccess ? '👁️' : '❌'}</span>
+          <span className={`text-sm font-medium ${isSuccess ? 'text-green-400' : 'text-gray-400'}`}>
+            {shadeResult.message}
+          </span>
+        </div>
+        {shadeResult.bonusApplied > 0 && (
+          <span className="text-xs font-bold text-green-400 bg-green-900/50 px-2 py-0.5 rounded">
+            +{shadeResult.bonusApplied}% DEF
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
 // BREAKDOWN PANEL
 // =============================================================================
 
@@ -840,6 +1117,14 @@ const BreakdownPanel: React.FC<BreakdownPanelProps> = ({ breakdown }) => {
           </span>
         </div>
       )}
+      {breakdown.shadeModifier !== 0 && (
+        <div className="flex justify-between">
+          <span className="text-gray-500">Shade</span>
+          <span className={breakdown.shadeModifier > 0 ? 'text-green-400' : 'text-red-400'}>
+            {breakdown.shadeModifier > 0 ? '+' : ''}{breakdown.shadeModifier}%
+          </span>
+        </div>
+      )}
       <div className="flex justify-between border-t border-gray-700 pt-1 mt-1">
         <span className="text-gray-400 font-bold">Final</span>
         <span className="text-white font-bold">{breakdown.finalSuccessChance}%</span>
@@ -847,6 +1132,336 @@ const BreakdownPanel: React.FC<BreakdownPanelProps> = ({ breakdown }) => {
     </div>
   );
 };
+
+// =============================================================================
+// SNAP PHASE DISPLAY
+// =============================================================================
+
+const SnapPhaseDisplay: React.FC = () => {
+  return (
+    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50">
+      <div className="text-center">
+        <div className="text-6xl mb-6 animate-bounce">🏈</div>
+        <div className="text-3xl font-bold text-white animate-pulse">
+          Ball snapped...
+        </div>
+        <div className="mt-4 flex justify-center gap-1">
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// DEFENSE REVEAL DISPLAY
+// =============================================================================
+
+interface DefenseRevealDisplayProps {
+  defenseCard?: DefensiveCard;
+  defenseShade?: ShadePosition;
+  targetPosition?: TargetPosition;
+  shadeResult?: ShadeResult;
+}
+
+const DEFENSE_PLAY_LABELS: Record<string, string> = {
+  MAN_COVERAGE: 'Man Coverage',
+  ZONE_COVERAGE: 'Zone Coverage',
+  BLITZ: 'Blitz',
+  PREVENT: 'Prevent Defense',
+  GOAL_LINE: 'Goal Line',
+  RUN_STUFF: 'Run Stuff',
+  SPY: 'Spy',
+  COVER_2: 'Cover 2',
+  COVER_3: 'Cover 3',
+};
+
+const DefenseRevealDisplay: React.FC<DefenseRevealDisplayProps> = ({
+  defenseCard,
+  defenseShade,
+  targetPosition,
+  shadeResult,
+}) => {
+  // Determine if shade was correct
+  const shadeMatched = shadeResult?.shadeMatched || shadeResult?.runShadeBonus;
+  const shadeLabel = defenseShade && defenseShade !== 'NONE' ? defenseShade : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6">
+      <div className="w-full max-w-md">
+        {/* Title */}
+        <div className="text-center mb-6">
+          <div className="text-sm text-gray-500 uppercase tracking-widest mb-2">
+            Defense Called
+          </div>
+          <div className="text-4xl">🛡️</div>
+        </div>
+
+        {/* Defense Card Info */}
+        <div className="bg-gray-900/80 rounded-xl border-2 border-red-500/50 p-6 animate-fadeIn">
+          {defenseCard ? (
+            <>
+              {/* Coverage Type */}
+              <div className="text-center mb-4">
+                <div className="text-2xl font-bold text-red-400">
+                  {defenseCard.name}
+                </div>
+                <div className="text-sm text-gray-500 mt-1">
+                  {DEFENSE_PLAY_LABELS[defenseCard.playType] || defenseCard.playType.replace(/_/g, ' ')}
+                </div>
+              </div>
+
+              {/* Shade Info */}
+              {shadeLabel && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-gray-400">Shading:</span>
+                    <span className={`text-xl font-bold ${
+                      shadeMatched ? 'text-green-400' : 'text-gray-400'
+                    }`}>
+                      {shadeLabel}
+                      {shadeMatched ? (
+                        <span className="ml-2 text-green-400">✓</span>
+                      ) : (
+                        <span className="ml-2 text-red-400/50">✗</span>
+                      )}
+                    </span>
+                  </div>
+                  {shadeMatched && (
+                    <div className="text-center mt-2 text-sm text-green-400 animate-pulse">
+                      Defense read the play!
+                    </div>
+                  )}
+                  {!shadeMatched && targetPosition && (
+                    <div className="text-center mt-2 text-sm text-gray-500">
+                      You targeted: {targetPosition}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center text-gray-400">
+              Defense is set...
+            </div>
+          )}
+        </div>
+
+        {/* Flash animation overlay */}
+        <div className="absolute inset-0 bg-red-500/10 animate-ping pointer-events-none"
+             style={{ animationDuration: '0.5s', animationIterationCount: '1' }} />
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// NARRATION PHASE DISPLAY
+// =============================================================================
+
+interface NarrationPhaseDisplayProps {
+  displayedText: string;
+  isTypingComplete: boolean;
+  secondaryEffects: SecondaryEffect[];
+  visibleEffects: number;
+  onTap: () => void;
+}
+
+const NarrationPhaseDisplay: React.FC<NarrationPhaseDisplayProps> = ({
+  displayedText,
+  isTypingComplete,
+  secondaryEffects,
+  visibleEffects,
+  onTap,
+}) => {
+  return (
+    <div
+      className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-6"
+      onClick={onTap}
+    >
+      <div className="w-full max-w-md text-center">
+        {/* Narration Text with Typewriter Effect */}
+        <div className="text-xl text-white font-medium leading-relaxed min-h-[4rem]">
+          "{displayedText}"
+          {!isTypingComplete && (
+            <span className="inline-block w-0.5 h-5 bg-amber-500 ml-1 animate-pulse" />
+          )}
+        </div>
+
+        {/* Secondary Effects */}
+        {isTypingComplete && secondaryEffects.length > 0 && (
+          <div className="mt-6 space-y-2">
+            {secondaryEffects.slice(0, visibleEffects).map((effect, index) => (
+              <div
+                key={index}
+                className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700/50 animate-fadeIn ${effect.color}`}
+              >
+                <span className="text-lg">{effect.icon}</span>
+                <span className="text-sm font-medium">{effect.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tap to skip hint */}
+        {!isTypingComplete && (
+          <div className="mt-8 text-xs text-gray-600 animate-pulse">
+            Tap to skip
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// NARRATION GENERATION
+// =============================================================================
+
+function generateNarration(
+  result: PlayResult | FourthDownResult,
+  resultType: ResultType,
+  _playType?: OffensivePlayType,
+  targetPosition?: TargetPosition
+): string {
+  const yards = 'yardsGained' in result ? Math.abs(result.yardsGained ?? 0) : 0;
+  const isBigPlay = 'bigPlay' in result && result.bigPlay;
+
+  // Get player names
+  const qbName = PLAYER_NAMES.QB[Math.floor(Math.random() * PLAYER_NAMES.QB.length)];
+  const rbName = PLAYER_NAMES.RB[Math.floor(Math.random() * PLAYER_NAMES.RB.length)];
+
+  // Get target name based on position
+  let targetName = PLAYER_NAMES.WR[Math.floor(Math.random() * PLAYER_NAMES.WR.length)];
+  if (targetPosition === 'WR1') {
+    targetName = PLAYER_NAMES.WR1[Math.floor(Math.random() * PLAYER_NAMES.WR1.length)];
+  } else if (targetPosition === 'WR2') {
+    targetName = PLAYER_NAMES.WR2[Math.floor(Math.random() * PLAYER_NAMES.WR2.length)];
+  } else if (targetPosition === 'TE') {
+    targetName = PLAYER_NAMES.TE[Math.floor(Math.random() * PLAYER_NAMES.TE.length)];
+  } else if (targetPosition === 'RB') {
+    targetName = rbName;
+  }
+
+  let templates: string[];
+
+  switch (resultType) {
+    case 'COMPLETION':
+      templates = isBigPlay && yards >= 15
+        ? NARRATION_TEMPLATES.PASS_COMPLETE_BIG
+        : NARRATION_TEMPLATES.PASS_COMPLETE;
+      break;
+    case 'INCOMPLETION':
+      templates = NARRATION_TEMPLATES.PASS_INCOMPLETE;
+      break;
+    case 'RUN_GAIN':
+      templates = isBigPlay && yards >= 15
+        ? NARRATION_TEMPLATES.RUN_BIG
+        : NARRATION_TEMPLATES.RUN_GAIN;
+      break;
+    case 'RUN_LOSS':
+      templates = NARRATION_TEMPLATES.RUN_LOSS;
+      break;
+    case 'SACK':
+      templates = NARRATION_TEMPLATES.SACK;
+      break;
+    case 'INTERCEPTION':
+      templates = NARRATION_TEMPLATES.INTERCEPTION;
+      break;
+    case 'FUMBLE':
+      templates = NARRATION_TEMPLATES.FUMBLE;
+      break;
+    case 'TOUCHDOWN':
+      templates = NARRATION_TEMPLATES.TOUCHDOWN;
+      break;
+    default:
+      return result.playByPlay;
+  }
+
+  // Pick a random template
+  const template = templates[Math.floor(Math.random() * templates.length)];
+
+  // Replace placeholders
+  return template
+    .replace(/{qb}/g, qbName)
+    .replace(/{rb}/g, rbName)
+    .replace(/{target}/g, targetName)
+    .replace(/{player}/g, targetPosition === 'RB' ? rbName : targetName)
+    .replace(/{yards}/g, String(yards))
+    .replace(/{team}/g, 'YOUR TEAM');
+}
+
+// =============================================================================
+// SECONDARY EFFECTS GENERATION
+// =============================================================================
+
+function generateSecondaryEffects(
+  result: PlayResult | FourthDownResult,
+  resultType: ResultType,
+  targetPosition?: TargetPosition,
+  isPlayerOffense?: boolean
+): SecondaryEffect[] {
+  const effects: SecondaryEffect[] = [];
+  const yards = 'yardsGained' in result ? (result.yardsGained ?? 0) : 0;
+  const isBigPlay = 'bigPlay' in result && result.bigPlay;
+
+  // Big hit (20% chance was rolled elsewhere, but we can show if it happened based on certain conditions)
+  // For now, show on sacks and short-yardage stuffs
+  if (resultType === 'SACK' || (resultType === 'RUN_LOSS' && yards <= -2)) {
+    effects.push({
+      icon: '💥',
+      text: `Crushing tackle! ${targetPosition || 'Player'} takes a hit`,
+      color: 'text-red-400',
+    });
+  }
+
+  // Breakaway drain (15+ yards)
+  if (yards >= 15 && targetPosition && resultType !== 'INCOMPLETION') {
+    effects.push({
+      icon: '🏃',
+      text: `${targetPosition} -12 stamina (sprint)`,
+      color: 'text-amber-400',
+    });
+  }
+
+  // Regular target drain
+  if (targetPosition && resultType !== 'INCOMPLETION' && yards < 15 && yards > -5) {
+    effects.push({
+      icon: '⚡',
+      text: `${targetPosition} -10 stamina`,
+      color: 'text-gray-400',
+    });
+  }
+
+  // Momentum changes
+  if ('sack' in result && result.sack) {
+    effects.push({
+      icon: '😤',
+      text: 'Defense +1 momentum',
+      color: 'text-green-400',
+    });
+  }
+
+  if (isBigPlay && isPlayerOffense) {
+    effects.push({
+      icon: '🔥',
+      text: 'Offense +1 momentum',
+      color: 'text-amber-400',
+    });
+  }
+
+  if (result.turnover) {
+    effects.push({
+      icon: '💔',
+      text: 'Turnover! Momentum shift',
+      color: 'text-red-400',
+    });
+  }
+
+  return effects;
+}
 
 // =============================================================================
 // HELPER FUNCTIONS

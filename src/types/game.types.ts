@@ -14,6 +14,200 @@
 import type { Card, CardPlayResult, OffensivePlayType } from './card.types';
 
 // =============================================================================
+// TARGET/SHADE POSITIONS
+// =============================================================================
+
+/**
+ * Positions that can be targeted by offense or shaded by defense.
+ * WR1, WR2, TE, RB are the primary receiving options.
+ * QB is used for QB sneaks/keepers.
+ */
+export type TargetPosition = 'WR1' | 'WR2' | 'TE' | 'RB' | 'QB';
+
+/**
+ * Shade position for defense - who they think offense is targeting.
+ * 'NONE' means no shade (no guess).
+ */
+export type ShadePosition = TargetPosition | 'NONE';
+
+/**
+ * Plays that lock to a specific target and cannot be changed.
+ */
+export const LOCKED_TARGET_PLAYS: Partial<Record<OffensivePlayType, TargetPosition>> = {
+  QB_RUN: 'QB',
+  KNEEL: 'QB',
+  SPIKE: 'QB',
+  // Note: TRICK_PLAY with reverse would lock to WR2 but that's handled in card metadata
+};
+
+/**
+ * Default targets for play types when no explicit selection is made.
+ */
+export const DEFAULT_PLAY_TARGETS: Partial<Record<OffensivePlayType, TargetPosition>> = {
+  INSIDE_RUN: 'RB',
+  OUTSIDE_RUN: 'RB',
+  POWER_RUN: 'RB',
+  DRAW: 'RB',
+  QB_RUN: 'QB',
+  KNEEL: 'QB',
+  SPIKE: 'QB',
+  SHORT_PASS: 'WR1',
+  MEDIUM_PASS: 'WR1',
+  DEEP_PASS: 'WR1',
+  SCREEN: 'RB',
+  PLAY_ACTION: 'TE',
+  TRICK_PLAY: 'WR2',
+};
+
+// =============================================================================
+// STAMINA TRACKING
+// =============================================================================
+
+/**
+ * Stamina state for skill position players.
+ * Max 100, min 0. Affects player effectiveness.
+ */
+export type StaminaState = Record<TargetPosition, number>;
+
+/** Initial stamina values - all players start at 100 */
+export const INITIAL_STAMINA: StaminaState = {
+  QB: 100,
+  RB: 100,
+  WR1: 100,
+  WR2: 100,
+  TE: 100,
+};
+
+/** Stamina drain amounts for different events */
+export const STAMINA_DRAIN = {
+  TARGET_OR_CARRY: 10,    // -10 per target/carry
+  BIG_HIT: 8,             // -8 on big hit (20% chance)
+  BREAKAWAY: 12,          // -12 on breakaway (15+ yards)
+  SACK: 10,               // -10 to QB on sack
+} as const;
+
+/** Stamina recovery amounts */
+export const STAMINA_RECOVERY = {
+  REST_PER_PLAY: 5,       // +5 per play not targeted
+  HALFTIME: 25,           // +25 at halftime
+  BETWEEN_GAMES: 100,     // Full reset between games
+} as const;
+
+/** Stamina thresholds for effects */
+export const STAMINA_THRESHOLDS = {
+  FULL_BONUS: 60,         // 60-100: full bonus
+  HALF_BONUS: 40,         // 40-60: half bonus
+  NO_BONUS: 25,           // 25-40: no bonus
+  PENALTY: 25,            // Below 25: -10% penalty
+} as const;
+
+/** Chance for big hit on any play (%) */
+export const BIG_HIT_CHANCE = 20;
+
+/** Yards required for breakaway bonus drain */
+export const BREAKAWAY_YARDS = 15;
+
+/**
+ * Calculate stamina effect modifier for a player's effectiveness.
+ * Returns a multiplier: 1.0 = full, 0.5 = half bonus, 0 = no bonus, -0.1 = penalty
+ */
+export function getStaminaEffectModifier(stamina: number): number {
+  if (stamina >= STAMINA_THRESHOLDS.FULL_BONUS) {
+    return 1.0;  // Full bonus
+  } else if (stamina >= STAMINA_THRESHOLDS.HALF_BONUS) {
+    return 0.5;  // Half bonus
+  } else if (stamina >= STAMINA_THRESHOLDS.NO_BONUS) {
+    return 0;    // No bonus
+  } else {
+    return -0.1; // Penalty
+  }
+}
+
+/**
+ * Get stamina bar color for UI display.
+ * Green (60+), Yellow (40-60), Red (<40)
+ */
+export function getStaminaColor(stamina: number): 'green' | 'yellow' | 'red' {
+  if (stamina >= 60) return 'green';
+  if (stamina >= 40) return 'yellow';
+  return 'red';
+}
+
+/**
+ * Calculate stamina drain for a play.
+ * @param wasTargeted - Was this player the target of the play
+ * @param yardsGained - Yards gained on the play (for breakaway check)
+ * @param wasSacked - Was this a sack (QB only)
+ * @param hadBigHit - Did a big hit occur (random 20% chance)
+ */
+export function calculateStaminaDrain(
+  wasTargeted: boolean,
+  yardsGained: number,
+  wasSacked: boolean,
+  hadBigHit: boolean
+): number {
+  let drain = 0;
+
+  if (wasTargeted) {
+    drain += STAMINA_DRAIN.TARGET_OR_CARRY;
+  }
+
+  if (wasSacked) {
+    drain += STAMINA_DRAIN.SACK;
+  }
+
+  if (hadBigHit) {
+    drain += STAMINA_DRAIN.BIG_HIT;
+  }
+
+  if (yardsGained >= BREAKAWAY_YARDS) {
+    drain += STAMINA_DRAIN.BREAKAWAY;
+  }
+
+  return drain;
+}
+
+/**
+ * Apply stamina changes after a play.
+ * Drains targeted player, recovers non-targeted players.
+ */
+export function updateStaminaAfterPlay(
+  currentStamina: StaminaState,
+  targetedPosition: TargetPosition | null,
+  yardsGained: number,
+  wasSacked: boolean,
+  hadBigHit: boolean
+): StaminaState {
+  const newStamina = { ...currentStamina };
+
+  for (const position of Object.keys(newStamina) as TargetPosition[]) {
+    if (position === targetedPosition) {
+      // Drain targeted player
+      const drain = calculateStaminaDrain(true, yardsGained, wasSacked && position === 'QB', hadBigHit);
+      newStamina[position] = Math.max(0, newStamina[position] - drain);
+    } else {
+      // Recover non-targeted players
+      newStamina[position] = Math.min(100, newStamina[position] + STAMINA_RECOVERY.REST_PER_PLAY);
+    }
+  }
+
+  return newStamina;
+}
+
+/**
+ * Apply halftime stamina recovery to all players.
+ */
+export function applyHalftimeRecovery(currentStamina: StaminaState): StaminaState {
+  const newStamina = { ...currentStamina };
+
+  for (const position of Object.keys(newStamina) as TargetPosition[]) {
+    newStamina[position] = Math.min(100, newStamina[position] + STAMINA_RECOVERY.HALFTIME);
+  }
+
+  return newStamina;
+}
+
+// =============================================================================
 // GAME PHASE
 // =============================================================================
 
@@ -230,9 +424,11 @@ export interface PlaySelection {
   // Defense selection (hidden from offense until reveal)
   defenseCard: Card | null;
   defensePrediction: OffensivePlayType | null;  // What they think offense will do
+  defenseShade: ShadePosition;                  // Who defense thinks offense targets
 
   // Offense selection (sees defense, picks counter)
   offenseCard: Card | null;
+  offenseTarget: TargetPosition | null;         // Who offense is targeting
 
   // Dirty card (either side can play alongside main card)
   dirtyCard: Card | null;

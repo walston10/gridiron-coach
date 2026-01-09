@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand';
-import type { Player, Roster, OLineUnit, DLineUnit } from '../types/player.types';
+import type { Player, Roster, OLineUnit, DLineUnit, FlexType } from '../types/player.types';
 import type { Deck } from '../types/deck.types';
 import type { DraftPlayer, DraftLineUnit, PlayerPool } from '../data/playerPool';
 import { generatePlayerPool } from '../data/playerPool';
@@ -15,7 +15,8 @@ import { buildDeck } from '../engine/cardGenerator';
 // CONSTANTS
 // =============================================================================
 
-export const DRAFT_BUDGET = 160; // $160M
+// Reduced budget for simplified 12-player roster (~60% of original 160)
+export const DRAFT_BUDGET = 96; // $96M
 
 export interface PositionRequirement {
   min: number;
@@ -24,18 +25,43 @@ export interface PositionRequirement {
   description: string;
 }
 
-export const POSITION_REQUIREMENTS: Record<string, PositionRequirement> = {
+// Base requirements without flex consideration
+// Flex type adjusts these dynamically
+export const BASE_POSITION_REQUIREMENTS: Record<string, PositionRequirement> = {
   QB: { min: 1, max: 1, label: 'QB', description: 'Quarterback' },
-  RB: { min: 1, max: 2, label: 'RB', description: 'Running Back' },
-  WR: { min: 2, max: 3, label: 'WR', description: 'Wide Receiver' },
-  TE: { min: 1, max: 2, label: 'TE', description: 'Tight End' },
+  RB: { min: 1, max: 1, label: 'RB', description: 'Running Back' },
+  WR: { min: 2, max: 2, label: 'WR', description: 'Wide Receiver' },
+  TE: { min: 1, max: 1, label: 'TE', description: 'Tight End' },
   OL: { min: 1, max: 1, label: 'OL', description: 'Offensive Line' },
   DL: { min: 1, max: 1, label: 'DL', description: 'Defensive Line' },
-  LB: { min: 2, max: 3, label: 'LB', description: 'Linebacker' },
-  CB: { min: 2, max: 3, label: 'CB', description: 'Cornerback' },
-  S: { min: 1, max: 2, label: 'S', description: 'Safety' },
-  ST: { min: 1, max: 1, label: 'ST', description: 'Special Teams' },
+  LB: { min: 1, max: 1, label: 'LB', description: 'Linebacker' },
+  CB: { min: 2, max: 2, label: 'CB', description: 'Cornerback' },
+  S: { min: 1, max: 1, label: 'S', description: 'Safety' },
+  ST: { min: 1, max: 1, label: 'K/P', description: 'Kicker/Punter' },
 };
+
+// Get position requirements based on flex type
+export function getPositionRequirements(flexType: FlexType): Record<string, PositionRequirement> {
+  const requirements = { ...BASE_POSITION_REQUIREMENTS };
+
+  // Adjust based on flex type
+  switch (flexType) {
+    case 'WR3':
+      requirements.WR = { min: 3, max: 3, label: 'WR', description: 'Wide Receiver (including WR3 flex)' };
+      break;
+    case 'RB2':
+      requirements.RB = { min: 2, max: 2, label: 'RB', description: 'Running Back (including RB2 flex)' };
+      break;
+    case 'TE2':
+      requirements.TE = { min: 2, max: 2, label: 'TE', description: 'Tight End (including TE2 flex)' };
+      break;
+  }
+
+  return requirements;
+}
+
+// For backwards compatibility - default to WR3 flex
+export const POSITION_REQUIREMENTS = getPositionRequirements('WR3');
 
 // =============================================================================
 // TYPES
@@ -56,6 +82,9 @@ export interface DraftState {
   // Pool
   playerPool: PlayerPool | null;
 
+  // Flex type chosen at draft start
+  flexType: FlexType;
+
   // Selections
   selections: DraftSelection[];
   budget: number;
@@ -70,7 +99,7 @@ export interface DraftState {
   isConfirming: boolean;
 
   // Actions
-  initializeDraft: () => void;
+  initializeDraft: (flexType: FlexType) => void;
   selectPlayer: (position: string, playerId: string, salary: number, data: DraftPlayer | DraftLineUnit) => void;
   releasePlayer: (playerId: string) => void;
   setKickReturner: (playerId: string) => void;
@@ -78,6 +107,7 @@ export interface DraftState {
   setActivePosition: (position: string) => void;
 
   // Computed helpers (as functions)
+  getPositionRequirements: () => Record<string, PositionRequirement>;
   getPositionCount: (position: string) => number;
   getPositionStatus: (position: string) => PositionStatus;
   canSelectPosition: (position: string) => boolean;
@@ -113,6 +143,7 @@ export interface DraftResults {
 export const useDraftStore = create<DraftState>((set, get) => ({
   // Initial state
   playerPool: null,
+  flexType: 'WR3' as FlexType,
   selections: [],
   budget: DRAFT_BUDGET,
   spent: 0,
@@ -121,11 +152,12 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   activePosition: 'QB',
   isConfirming: false,
 
-  // Initialize the draft with a fresh player pool
-  initializeDraft: () => {
+  // Initialize the draft with a fresh player pool and flex type
+  initializeDraft: (flexType: FlexType) => {
     const pool = generatePlayerPool();
     set({
       playerPool: pool,
+      flexType,
       selections: [],
       spent: 0,
       kickReturnerId: null,
@@ -135,10 +167,16 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     });
   },
 
+  // Get position requirements based on current flex type
+  getPositionRequirements: () => {
+    return getPositionRequirements(get().flexType);
+  },
+
   // Select a player
   selectPlayer: (position, playerId, salary, data) => {
     const state = get();
-    const requirement = POSITION_REQUIREMENTS[position];
+    const requirements = state.getPositionRequirements();
+    const requirement = requirements[position];
 
     // Check if position is full
     const currentCount = state.getPositionCount(position);
@@ -206,8 +244,10 @@ export const useDraftStore = create<DraftState>((set, get) => ({
 
   // Get position status
   getPositionStatus: (position) => {
-    const count = get().getPositionCount(position);
-    const req = POSITION_REQUIREMENTS[position];
+    const state = get();
+    const count = state.getPositionCount(position);
+    const requirements = state.getPositionRequirements();
+    const req = requirements[position];
     if (count < req.min) return 'need';
     if (count >= req.max) return 'full';
     return 'ok';
@@ -215,22 +255,25 @@ export const useDraftStore = create<DraftState>((set, get) => ({
 
   // Can select more at this position?
   canSelectPosition: (position) => {
-    const count = get().getPositionCount(position);
-    const req = POSITION_REQUIREMENTS[position];
+    const state = get();
+    const count = state.getPositionCount(position);
+    const requirements = state.getPositionRequirements();
+    const req = requirements[position];
     return count < req.max;
   },
 
   // Calculate minimum spend still needed to fill roster
   getMinimumSpendNeeded: () => {
     const state = get();
+    const requirements = state.getPositionRequirements();
     let minSpend = 0;
 
-    for (const [position, req] of Object.entries(POSITION_REQUIREMENTS)) {
+    for (const [position, req] of Object.entries(requirements)) {
       const count = state.getPositionCount(position);
       const needed = Math.max(0, req.min - count);
 
       // Estimate minimum salary for position (depth tier)
-      const minSalary = position === 'ST' ? 1 : position === 'QB' ? 1 : 1;
+      const minSalary = 1;
       minSpend += needed * minSalary;
     }
 
@@ -240,8 +283,9 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   // Is roster complete (minimums met)?
   isRosterComplete: () => {
     const state = get();
+    const requirements = state.getPositionRequirements();
 
-    for (const [position, req] of Object.entries(POSITION_REQUIREMENTS)) {
+    for (const [position, req] of Object.entries(requirements)) {
       if (state.getPositionCount(position) < req.min) {
         return false;
       }
@@ -276,6 +320,7 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   // Build the final roster from selections
   buildRoster: () => {
     const state = get();
+    const flexType = state.flexType;
 
     // Get selections by position
     const getPlayersAt = (pos: string): Player[] => {
@@ -301,9 +346,13 @@ export const useDraftStore = create<DraftState>((set, get) => ({
     const olUnit = getUnitAt('OL');
     const dlUnit = getUnitAt('DL');
 
-    // Validate minimums
-    if (qbs.length < 1 || rbs.length < 1 || wrs.length < 2 || tes.length < 1 ||
-        lbs.length < 2 || cbs.length < 2 || ss.length < 1 || sts.length < 1 ||
+    // Validate minimums based on flex type
+    const minWR = flexType === 'WR3' ? 3 : 2;
+    const minRB = flexType === 'RB2' ? 2 : 1;
+    const minTE = flexType === 'TE2' ? 2 : 1;
+
+    if (qbs.length < 1 || rbs.length < minRB || wrs.length < minWR || tes.length < minTE ||
+        lbs.length < 1 || cbs.length < 2 || ss.length < 1 || sts.length < 1 ||
         !olUnit || !dlUnit) {
       return null;
     }
@@ -316,37 +365,48 @@ export const useDraftStore = create<DraftState>((set, get) => ({
       return null;
     }
 
-    // Build roster structure
+    // Determine flex player based on flex type
+    let flexPlayer: Player;
+    switch (flexType) {
+      case 'WR3':
+        flexPlayer = wrs[2];
+        break;
+      case 'RB2':
+        flexPlayer = rbs[1];
+        break;
+      case 'TE2':
+        flexPlayer = tes[1];
+        break;
+    }
+
+    // Build new simplified roster structure
     const roster: Roster = {
       offense: {
         QB: qbs[0],
         RB: rbs[0],
-        WR: [wrs[0], wrs[1]],
+        WR1: wrs[0],
+        WR2: wrs[1],
         TE: tes[0],
         OL: olUnit as OLineUnit,
       },
       defense: {
         DL: dlUnit as DLineUnit,
-        LB: [lbs[0], lbs[1]],
-        CB: [cbs[0], cbs[1]],
+        LB: lbs[0],
+        CB1: cbs[0],
+        CB2: cbs[1],
         S: ss[0],
       },
       specialTeams: {
-        ST: sts[0],
+        KP: sts[0],
+      },
+      flex: {
+        type: flexType,
+        player: flexPlayer,
       },
       returner: {
         kickReturner: kickReturnerId,
         puntReturner: puntReturnerId,
       },
-      bench: [
-        ...(rbs.length > 1 ? [rbs[1]] : []),
-        ...(wrs.length > 2 ? [wrs[2]] : []),
-        ...(tes.length > 1 ? [tes[1]] : []),
-        ...(lbs.length > 2 ? [lbs[2]] : []),
-        ...(cbs.length > 2 ? [cbs[2]] : []),
-        ...(ss.length > 1 ? [ss[1]] : []),
-      ],
-      practiceSquad: [],
     };
 
     return roster;
@@ -380,6 +440,7 @@ export const useDraftStore = create<DraftState>((set, get) => ({
   resetDraft: () => {
     set({
       playerPool: null,
+      flexType: 'WR3' as FlexType,
       selections: [],
       spent: 0,
       kickReturnerId: null,

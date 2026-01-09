@@ -8,7 +8,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useCardGameStore, MOMENTUM_CONFIG } from '../../stores/cardGameStore';
 import type { OffensiveCard, CardRarity, OffensivePlayType, DefensivePlayType } from '../../types/card.types';
-import type { FourthDownCategory } from '../../types/game.types';
+import type { FourthDownCategory, TargetPosition, StaminaState } from '../../types/game.types';
+import { LOCKED_TARGET_PLAYS, DEFAULT_PLAY_TARGETS, getStaminaColor } from '../../types/game.types';
 import type { Synergy } from '../../engine/playResolver';
 import { getCounterModifier, getActiveSynergies } from '../../engine/playResolver';
 
@@ -76,6 +77,7 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
   onFourthDownChoice,
 }) => {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<TargetPosition | null>(null);
   const [showMatchups, setShowMatchups] = useState(false);
   const [showTendencies, setShowTendencies] = useState(false);
   const [activeSynergies, setActiveSynergies] = useState<Synergy[]>([]);
@@ -91,6 +93,7 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
     playSelection,
     fourthDownState,
     currentDrive,
+    playerStamina,
     getAvailableOffensiveCards,
     selectOffensiveCard,
   } = useCardGameStore();
@@ -111,22 +114,55 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
     }
   }, [selectedCard, playerTendencies]);
 
+  // Determine if target is locked for selected play
+  const lockedTarget = useMemo(() => {
+    if (!selectedCard) return null;
+    return LOCKED_TARGET_PLAYS[selectedCard.playType] || null;
+  }, [selectedCard]);
+
+  // Default target based on play type
+  const defaultTarget = useMemo(() => {
+    if (!selectedCard) return null;
+    return DEFAULT_PLAY_TARGETS[selectedCard.playType] || 'WR1';
+  }, [selectedCard]);
+
+  // Effective target (locked > selected > default)
+  const effectiveTarget = useMemo(() => {
+    if (lockedTarget) return lockedTarget;
+    if (selectedTarget) return selectedTarget;
+    return defaultTarget;
+  }, [lockedTarget, selectedTarget, defaultTarget]);
+
+  // Reset target when card changes
+  useEffect(() => {
+    setSelectedTarget(null);
+  }, [selectedCardId]);
+
   // Handle card selection
   const handleCardSelect = useCallback((card: OffensiveCard) => {
     if (selectedCardId === card.id) {
       setSelectedCardId(null);
+      setSelectedTarget(null);
     } else {
       setSelectedCardId(card.id);
+      setSelectedTarget(null);
     }
   }, [selectedCardId]);
 
+  // Handle target selection
+  const handleTargetSelect = useCallback((target: TargetPosition) => {
+    if (!lockedTarget) {
+      setSelectedTarget(target);
+    }
+  }, [lockedTarget]);
+
   // Handle snap
   const handleSnap = useCallback(() => {
-    if (selectedCard) {
-      selectOffensiveCard(selectedCard);
+    if (selectedCard && effectiveTarget) {
+      selectOffensiveCard(selectedCard, effectiveTarget);
       onSnapBall(selectedCard);
     }
-  }, [selectedCard, selectOffensiveCard, onSnapBall]);
+  }, [selectedCard, effectiveTarget, selectOffensiveCard, onSnapBall]);
 
   // Is 4th down?
   const isFourthDown = fieldPosition.down === 4;
@@ -190,6 +226,10 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
             card={selectedCard}
             synergies={activeSynergies}
             defensePlayType={playSelection.defenseCard?.playType as DefensivePlayType | undefined}
+            selectedTarget={effectiveTarget}
+            lockedTarget={lockedTarget}
+            playerStamina={playerStamina}
+            onTargetSelect={handleTargetSelect}
             onSnap={handleSnap}
           />
         )}
@@ -613,13 +653,28 @@ interface SelectedCardDetailProps {
   card: OffensiveCard;
   synergies: Synergy[];
   defensePlayType?: DefensivePlayType;
+  selectedTarget: TargetPosition | null;
+  lockedTarget: TargetPosition | null;
+  playerStamina: StaminaState;
+  onTargetSelect: (target: TargetPosition) => void;
   onSnap: () => void;
 }
+
+const TARGET_OPTIONS: { position: TargetPosition; label: string; icon: string }[] = [
+  { position: 'WR1', label: 'WR1', icon: '📡' },
+  { position: 'WR2', label: 'WR2', icon: '📶' },
+  { position: 'TE', label: 'TE', icon: '🎯' },
+  { position: 'RB', label: 'RB', icon: '🏃' },
+];
 
 const SelectedCardDetail: React.FC<SelectedCardDetailProps> = ({
   card,
   synergies,
   defensePlayType,
+  selectedTarget,
+  lockedTarget,
+  playerStamina,
+  onTargetSelect,
   onSnap,
 }) => {
   // Calculate modified success chance
@@ -715,12 +770,73 @@ const SelectedCardDetail: React.FC<SelectedCardDetailProps> = ({
         </div>
       )}
 
+      {/* Target Selection */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-500 uppercase">Target</span>
+          {lockedTarget && (
+            <span className="text-xs text-amber-500">🔒 Locked to {lockedTarget}</span>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {TARGET_OPTIONS.map((opt) => {
+            const isSelected = selectedTarget === opt.position;
+            const isLocked = lockedTarget === opt.position;
+            const isDisabled = lockedTarget !== null && lockedTarget !== opt.position;
+            const stamina = playerStamina[opt.position];
+            const staminaColor = getStaminaColor(stamina);
+
+            // Map stamina color to tailwind classes
+            const staminaBarColor = staminaColor === 'green' ? 'bg-green-500' :
+                                    staminaColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500';
+            const staminaTextColor = staminaColor === 'green' ? 'text-green-400' :
+                                     staminaColor === 'yellow' ? 'text-yellow-400' : 'text-red-400';
+
+            return (
+              <button
+                key={opt.position}
+                onClick={() => !isDisabled && onTargetSelect(opt.position)}
+                disabled={isDisabled}
+                className={`flex-1 py-2 px-3 rounded-lg border-2 transition-all ${
+                  isSelected || isLocked
+                    ? 'border-amber-500 bg-amber-900/40 text-amber-400'
+                    : isDisabled
+                    ? 'border-gray-700 bg-gray-800/30 text-gray-600 cursor-not-allowed opacity-50'
+                    : 'border-gray-700 bg-gray-800/50 text-gray-300 hover:border-amber-500/50'
+                }`}
+              >
+                <div className="text-center">
+                  <div className="text-sm">{opt.icon}</div>
+                  <div className="text-xs font-bold">{opt.label}</div>
+                  {/* Stamina Bar */}
+                  <div className="mt-1 w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${staminaBarColor}`}
+                      style={{ width: `${stamina}%` }}
+                    />
+                  </div>
+                  {/* Stamina Value */}
+                  <div className={`text-xs mt-0.5 ${staminaTextColor}`}>
+                    {stamina}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Snap Button */}
       <button
         onClick={onSnap}
-        className="w-full py-4 bg-gradient-to-r from-amber-600 to-amber-500 rounded-lg text-lg font-bold text-black uppercase tracking-wider hover:from-amber-500 hover:to-amber-400 active:scale-98 transition-all shadow-lg shadow-amber-500/30"
+        disabled={!selectedTarget}
+        className={`w-full py-4 rounded-lg text-lg font-bold uppercase tracking-wider transition-all shadow-lg ${
+          selectedTarget
+            ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black hover:from-amber-500 hover:to-amber-400 active:scale-98 shadow-amber-500/30'
+            : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+        }`}
       >
-        🏈 Snap Ball
+        🏈 Snap Ball {selectedTarget && `→ ${selectedTarget}`}
       </button>
     </div>
   );
