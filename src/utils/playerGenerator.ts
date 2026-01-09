@@ -159,3 +159,144 @@ export const generateRoster = (teamId: string, quality: 'BAD' | 'AVERAGE' | 'GOO
 
   return roster;
 };
+
+/**
+ * Generate a complete Roster object for AI teams.
+ * Creates properly structured roster with all positions filled for card game use.
+ * Uses the full Player type from player.types.ts.
+ */
+export const generateAIRoster = (
+  teamId: string,
+  quality: 'BAD' | 'AVERAGE' | 'GOOD' = 'AVERAGE'
+): import('../types/player.types').Roster => {
+  const baseOverall = quality === 'BAD' ? 62 : quality === 'AVERAGE' ? 72 : 82;
+  const variance = 8;
+
+  // Generate a full Player object with all required fields
+  const generateFullPlayer = (
+    position: import('../types/player.types').Position,
+    depthPenalty: number = 0
+  ): import('../types/player.types').Player => {
+    const targetOvr = Math.max(50, baseOverall + Math.floor((Math.random() - 0.5) * variance * 2) - depthPenalty);
+    const { firstName, lastName } = getRandomName();
+
+    // Generate ratings based on position
+    const ratings: import('../types/player.types').PlayerRatings = {
+      speed: randomStat(targetOvr),
+      strength: randomStat(targetOvr),
+      agility: randomStat(targetOvr),
+      stamina: randomStat(targetOvr + 5),
+      awareness: randomStat(targetOvr),
+      discipline: randomStat(targetOvr),
+      clutch: randomStat(targetOvr),
+      throwing: position === 'QB' ? randomStat(targetOvr + 5) : randomStat(30),
+      catching: ['WR', 'TE', 'RB'].includes(position) ? randomStat(targetOvr + 3) : randomStat(30),
+      carrying: ['RB', 'WR'].includes(position) ? randomStat(targetOvr + 3) : randomStat(40),
+      blocking: ['OL', 'TE'].includes(position) ? randomStat(targetOvr) : randomStat(40),
+      passRush: ['DE', 'DT', 'OLB'].includes(position) ? randomStat(targetOvr + 3) : randomStat(30),
+      coverage: ['CB', 'FS', 'SS', 'MLB'].includes(position) ? randomStat(targetOvr + 3) : randomStat(30),
+      tackling: ['MLB', 'OLB', 'CB', 'FS', 'SS', 'DE', 'DT'].includes(position) ? randomStat(targetOvr) : randomStat(30),
+      kickPower: position === 'ST' ? randomStat(targetOvr + 5) : randomStat(30),
+      kickAccuracy: position === 'ST' ? randomStat(targetOvr + 5) : randomStat(30),
+      clutchKicking: position === 'ST' ? randomStat(targetOvr) : randomStat(30),
+      coverageUnit: randomStat(50),
+      ego: randomStat(50),
+      loyalty: randomStat(60),
+      vice: randomStat(40),
+    };
+
+    return {
+      id: `ai-${teamId}-${position}-${Math.random().toString(36).slice(2, 9)}`,
+      firstName,
+      lastName,
+      position,
+      age: Math.floor(Math.random() * 10) + 22,
+      experience: Math.floor(Math.random() * 8),
+      ratings,
+      overall: targetOvr,
+      potential: Math.min(99, targetOvr + Math.floor(Math.random() * 10)),
+      status: {
+        condition: 'HEALTHY',
+        cardQualityModifier: 0,
+      },
+      contract: null,
+      cardsGenerated: [],
+      cardContribution: Math.floor(targetOvr / 20) + 2,
+      personality: {
+        primary: 'QUIET_PROFESSIONAL',
+      },
+      scandalHistory: [],
+      trustInGM: 50,
+    };
+  };
+
+  // Generate individual players (using Position types from player.types.ts)
+  const qb = generateFullPlayer('QB');
+  const rb = generateFullPlayer('RB');
+  const wr1 = generateFullPlayer('WR');
+  const wr2 = generateFullPlayer('WR', 3);
+  const te = generateFullPlayer('TE');
+  const lb1 = generateFullPlayer('LB');
+  const lb2 = generateFullPlayer('LB', 3);
+  const cb1 = generateFullPlayer('CB');
+  const cb2 = generateFullPlayer('CB', 3);
+  const s = generateFullPlayer('S');
+  const st = generateFullPlayer('ST');
+
+  // Generate line units
+  const olUnit: import('../types/player.types').OLineUnit = {
+    id: `ol-${teamId}`,
+    name: 'Offensive Line',
+    overall: baseOverall + Math.floor((Math.random() - 0.5) * variance),
+    passBlockRating: baseOverall + Math.floor((Math.random() - 0.5) * 10),
+    runBlockRating: baseOverall + Math.floor((Math.random() - 0.5) * 10),
+    captain: {
+      firstName: 'John',
+      lastName: 'Smith',
+      ego: 50,
+      vice: 30,
+    },
+  };
+
+  const dlUnit: import('../types/player.types').DLineUnit = {
+    id: `dl-${teamId}`,
+    name: 'Defensive Line',
+    overall: baseOverall + Math.floor((Math.random() - 0.5) * variance),
+    passRushRating: baseOverall + Math.floor((Math.random() - 0.5) * 10),
+    runStopRating: baseOverall + Math.floor((Math.random() - 0.5) * 10),
+    captain: {
+      firstName: 'Mike',
+      lastName: 'Jones',
+      ego: 50,
+      vice: 30,
+    },
+  };
+
+  // Build roster structure
+  const roster: import('../types/player.types').Roster = {
+    offense: {
+      QB: qb,
+      RB: rb,
+      WR: [wr1, wr2],
+      TE: te,
+      OL: olUnit,
+    },
+    defense: {
+      DL: dlUnit,
+      LB: [lb1, lb2],
+      CB: [cb1, cb2],
+      S: s,
+    },
+    specialTeams: {
+      ST: st,
+    },
+    returner: {
+      kickReturner: rb.id,
+      puntReturner: wr1.id,
+    },
+    bench: [],
+    practiceSquad: [],
+  };
+
+  return roster;
+};
