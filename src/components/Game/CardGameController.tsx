@@ -60,7 +60,8 @@ const OffensivePlayUI: React.FC<{
   }, [selectedCard, onSnapBall]);
 
   // Fourth down decision screen
-  if (phase === 'FOURTH_DOWN_DECISION' || fieldPosition.down === 4) {
+  // Show 4th down decision only when on 4th down and NOT already waiting for defense response
+  if ((phase === 'FOURTH_DOWN_DECISION' || fieldPosition.down === 4) && phase !== 'FOURTH_DOWN_DEFENSE') {
     return (
       <div className="min-h-screen bg-gray-950 flex flex-col">
         {/* Scoreboard */}
@@ -391,7 +392,8 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isInitialized,
     playerState,
     opponentState,
-    playSelection,
+    lastPlayedSelection,
+    fourthDownState,
     startGame,
     resetGame,
     selectOffensiveCard,
@@ -466,20 +468,46 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   // Handle fourth down choice (offense)
   const handleFourthDownChoice = useCallback((choice: FourthDownCategory | 'FAKE_FG' | 'FAKE_PUNT') => {
-    setFourthDownOffenseChoice(choice as FourthDownCategory, choice === 'FAKE_FG' || choice === 'FAKE_PUNT');
-    setPhase('FOURTH_DOWN_DEFENSE');
-  }, [setFourthDownOffenseChoice, setPhase]);
+    const isFaking = choice === 'FAKE_FG' || choice === 'FAKE_PUNT';
+    const category = isFaking
+      ? (choice === 'FAKE_FG' ? 'FIELD_GOAL' : 'PUNT')
+      : (choice as FourthDownCategory);
+
+    setFourthDownOffenseChoice(category, isFaking);
+
+    // If player is on offense, CPU auto-responds
+    if (isPlayerOnOffense()) {
+      // CPU picks a random defense response
+      const responses: FourthDownDefenseResponse[] = ['CONSERVATIVE_STOP', 'AGGRESSIVE_STOP', 'EXPECT_FAKE'];
+      const cpuResponse = responses[Math.floor(Math.random() * responses.length)];
+
+      // Execute fourth down directly
+      const result = executeFourthDown(choice, cpuResponse);
+      if (result) {
+        setLastResult(result);
+        setPhase('PLAY_RESULT');
+      }
+    } else {
+      // Player is on defense - wait for their response
+      setPhase('FOURTH_DOWN_DEFENSE');
+    }
+  }, [isPlayerOnOffense, setFourthDownOffenseChoice, executeFourthDown, setPhase]);
 
   // Handle fourth down response (defense)
   const handleFourthDownResponse = useCallback((response: FourthDownDefenseResponse) => {
     setFourthDownDefenseResponse(response);
-    // Execute fourth down
-    const result = executeFourthDown('GO_FOR_IT', response);
+    // Execute fourth down with the stored offense choice
+    const offenseChoice = fourthDownState?.offenseCategory || 'GO_FOR_IT';
+    const isFaking = fourthDownState?.offenseIsFaking || false;
+    const choice = isFaking
+      ? (offenseChoice === 'FIELD_GOAL' ? 'FAKE_FG' : 'FAKE_PUNT')
+      : offenseChoice;
+    const result = executeFourthDown(choice, response);
     if (result) {
       setLastResult(result);
       setPhase('PLAY_RESULT');
     }
-  }, [setFourthDownDefenseResponse, executeFourthDown, setPhase]);
+  }, [fourthDownState, setFourthDownDefenseResponse, executeFourthDown, setPhase]);
 
   // Handle continue after result
   const handleContinue = useCallback(() => {
@@ -559,17 +587,17 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   // Play result screen
   if (phase === 'PLAY_RESULT' && lastResult) {
-    // Cast cards to their specific types
-    const offenseCard = playSelection.offenseCard as OffensiveCard | null;
-    const defenseCard = playSelection.defenseCard as DefensiveCard | null;
+    // Use lastPlayedSelection which was saved before playSelection was reset
+    const offenseCard = lastPlayedSelection?.offenseCard as OffensiveCard | null;
+    const defenseCard = lastPlayedSelection?.defenseCard as DefensiveCard | null;
 
     return (
       <PlayResultDisplay
         result={lastResult}
         offensePlayType={offenseCard?.playType}
-        targetPosition={playSelection.offenseTarget || undefined}
+        targetPosition={lastPlayedSelection?.offenseTarget || undefined}
         defenseCard={defenseCard || undefined}
-        defenseShade={playSelection.defenseShade || undefined}
+        defenseShade={lastPlayedSelection?.defenseShade || undefined}
         isPlayerOffense={isPlayerOnOffense()}
         onContinue={handleContinue}
         onXPChoice={handleXPChoice}
