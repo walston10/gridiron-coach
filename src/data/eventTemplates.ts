@@ -296,8 +296,8 @@ export const PLAYER_INCIDENT_EVENTS: GameEvent[] = [
         failureConsequences: {
           heat: 30,
           reputation: -20,
-          suspensionWeeks: 4,
-          resultText: 'The expanded test found something. Four-game suspension incoming.',
+          suspensionWeeks: 2,
+          resultText: 'The expanded test found something. Two-game suspension incoming.',
         },
         tags: ['RISKY'],
       },
@@ -329,8 +329,8 @@ export const PLAYER_INCIDENT_EVENTS: GameEvent[] = [
           heat: 50,
           reputation: -30,
           ownerPatience: -20,
-          suspensionWeeks: 8,
-          resultText: 'They found the masking agent. Season-ending suspension.',
+          suspensionWeeks: 2,
+          resultText: 'They found the masking agent. Two-game suspension and league scrutiny.',
         },
         requiresSlushFund: 75000,
         tags: ['SHADY', 'RISKY'],
@@ -556,8 +556,8 @@ export const CORRUPTION_EVENTS: GameEvent[] = [
         failureConsequences: {
           heat: 45,
           reputation: -30,
-          suspensionWeeks: 4,
-          resultText: 'Random drug test. Multiple positives. League is furious.',
+          suspensionWeeks: 2,
+          resultText: 'Random drug test. Positive result. League issues two-game suspension.',
         },
         requiresSlushFund: 200000,
         delayedConsequences: {
