@@ -85,11 +85,15 @@ function App() {
     );
   }
 
+  // Game day is full-screen without sidebar
+  if (currentPage === 'gameday') {
+    return <CardGameController onBack={() => setCurrentPage('home')} />;
+  }
+
   const renderPage = () => {
     switch (currentPage) {
       case 'designer': return <PlayDesigner />;
       case 'playbook': return <PlaybookPage />;
-      case 'gameday': return <CardGameController onBack={() => setCurrentPage('home')} />;
       case 'roster': return <FranchiseDashboard />;
       case 'scouting': return <ScoutingCenter />;
       case 'draft': return <DraftPage />;
