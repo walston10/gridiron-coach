@@ -394,6 +394,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     opponentState,
     lastPlayedSelection,
     fourthDownState,
+    opponentDeck,
     startGame,
     resetGame,
     selectOffensiveCard,
@@ -440,25 +441,46 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   // Handle snap ball (offensive play)
   const handleSnapBall = useCallback((card: OffensiveCard) => {
     selectOffensiveCard(card);
-    // Execute the play after card selection
+
+    // CPU selects a random defense card
+    const cpuDefenseCards = opponentDeck?.hand.defensiveCards || [];
+    if (cpuDefenseCards.length > 0) {
+      const randomDefense = cpuDefenseCards[Math.floor(Math.random() * cpuDefenseCards.length)];
+      // CPU randomly picks a shade (who they think offense targets)
+      const shades: Array<'WR1' | 'WR2' | 'TE' | 'RB' | 'NONE'> = ['WR1', 'WR2', 'TE', 'RB', 'NONE'];
+      const randomShade = shades[Math.floor(Math.random() * shades.length)];
+      selectDefensiveCard(randomDefense, undefined, randomShade);
+    }
+
+    // Execute the play after both cards are selected
     const result = executePlay();
     if (result) {
       setLastResult(result);
       setPhase('PLAY_RESULT');
     }
-  }, [selectOffensiveCard, executePlay, setPhase]);
+  }, [selectOffensiveCard, selectDefensiveCard, opponentDeck, executePlay, setPhase]);
 
   // Handle set defense
   const handleSetDefense = useCallback((card: DefensiveCard, prediction?: OffensivePlayType) => {
     selectDefensiveCard(card, prediction);
-    // CPU selects offense, then execute
-    // For now, CPU play is auto-selected in executePlay
+
+    // CPU selects a random offense card and target
+    const cpuOffenseCards = opponentDeck?.hand.offensiveCards || [];
+    if (cpuOffenseCards.length > 0) {
+      const randomOffense = cpuOffenseCards[Math.floor(Math.random() * cpuOffenseCards.length)];
+      // CPU randomly picks a target
+      const targets: Array<'WR1' | 'WR2' | 'TE' | 'RB'> = ['WR1', 'WR2', 'TE', 'RB'];
+      const randomTarget = targets[Math.floor(Math.random() * targets.length)];
+      selectOffensiveCard(randomOffense, randomTarget);
+    }
+
+    // Execute the play after both cards are selected
     const result = executePlay();
     if (result) {
       setLastResult(result);
       setPhase('PLAY_RESULT');
     }
-  }, [selectDefensiveCard, executePlay, setPhase]);
+  }, [selectDefensiveCard, selectOffensiveCard, opponentDeck, executePlay, setPhase]);
 
   // Handle timeout
   const handleTimeout = useCallback(() => {
