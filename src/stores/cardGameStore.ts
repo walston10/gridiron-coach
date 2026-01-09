@@ -26,6 +26,14 @@ import type {
   GameStats,
   TargetPosition,
   ShadePosition,
+  StaminaState,
+} from '../types/game.types';
+import {
+  INITIAL_STAMINA,
+  BIG_HIT_CHANCE,
+  updateStaminaAfterPlay,
+  applyHalftimeRecovery,
+  getStaminaEffectModifier,
 } from '../types/game.types';
 import type {
   Card,
@@ -223,6 +231,10 @@ export interface CardGameState {
   // === Settings ===
   weather: WeatherCondition;
   quarterMinutes: number;
+
+  // === Stamina System ===
+  playerStamina: StaminaState;
+  opponentStamina: StaminaState;
 }
 
 // =============================================================================
@@ -404,6 +416,13 @@ interface CardGameActions {
   // === History ===
   logPlay: (entry: Omit<PlayLogEntry, 'playNumber'>) => void;
 
+  // === Stamina Management ===
+  updateStamina: (position: TargetPosition, yardsGained: number, wasSacked: boolean) => void;
+  applyHalftimeStaminaRecovery: () => void;
+  resetStamina: () => void;
+  getPlayerStaminaModifier: (position: TargetPosition) => number;
+  getOpponentStaminaModifier: (position: TargetPosition) => number;
+
   // === Selectors (computed getters) ===
   isRedZone: () => boolean;
   isGoalToGo: () => boolean;
@@ -450,6 +469,8 @@ const initialState: CardGameState = {
   isPaused: false,
   weather: 'CLEAR',
   quarterMinutes: QUARTER_CONFIG.DEFAULT_MINUTES,
+  playerStamina: { ...INITIAL_STAMINA },
+  opponentStamina: { ...INITIAL_STAMINA },
 };
 
 // =============================================================================
@@ -505,6 +526,8 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       driveLog: [],
       playNumber: 0,
       quarterMinutes,
+      playerStamina: { ...INITIAL_STAMINA },
+      opponentStamina: { ...INITIAL_STAMINA },
     });
 
     // Draw starting hands
@@ -581,6 +604,8 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
           dismissable: true,
         },
       });
+      // Apply halftime stamina recovery (+25 to all players)
+      get().applyHalftimeStaminaRecovery();
       return;
     }
 
@@ -842,6 +867,12 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       get().updatePlayerTendencies(offenseCard.playType, false);
     } else {
       get().updateOpponentTendencies(offenseCard.playType, false);
+    }
+
+    // Update stamina for the targeted player
+    const targetPosition = state.playSelection.offenseTarget;
+    if (targetPosition) {
+      get().updateStamina(targetPosition, result.yardsGained, result.sack || false);
     }
 
     // Apply momentum changes
@@ -1347,6 +1378,60 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   },
 
   // =========================================================================
+  // STAMINA MANAGEMENT
+  // =========================================================================
+
+  updateStamina: (targetPosition, yardsGained, wasSacked) => {
+    const state = get();
+    const isPlayerOffense = state.possessionState.possession === 'player';
+
+    // Roll for big hit (20% chance)
+    const hadBigHit = Math.random() * 100 < BIG_HIT_CHANCE;
+
+    if (isPlayerOffense) {
+      const newStamina = updateStaminaAfterPlay(
+        state.playerStamina,
+        targetPosition,
+        yardsGained,
+        wasSacked,
+        hadBigHit
+      );
+      set({ playerStamina: newStamina });
+    } else {
+      const newStamina = updateStaminaAfterPlay(
+        state.opponentStamina,
+        targetPosition,
+        yardsGained,
+        wasSacked,
+        hadBigHit
+      );
+      set({ opponentStamina: newStamina });
+    }
+  },
+
+  applyHalftimeStaminaRecovery: () => {
+    set((state) => ({
+      playerStamina: applyHalftimeRecovery(state.playerStamina),
+      opponentStamina: applyHalftimeRecovery(state.opponentStamina),
+    }));
+  },
+
+  resetStamina: () => {
+    set({
+      playerStamina: { ...INITIAL_STAMINA },
+      opponentStamina: { ...INITIAL_STAMINA },
+    });
+  },
+
+  getPlayerStaminaModifier: (position) => {
+    return getStaminaEffectModifier(get().playerStamina[position]);
+  },
+
+  getOpponentStaminaModifier: (position) => {
+    return getStaminaEffectModifier(get().opponentStamina[position]);
+  },
+
+  // =========================================================================
   // SELECTORS
   // =========================================================================
 
@@ -1367,6 +1452,15 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     if (!state.playerRoster || !state.opponentRoster) return null;
 
     const isPlayerOffense = get().isPlayerOnOffense();
+    const targetPosition = state.playSelection.offenseTarget;
+
+    // Get stamina modifier for the targeted player
+    let offenseStaminaModifier = 1.0;
+    if (targetPosition) {
+      offenseStaminaModifier = isPlayerOffense
+        ? get().getPlayerStaminaModifier(targetPosition)
+        : get().getOpponentStaminaModifier(targetPosition);
+    }
 
     return {
       offenseRoster: isPlayerOffense ? state.playerRoster : state.opponentRoster,
@@ -1382,6 +1476,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       scoreDifferential: isPlayerOffense ? get().getScoreDifferential() : -get().getScoreDifferential(),
       offenseTarget: state.playSelection.offenseTarget || undefined,
       defenseShade: state.playSelection.defenseShade || 'NONE',
+      offenseStaminaModifier,
     };
   },
 }));

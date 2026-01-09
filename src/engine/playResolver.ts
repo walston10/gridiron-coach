@@ -112,6 +112,7 @@ export interface PlayContext {
   scoreDifferential: number; // Positive = offense leading
   offenseTarget?: TargetPosition;  // Who offense is targeting
   defenseShade?: ShadePosition;    // Who defense is shading
+  offenseStaminaModifier?: number; // Stamina effect modifier for targeted player (-0.1 to 1.0)
 }
 
 export interface PlayResult {
@@ -152,6 +153,7 @@ export interface PlayBreakdown {
   fatigueModifier: number;
   momentumModifier: number;
   shadeModifier: number;
+  staminaModifier: number;
   finalSuccessChance: number;
   rolls: { name: string; target: number; result: number; success: boolean }[];
 }
@@ -691,6 +693,7 @@ export function resolveOffensivePlay(
     fatigueModifier: 0,
     momentumModifier: 0,
     shadeModifier: 0,
+    staminaModifier: 0,
     finalSuccessChance: 0,
     rolls: [],
   };
@@ -745,7 +748,15 @@ export function resolveOffensivePlay(
   breakdown.momentumModifier = momentumMod;
   successChance += momentumMod;
 
-  // === Step 9: Calculate shade result ===
+  // === Step 9: Apply stamina modifier ===
+  // Stamina modifier ranges from -0.1 (exhausted, penalty) to 1.0 (fresh, full bonus)
+  // Convert to success chance modifier: -0.1 = -5%, 0 = 0%, 0.5 = +2.5%, 1.0 = +5%
+  const staminaModifier = context.offenseStaminaModifier ?? 1.0;
+  const staminaMod = Math.round(staminaModifier * 5); // -0.5 to +5 range
+  breakdown.staminaModifier = staminaMod;
+  successChance += staminaMod;
+
+  // === Step 10: Calculate shade result ===
   // Determine effective target (use context or default based on play type)
   const effectiveTarget: TargetPosition = context.offenseTarget ||
     DEFAULT_PLAY_TARGETS[offenseCard.playType] || 'WR1';
@@ -759,7 +770,7 @@ export function resolveOffensivePlay(
   // Clamp success chance
   breakdown.finalSuccessChance = Math.max(5, Math.min(95, successChance));
 
-  // === Step 10: Check for sack (pass plays only) ===
+  // === Step 11: Check for sack (pass plays only) ===
   const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
     offenseCard.playType
   );

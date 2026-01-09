@@ -8,8 +8,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useCardGameStore, MOMENTUM_CONFIG } from '../../stores/cardGameStore';
 import type { OffensiveCard, CardRarity, OffensivePlayType, DefensivePlayType } from '../../types/card.types';
-import type { FourthDownCategory, TargetPosition } from '../../types/game.types';
-import { LOCKED_TARGET_PLAYS, DEFAULT_PLAY_TARGETS } from '../../types/game.types';
+import type { FourthDownCategory, TargetPosition, StaminaState } from '../../types/game.types';
+import { LOCKED_TARGET_PLAYS, DEFAULT_PLAY_TARGETS, getStaminaColor } from '../../types/game.types';
 import type { Synergy } from '../../engine/playResolver';
 import { getCounterModifier, getActiveSynergies } from '../../engine/playResolver';
 
@@ -93,6 +93,7 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
     playSelection,
     fourthDownState,
     currentDrive,
+    playerStamina,
     getAvailableOffensiveCards,
     selectOffensiveCard,
   } = useCardGameStore();
@@ -227,6 +228,7 @@ export const OffensivePlay: React.FC<OffensivePlayProps> = ({
             defensePlayType={playSelection.defenseCard?.playType as DefensivePlayType | undefined}
             selectedTarget={effectiveTarget}
             lockedTarget={lockedTarget}
+            playerStamina={playerStamina}
             onTargetSelect={handleTargetSelect}
             onSnap={handleSnap}
           />
@@ -653,6 +655,7 @@ interface SelectedCardDetailProps {
   defensePlayType?: DefensivePlayType;
   selectedTarget: TargetPosition | null;
   lockedTarget: TargetPosition | null;
+  playerStamina: StaminaState;
   onTargetSelect: (target: TargetPosition) => void;
   onSnap: () => void;
 }
@@ -670,6 +673,7 @@ const SelectedCardDetail: React.FC<SelectedCardDetailProps> = ({
   defensePlayType,
   selectedTarget,
   lockedTarget,
+  playerStamina,
   onTargetSelect,
   onSnap,
 }) => {
@@ -779,6 +783,14 @@ const SelectedCardDetail: React.FC<SelectedCardDetailProps> = ({
             const isSelected = selectedTarget === opt.position;
             const isLocked = lockedTarget === opt.position;
             const isDisabled = lockedTarget !== null && lockedTarget !== opt.position;
+            const stamina = playerStamina[opt.position];
+            const staminaColor = getStaminaColor(stamina);
+
+            // Map stamina color to tailwind classes
+            const staminaBarColor = staminaColor === 'green' ? 'bg-green-500' :
+                                    staminaColor === 'yellow' ? 'bg-yellow-500' : 'bg-red-500';
+            const staminaTextColor = staminaColor === 'green' ? 'text-green-400' :
+                                     staminaColor === 'yellow' ? 'text-yellow-400' : 'text-red-400';
 
             return (
               <button
@@ -796,6 +808,17 @@ const SelectedCardDetail: React.FC<SelectedCardDetailProps> = ({
                 <div className="text-center">
                   <div className="text-sm">{opt.icon}</div>
                   <div className="text-xs font-bold">{opt.label}</div>
+                  {/* Stamina Bar */}
+                  <div className="mt-1 w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all ${staminaBarColor}`}
+                      style={{ width: `${stamina}%` }}
+                    />
+                  </div>
+                  {/* Stamina Value */}
+                  <div className={`text-xs mt-0.5 ${staminaTextColor}`}>
+                    {stamina}
+                  </div>
                 </div>
               </button>
             );
