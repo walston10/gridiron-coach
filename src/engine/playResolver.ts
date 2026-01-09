@@ -33,8 +33,9 @@ import type {
   FourthDownDefenseResponse,
   TargetPosition,
   ShadePosition,
+  OffensiveModifier,
 } from '../types/game.types';
-import { DEFAULT_PLAY_TARGETS } from '../types/game.types';
+import { DEFAULT_PLAY_TARGETS, MODIFIER_EFFECTS, HARD_COUNT_ODDS, QUICK_COUNT_BONUS } from '../types/game.types';
 
 import type { Roster, OLineUnit, DLineUnit } from '../types/player.types';
 
@@ -113,6 +114,7 @@ export interface PlayContext {
   offenseTarget?: TargetPosition;  // Who offense is targeting
   defenseShade?: ShadePosition;    // Who defense is shading
   offenseStaminaModifier?: number; // Stamina effect modifier for targeted player (-0.1 to 1.0)
+  offenseModifier?: OffensiveModifier; // Pre-snap modifier (motion, hard count, etc.)
 }
 
 export interface PlayResult {
@@ -154,6 +156,7 @@ export interface PlayBreakdown {
   momentumModifier: number;
   shadeModifier: number;
   staminaModifier: number;
+  modifierBonus: number;        // Pre-snap modifier effect
   finalSuccessChance: number;
   rolls: { name: string; target: number; result: number; success: boolean }[];
 }
@@ -698,6 +701,7 @@ export function resolveOffensivePlay(
     momentumModifier: 0,
     shadeModifier: 0,
     staminaModifier: 0,
+    modifierBonus: 0,
     finalSuccessChance: 0,
     rolls: [],
   };
@@ -776,10 +780,63 @@ export function resolveOffensivePlay(
   breakdown.shadeModifier = shadePenalty;
   successChance += shadePenalty;
 
+  // === Step 11: Apply pre-snap modifier effects ===
+  const modifier = context.offenseModifier || 'NONE';
+  let modifierBonus = 0;
+
+  if (modifier !== 'NONE') {
+    const modEffect = MODIFIER_EFFECTS[modifier];
+
+    // Handle special modifiers
+    if (modEffect.specialEffect === 'HARD_COUNT') {
+      // Roll for hard count outcome
+      const hardCountRoll = rng.next() * 100;
+      if (hardCountRoll < HARD_COUNT_ODDS.OFFSIDES) {
+        // Defense jumped offsides - free play bonus!
+        modifierBonus = 15;
+        breakdown.rolls.push({
+          name: 'Hard Count',
+          target: HARD_COUNT_ODDS.OFFSIDES,
+          result: Math.round(hardCountRoll),
+          success: true,
+        });
+      } else if (hardCountRoll < HARD_COUNT_ODDS.OFFSIDES + HARD_COUNT_ODDS.FALSE_START) {
+        // Offense false started - this would be a penalty (handled separately)
+        // For now, just apply a penalty
+        modifierBonus = -10;
+        breakdown.rolls.push({
+          name: 'Hard Count',
+          target: HARD_COUNT_ODDS.OFFSIDES,
+          result: Math.round(hardCountRoll),
+          success: false,
+        });
+      }
+      // Otherwise normal snap, no bonus
+    } else if (modEffect.specialEffect === 'QUICK_COUNT') {
+      // Roll to see if defense was caught off guard
+      if (rng.rollPercent(QUICK_COUNT_BONUS.CHANCE)) {
+        modifierBonus = QUICK_COUNT_BONUS.SUCCESS_BONUS;
+        breakdown.rolls.push({
+          name: 'Quick Count',
+          target: QUICK_COUNT_BONUS.CHANCE,
+          result: Math.round(rng.next() * 100),
+          success: true,
+        });
+      }
+    } else {
+      // Standard modifier - apply directly
+      modifierBonus = modEffect.successBonus;
+      // TODO: Apply yardsBonus and turnoverRisk in yards/turnover calculations
+    }
+  }
+
+  breakdown.modifierBonus = modifierBonus;
+  successChance += modifierBonus;
+
   // Clamp success chance
   breakdown.finalSuccessChance = Math.max(5, Math.min(95, successChance));
 
-  // === Step 11: Check for sack (pass plays only) ===
+  // === Step 12: Check for sack (pass plays only) ===
   const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(
     offenseCard.playType
   );

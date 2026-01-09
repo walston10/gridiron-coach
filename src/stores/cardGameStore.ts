@@ -27,6 +27,7 @@ import type {
   TargetPosition,
   ShadePosition,
   StaminaState,
+  OffensiveModifier,
 } from '../types/game.types';
 import {
   INITIAL_STAMINA,
@@ -298,6 +299,7 @@ const createInitialPlaySelection = (): PlaySelection => ({
   defenseShade: 'NONE',
   offenseCard: null,
   offenseTarget: null,
+  offenseModifier: 'NONE',
   dirtyCard: null,
   dirtyCardSide: null,
   selectionTimeRemaining: 30,
@@ -371,7 +373,7 @@ interface CardGameActions {
   endDrive: (result: DriveResult) => void;
 
   // === Play Execution ===
-  selectOffensiveCard: (card: OffensiveCard, target?: TargetPosition, dirtyCard?: DirtyCard) => void;
+  selectOffensiveCard: (card: OffensiveCard, target?: TargetPosition, modifier?: OffensiveModifier, dirtyCard?: DirtyCard) => void;
   selectDefensiveCard: (card: DefensiveCard, prediction?: OffensivePlayType, shade?: ShadePosition, dirtyCard?: DirtyCard) => void;
   executePlay: () => PlayResult | null;
   executeFourthDown: (
@@ -818,12 +820,13 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
   // PLAY EXECUTION
   // =========================================================================
 
-  selectOffensiveCard: (card, target, dirtyCard) => {
+  selectOffensiveCard: (card, target, modifier, dirtyCard) => {
     set((state) => ({
       playSelection: {
         ...state.playSelection,
         offenseCard: card,
         offenseTarget: target || null,
+        offenseModifier: modifier || 'NONE',
         dirtyCard: dirtyCard || state.playSelection.dirtyCard,
         dirtyCardSide: dirtyCard ? 'OFFENSE' : state.playSelection.dirtyCardSide,
         phase: state.playSelection.defenseCard ? 'BOTH_SELECTED' : 'OFFENSE_SELECTING',
@@ -1481,6 +1484,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       offenseTarget: state.playSelection.offenseTarget || undefined,
       defenseShade: state.playSelection.defenseShade || 'NONE',
       offenseStaminaModifier,
+      offenseModifier: state.playSelection.offenseModifier || 'NONE',
     };
   },
 }));

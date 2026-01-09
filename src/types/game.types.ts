@@ -107,6 +107,153 @@ export const BIG_HIT_CHANCE = 20;
 /** Yards required for breakaway bonus drain */
 export const BREAKAWAY_YARDS = 15;
 
+// =============================================================================
+// OFFENSIVE MODIFIERS
+// =============================================================================
+
+/**
+ * Pre-snap modifiers that can be applied to offensive plays.
+ * Each modifier has specific play type restrictions and effects.
+ */
+export type OffensiveModifier =
+  | 'NONE'           // No modifier
+  | 'MAX_PROTECT'    // Extra blockers, fewer routes (PASS ONLY)
+  | 'MOTION'         // Pre-snap receiver motion (ANY)
+  | 'HARD_COUNT'     // Try to draw offsides, risk false start (ANY)
+  | 'PLAY_ACTION'    // Fake handoff before pass (PASS ONLY, non-PA cards)
+  | 'QUICK_COUNT'    // Fast snap, defense may be unprepared (ANY)
+  | 'HEAVY_SET'      // Extra blockers/TEs, telegraphs run (RUN ONLY)
+;
+
+/**
+ * Modifier availability based on play type.
+ * true = allowed, false = not allowed
+ */
+export const MODIFIER_AVAILABILITY: Record<OffensiveModifier, { pass: boolean; run: boolean }> = {
+  NONE: { pass: true, run: true },
+  MAX_PROTECT: { pass: true, run: false },
+  MOTION: { pass: true, run: true },
+  HARD_COUNT: { pass: true, run: true },
+  PLAY_ACTION: { pass: true, run: false },  // Only non-PA pass cards
+  QUICK_COUNT: { pass: true, run: true },
+  HEAVY_SET: { pass: false, run: true },
+};
+
+/**
+ * Effects of each modifier on play success/outcomes.
+ */
+export const MODIFIER_EFFECTS: Record<OffensiveModifier, {
+  successBonus: number;      // % bonus to success chance
+  protectionBonus: number;   // % bonus to pass protection
+  yardsBonus: number;        // Bonus yards on success
+  turnoverRisk: number;      // Additional turnover risk %
+  description: string;       // UI description
+  specialEffect?: 'HARD_COUNT' | 'QUICK_COUNT';  // Special resolution
+}> = {
+  NONE: {
+    successBonus: 0,
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: 'Standard play',
+  },
+  MAX_PROTECT: {
+    successBonus: 5,
+    protectionBonus: 20,
+    yardsBonus: 0,
+    turnoverRisk: -3,  // Less risk due to better protection
+    description: 'Extra blockers stay in. +20% protection, fewer routes.',
+  },
+  MOTION: {
+    successBonus: 8,
+    protectionBonus: 0,
+    yardsBonus: 1,
+    turnoverRisk: 0,
+    description: 'Pre-snap motion confuses defense. +8% success.',
+  },
+  HARD_COUNT: {
+    successBonus: 0,  // Bonus only if offsides drawn
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: '~15% offsides (free play), ~15% false start, 70% normal snap.',
+    specialEffect: 'HARD_COUNT',
+  },
+  PLAY_ACTION: {
+    successBonus: 12,
+    protectionBonus: -10,  // More vulnerable during fake
+    yardsBonus: 3,
+    turnoverRisk: 2,
+    description: 'Fake handoff freezes linebackers. +12% success, +3 yards.',
+  },
+  QUICK_COUNT: {
+    successBonus: 10,
+    protectionBonus: 0,
+    yardsBonus: 0,
+    turnoverRisk: 0,
+    description: 'Fast snap catches defense substituting. +10% success.',
+    specialEffect: 'QUICK_COUNT',
+  },
+  HEAVY_SET: {
+    successBonus: 5,
+    protectionBonus: 15,
+    yardsBonus: 2,
+    turnoverRisk: -2,
+    description: 'Extra blockers for power running. +15% blocking, +2 yards.',
+  },
+};
+
+/**
+ * Hard count resolution probabilities.
+ */
+export const HARD_COUNT_ODDS = {
+  OFFSIDES: 15,      // 15% chance defense jumps
+  FALSE_START: 15,   // 15% chance offense jumps
+  NORMAL_SNAP: 70,   // 70% normal play
+} as const;
+
+/**
+ * Quick count bonus when defense is caught off guard.
+ * Applied randomly based on game situation.
+ */
+export const QUICK_COUNT_BONUS = {
+  CHANCE: 40,        // 40% chance defense is caught
+  SUCCESS_BONUS: 15, // +15% success when caught
+} as const;
+
+/**
+ * Check if a modifier is available for a given play type.
+ */
+export function isModifierAvailable(
+  modifier: OffensiveModifier,
+  isPassPlay: boolean,
+  isAlreadyPlayAction: boolean = false
+): boolean {
+  if (modifier === 'NONE') return true;
+
+  const availability = MODIFIER_AVAILABILITY[modifier];
+  const typeAllowed = isPassPlay ? availability.pass : availability.run;
+
+  // PLAY_ACTION modifier can't be used on cards that are already play action
+  if (modifier === 'PLAY_ACTION' && isAlreadyPlayAction) return false;
+
+  return typeAllowed;
+}
+
+/**
+ * Get available modifiers for a play type.
+ */
+export function getAvailableModifiers(
+  isPassPlay: boolean,
+  isAlreadyPlayAction: boolean = false
+): OffensiveModifier[] {
+  const allModifiers: OffensiveModifier[] = [
+    'NONE', 'MAX_PROTECT', 'MOTION', 'HARD_COUNT', 'PLAY_ACTION', 'QUICK_COUNT', 'HEAVY_SET'
+  ];
+
+  return allModifiers.filter(mod => isModifierAvailable(mod, isPassPlay, isAlreadyPlayAction));
+}
+
 /**
  * Calculate stamina effect modifier for a player's effectiveness.
  * Returns a multiplier: 1.0 = full, 0.5 = half bonus, 0 = no bonus, -0.1 = penalty
@@ -429,6 +576,7 @@ export interface PlaySelection {
   // Offense selection (sees defense, picks counter)
   offenseCard: Card | null;
   offenseTarget: TargetPosition | null;         // Who offense is targeting
+  offenseModifier: OffensiveModifier;           // Pre-snap modifier (motion, hard count, etc.)
 
   // Dirty card (either side can play alongside main card)
   dirtyCard: Card | null;
