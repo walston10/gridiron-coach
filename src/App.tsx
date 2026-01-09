@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useGameStore } from './stores/gameStore';
+import { useDraftStore } from './stores/draftStore';
+import { useSeasonStore } from './stores/seasonStore';
 import { MainLayout } from './components/Layout/MainLayout';
-import { DeskPage } from './components/Desk';
+import { WeeklyDashboard } from './components/Management/WeeklyDashboard';
 import { PlayDesigner } from './components/PlayDesigner/PlayDesigner';
 import { PlaybookPage } from './components/Playbook/PlaybookPage';
 import { GameDayPage } from './components/GameDay/GameDayPage';
@@ -11,14 +13,14 @@ import { DraftPage } from './components/Draft/DraftPage';
 import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 import { StartScreen, FranchiseIntro, GMNameInput } from './components/intro';
 import { FantasyDraft } from './components/Draft/FantasyDraft';
+import { DEFAULT_TEAMS } from './data/defaultTeams';
 
 type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
 
 function App() {
-  const { gamePhase, teams, userTeamId, ownerType, setPhase, initializeGame } = useGameStore();
+  const { gamePhase, userTeamId, setPhase, initializeGame, setDraftedRoster } = useGameStore();
+  const { season, initializeSeason, getCurrentUserGame } = useSeasonStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
-
-  const userTeam = teams.find(t => t.info.id === userTeamId);
 
   // Intro flow - render based on gamePhase
   switch (gamePhase) {
@@ -32,8 +34,27 @@ function App() {
       return (
         <FantasyDraft
           onComplete={() => {
-            // Initialize game after draft is complete
+            // Get draft results and save them for the card game
+            const draftResults = useDraftStore.getState().getDraftResults();
+            if (draftResults) {
+              setDraftedRoster(draftResults.roster, draftResults.deck);
+            }
+            // Initialize game (generates AI team rosters)
             initializeGame(3);
+
+            // Initialize season with schedule
+            const leagueTeams = DEFAULT_TEAMS.map((t, idx) => ({
+              id: t.info.id,
+              name: t.info.name,
+              city: t.info.city,
+              abbreviation: t.info.abbreviation,
+              colors: { primary: t.info.primaryColor, secondary: t.info.secondaryColor },
+              isUserTeam: idx === 3,
+              rivalryTeams: [],
+              prestige: t.info.prestige,
+            }));
+            initializeSeason(DEFAULT_TEAMS[3].info.id, leagueTeams);
+
             setPhase('desk');
           }}
         />
@@ -43,17 +64,23 @@ function App() {
       break;
   }
 
-  // Home page uses the full-screen desk view (no sidebar)
+  // Home page uses the weekly dashboard (card game hub)
   if (currentPage === 'home') {
+    const currentGame = getCurrentUserGame();
+    const opponent = currentGame
+      ? DEFAULT_TEAMS.find(t =>
+          t.info.id === (currentGame.homeTeamId === userTeamId ? currentGame.awayTeamId : currentGame.homeTeamId)
+        )
+      : null;
+    const userStanding = season?.standings.find(s => s.teamId === userTeamId);
+
     return (
-      <DeskPage
-        teamName={userTeam?.info.name || 'Moles'}
-        ownerId={ownerType}
-        onStartGame={() => setCurrentPage('gameday')}
-        onGameOver={(reason) => {
-          console.log('Game over:', reason);
-          // TODO: Handle game over state
-        }}
+      <WeeklyDashboard
+        opponentName={opponent?.info.name || 'TBD'}
+        opponentRecord={opponent ? '0-0' : ''}
+        gameDate={`Week ${season?.currentWeek || 1}`}
+        playerRecord={userStanding ? `${userStanding.wins}-${userStanding.losses}` : '0-0'}
+        onPlayGame={() => setCurrentPage('gameday')}
       />
     );
   }
