@@ -28,6 +28,7 @@ import type {
   ShadePosition,
   StaminaState,
   OffensiveModifier,
+  RefereeStyle,
 } from '../types/game.types';
 import {
   INITIAL_STAMINA,
@@ -48,6 +49,7 @@ import type { Roster } from '../types/player.types';
 import {
   resolveOffensivePlay,
   resolveFourthDown,
+  applyPenalty,
   updateTendencies,
   type PlayContext,
   type PlayResult,
@@ -233,10 +235,15 @@ export interface CardGameState {
   // === Settings ===
   weather: WeatherCondition;
   quarterMinutes: number;
+  refereeStyle: RefereeStyle;
+  playerIsHome: boolean;
 
   // === Stamina System ===
   playerStamina: StaminaState;
   opponentStamina: StaminaState;
+
+  // === Penalty Tracking ===
+  lastPenaltyAgainst: 'OFFENSE' | 'DEFENSE' | null;
 }
 
 // =============================================================================
@@ -473,8 +480,11 @@ const initialState: CardGameState = {
   isPaused: false,
   weather: 'CLEAR',
   quarterMinutes: QUARTER_CONFIG.DEFAULT_MINUTES,
+  refereeStyle: 'NORMAL',
+  playerIsHome: true,
   playerStamina: { ...INITIAL_STAMINA },
   opponentStamina: { ...INITIAL_STAMINA },
+  lastPenaltyAgainst: null,
 };
 
 // =============================================================================
@@ -865,8 +875,58 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     const isPlayerOffense = get().isPlayerOnOffense();
     const isThirdDown = state.fieldPosition.down === 3;
 
-    // Update field position
-    get().updateFieldPosition(result.yardsGained);
+    // Handle penalty if present and accepted
+    if (result.penalty && !result.penalty.declined) {
+      // Apply penalty to field position
+      const penaltyResult = applyPenalty(
+        result.penalty,
+        state.fieldPosition.yardLine,
+        state.fieldPosition.down,
+        state.fieldPosition.yardsToGo
+      );
+
+      // Set field position directly (penalty handles down logic)
+      get().setFieldPosition(
+        penaltyResult.newYardLine,
+        penaltyResult.newDown as Down,
+        penaltyResult.newYardsToGo
+      );
+
+      // Track penalty stats
+      const penaltyTeamKey = result.penalty.team === 'OFFENSE'
+        ? (isPlayerOffense ? 'playerState' : 'opponentState')
+        : (isPlayerOffense ? 'opponentState' : 'playerState');
+
+      const penaltyTeam = state[penaltyTeamKey];
+      set({
+        [penaltyTeamKey]: {
+          ...penaltyTeam,
+          stats: {
+            ...penaltyTeam.stats,
+            penalties: penaltyTeam.stats.penalties + 1,
+            penaltyYards: penaltyTeam.stats.penaltyYards + result.penalty.yards,
+          },
+        },
+      });
+
+      // Apply momentum shift for penalty
+      const penaltyForPlayer = result.penalty.team === 'DEFENSE' ? isPlayerOffense : !isPlayerOffense;
+      get().applyMomentumEvent('PENALTY', penaltyForPlayer);
+
+      // Track last penalty for makeup call logic
+      set({ lastPenaltyAgainst: result.penalty.team });
+
+      // Handle safety from penalty
+      if (penaltyResult.isSafety) {
+        get().addScore(isPlayerOffense ? 'opponent' : 'player', 2);
+        get().switchPossession('SAFETY');
+      }
+    } else {
+      // Clear last penalty tracking if no penalty this play
+      set({ lastPenaltyAgainst: null });
+      // No penalty or penalty declined - update field position normally
+      get().updateFieldPosition(result.yardsGained);
+    }
 
     // Update tendencies
     if (isPlayerOffense) {
@@ -1469,6 +1529,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
         : get().getOpponentStaminaModifier(targetPosition);
     }
 
+    // Determine if user is on offense for home/away penalty bias
+    const isUserHome = state.playerIsHome;
+    const userOnOffense = isPlayerOffense;
+
     return {
       offenseRoster: isPlayerOffense ? state.playerRoster : state.opponentRoster,
       defenseRoster: isPlayerOffense ? state.opponentRoster : state.playerRoster,
@@ -1485,6 +1549,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       defenseShade: state.playSelection.defenseShade || 'NONE',
       offenseStaminaModifier,
       offenseModifier: state.playSelection.offenseModifier || 'NONE',
+      // Penalty system context
+      refereeStyle: state.refereeStyle,
+      isUserHome: isUserHome && userOnOffense, // User is home AND on offense
+      lastPenaltyAgainst: state.lastPenaltyAgainst,
     };
   },
 }));
