@@ -6,7 +6,7 @@ import { MainLayout } from './components/Layout/MainLayout';
 import { WeeklyDashboard } from './components/Management/WeeklyDashboard';
 import { PlayDesigner } from './components/PlayDesigner/PlayDesigner';
 import { PlaybookPage } from './components/Playbook/PlaybookPage';
-import { CardGameView } from './components/Game/CardGameView';
+import { CardGameController } from './components/Game/CardGameController';
 import { FranchiseDashboard } from './components/Franchise/FranchiseDashboard';
 import { ScoutingCenter } from './components/Scouting/ScoutingCenter';
 import { DraftPage } from './components/Draft/DraftPage';
@@ -89,7 +89,7 @@ function App() {
     switch (currentPage) {
       case 'designer': return <PlayDesigner />;
       case 'playbook': return <PlaybookPage />;
-      case 'gameday': return <CardGameView />;
+      case 'gameday': return <CardGameController onBack={() => setCurrentPage('home')} />;
       case 'roster': return <FranchiseDashboard />;
       case 'scouting': return <ScoutingCenter />;
       case 'draft': return <DraftPage />;
