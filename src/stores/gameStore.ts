@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Team, Season, Playbook, Play, PlayFolder, PlayTag, Draft, FreeAgencyPeriod } from '../types';
+import type { Roster } from '../types/player.types';
+import type { Deck } from '../types/deck.types';
 import { DEFAULT_TEAMS } from '../data/defaultTeams';
 import { DEFAULT_PLAYS } from '../data/defaultPlays';
 import { generateRoster } from '../utils/playerGenerator';
@@ -93,6 +95,10 @@ interface GameStore {
   freeAgency: FreeAgencyPeriod | null;
   customFormations: CustomFormation[];
 
+  // Card game state (from fantasy draft)
+  draftedRoster: Roster | null;
+  draftedDeck: Deck | null;
+
   // Game history
   gameHistory: GameResult[];
   midGameCheckpoint: MidGameCheckpoint | null;
@@ -105,6 +111,7 @@ interface GameStore {
 
   // Actions
   initializeGame: (userTeamIndex: number) => void;
+  setDraftedRoster: (roster: Roster, deck: Deck) => void;
   setUserTeam: (teamId: string) => void;
 
   // Playbook management
@@ -166,6 +173,10 @@ export const useGameStore = create<GameStore>()(
       draft: null,
       freeAgency: null,
       customFormations: [],
+
+      // Card game state
+      draftedRoster: null,
+      draftedDeck: null,
 
       // Game history
       gameHistory: [],
@@ -230,6 +241,10 @@ export const useGameStore = create<GameStore>()(
 
       setUserTeam: (teamId: string) => {
         set({ userTeamId: teamId });
+      },
+
+      setDraftedRoster: (roster: Roster, deck: Deck) => {
+        set({ draftedRoster: roster, draftedDeck: deck });
       },
 
       addPlay: (play: Play) => {

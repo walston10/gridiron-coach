@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useGameStore } from './stores/gameStore';
+import { useDraftStore } from './stores/draftStore';
 import { MainLayout } from './components/Layout/MainLayout';
 import { DeskPage } from './components/Desk';
 import { PlayDesigner } from './components/PlayDesigner/PlayDesigner';
@@ -15,7 +16,7 @@ import { FantasyDraft } from './components/Draft/FantasyDraft';
 type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
 
 function App() {
-  const { gamePhase, teams, userTeamId, ownerType, setPhase, initializeGame } = useGameStore();
+  const { gamePhase, teams, userTeamId, ownerType, setPhase, initializeGame, setDraftedRoster } = useGameStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
 
   const userTeam = teams.find(t => t.info.id === userTeamId);
@@ -32,7 +33,12 @@ function App() {
       return (
         <FantasyDraft
           onComplete={() => {
-            // Initialize game after draft is complete
+            // Get draft results and save them for the card game
+            const draftResults = useDraftStore.getState().getDraftResults();
+            if (draftResults) {
+              setDraftedRoster(draftResults.roster, draftResults.deck);
+            }
+            // Initialize game (generates AI team rosters)
             initializeGame(3);
             setPhase('desk');
           }}
