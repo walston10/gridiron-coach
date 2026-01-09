@@ -1,27 +1,22 @@
 // src/stores/simpleCardGameStore.ts
-// Simplified card game store for immediate gameplay
+// Card game store with fixed playbook + rating modifiers system
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { FULL_PLAYBOOK, type BasePlay } from '../data/playbook';
+import { OFFENSIVE_MODIFIERS, DIRTY_MODIFIERS, type ModifierCard } from '../data/modifiers';
+import { getUnlockedSignatures, type SignatureCard } from '../data/signatureCards';
+import {
+  calculatePlaySuccess,
+  resolvePlay,
+  type RosterRatings,
+  type PlaySuccessResult,
+  type PlayResolutionResult,
+} from '../engine/playCalculator';
 
 // ============================================
 // TYPES
 // ============================================
-
-export interface Card {
-  id: string;
-  name: string;
-  type: 'pass' | 'run' | 'dirty' | 'special';
-  cost: number;
-  playerId?: string;
-  target?: string;
-  successRate: number;
-  yardRange: { min: number; max: number };
-  breakawayChance: number;
-  intRisk?: number;
-  fumbleRisk?: number;
-  counters?: string[];
-  synergyType?: string;
-}
 
 export interface DefenseCard {
   id: string;
@@ -39,15 +34,15 @@ export interface GameState {
   playerScore: number;
   opponentScore: number;
   quarter: number;
-  clock: number; // seconds remaining in quarter
+  clock: number;
   down: number;
   distance: number;
-  fieldPosition: number; // yards from own end zone
+  fieldPosition: number;
   possession: 'player' | 'opponent';
   playerTimeouts: number;
   opponentTimeouts: number;
   isGameOver: boolean;
-  clockMode: 'normal' | 'hurryUp' | 'chewClock';
+  heat: number; // Investigation heat from dirty plays
 }
 
 export interface Momentum {
@@ -59,7 +54,6 @@ export interface Momentum {
 export interface Tendencies {
   runRate: number;
   passRate: number;
-  favoredTarget: string;
   recentPlays: string[];
   opponentRunRate: number;
 }
@@ -77,79 +71,78 @@ export interface PlayResult {
   clockUsed: number;
   momentumChange: number;
   description: string;
+  penalty?: { type: string; yards: number };
+  freePlay?: boolean;
 }
+
+// Re-export types for CardGameView
+export type { BasePlay, ModifierCard, SignatureCard };
 
 interface SimpleCardGameState {
   // Game state
   gameState: GameState;
 
-  // Decks
-  offenseDeck: Card[];
-  defenseDeck: Card[];
-  hand: Card[];
-  discardPile: Card[];
+  // Playbook (fixed, everyone has same plays)
+  playbook: {
+    short: BasePlay[];
+    medium: BasePlay[];
+    deep: BasePlay[];
+    run: BasePlay[];
+    trick: BasePlay[];
+    signature: (BasePlay | SignatureCard)[];
+  };
+
+  // Modifiers
+  offensiveModifiers: ModifierCard[];
+  dirtyModifiers: ModifierCard[];
+
+  // Roster ratings (for success calculation)
+  rosterRatings: RosterRatings | null;
 
   // Momentum
   momentum: Momentum;
 
   // Tendencies
   tendencies: Tendencies;
-  activeBonuses: Array<{ name: string; value: number }>;
 
   // Defense intel
   defenseIntel: {
     coordinator: string;
     personality: string;
     showing: string;
+    coverage: string;
+    adjustment: string | null;
   } | null;
 
-  // Selections
-  selectedCard: Card | null;
+  // Current selections
+  selectedCategory: 'short' | 'medium' | 'deep' | 'run' | 'trick' | 'signature';
+  selectedPlay: BasePlay | SignatureCard | null;
+  selectedModifier: ModifierCard | null;
+  calculatedSuccess: PlaySuccessResult | null;
+
+  // Defense selections
   selectedCoverage: DefenseCard | null;
   selectedAdjustment: DefenseCard | null;
 
-  // Derived
+  // Game flow
   isPlayerOnOffense: boolean;
+  lastPlayResult: PlayResult | null;
+  showingResult: boolean;
 
   // Actions
-  initializeGame: (roster: any, deck: Card[]) => void;
-  selectCard: (card: Card) => void;
+  initializeGame: (roster: any) => void;
+  setCategory: (category: 'short' | 'medium' | 'deep' | 'run' | 'trick' | 'signature') => void;
+  selectPlay: (play: BasePlay | SignatureCard | null) => void;
+  selectModifier: (modifier: ModifierCard | null) => void;
   selectCoverage: (coverage: DefenseCard) => void;
   selectAdjustment: (adjustment: DefenseCard | null) => void;
-  snapBall: (card: Card) => Promise<PlayResult>;
-  setDefense: (coverage: DefenseCard, adjustment: DefenseCard | null) => Promise<PlayResult>;
-  drawCards: (count: number) => void;
+  snapBall: () => Promise<PlayResult | null>;
+  setDefense: () => Promise<PlayResult | null>;
+  dismissResult: () => void;
   useTimeout: (team: 'player' | 'opponent') => void;
-  canAffordCard: (card: Card) => boolean;
-  advanceGame: (result: PlayResult) => void;
+  canAffordPlay: () => boolean;
+  getTotalCost: () => number;
 }
-
-// ============================================
-// ZERO-COST SAFETY CARDS
-// ============================================
-
-const ZERO_COST_CARDS: Card[] = [
-  {
-    id: 'checkdown',
-    name: 'Checkdown',
-    type: 'pass',
-    cost: 0,
-    successRate: 65,
-    yardRange: { min: 2, max: 5 },
-    breakawayChance: 3,
-    intRisk: 2,
-  },
-  {
-    id: 'qb-sneak',
-    name: 'QB Sneak',
-    type: 'run',
-    cost: 0,
-    successRate: 75,
-    yardRange: { min: 0, max: 2 },
-    breakawayChance: 1,
-    fumbleRisk: 2,
-  },
-];
 
 // ============================================
 // INITIAL STATE
@@ -159,15 +152,15 @@ const initialGameState: GameState = {
   playerScore: 0,
   opponentScore: 0,
   quarter: 1,
-  clock: 360, // 6:00 per quarter
+  clock: 360,
   down: 1,
   distance: 10,
-  fieldPosition: 25, // Own 25
+  fieldPosition: 25,
   possession: 'player',
   playerTimeouts: 3,
   opponentTimeouts: 3,
   isGameOver: false,
-  clockMode: 'normal',
+  heat: 0,
 };
 
 const initialMomentum: Momentum = {
@@ -179,7 +172,6 @@ const initialMomentum: Momentum = {
 const initialTendencies: Tendencies = {
   runRate: 0.5,
   passRate: 0.5,
-  favoredTarget: 'WR1',
   recentPlays: [],
   opponentRunRate: 0.5,
 };
@@ -188,556 +180,553 @@ const initialTendencies: Tendencies = {
 // HELPER FUNCTIONS
 // ============================================
 
-function calculateClockUsed(result: PlayResult, clockMode: string): number {
-  let base = 30; // Base seconds
+function extractRosterRatings(roster: any): RosterRatings {
+  // Extract ratings from roster object into the format needed for calculations
+  const defaultRatings = {
+    shortAccuracy: 75,
+    mediumAccuracy: 75,
+    deepAccuracy: 75,
+    armStrength: 75,
+    speed: 75,
+    elusiveness: 75,
+    awareness: 75,
+    power: 75,
+    accuracy: 75,
+    catching: 75,
+    routeRunning: 75,
+    vision: 75,
+    toughness: 75,
+    jumping: 75,
+    blocking: 75,
+    passBlock: 75,
+    runBlock: 75,
+  };
+
+  const getPlayerRatings = (player: any) => {
+    if (!player?.ratings) return defaultRatings;
+    const r = player.ratings;
+    return {
+      shortAccuracy: r.throwing ?? r.accuracy ?? 75,
+      mediumAccuracy: r.throwing ?? r.accuracy ?? 75,
+      deepAccuracy: r.throwing ?? r.accuracy ?? 75,
+      armStrength: r.throwing ?? 75,
+      speed: r.speed ?? 75,
+      elusiveness: r.agility ?? r.elusiveness ?? 75,
+      awareness: r.awareness ?? 75,
+      power: r.strength ?? 75,
+      accuracy: r.throwing ?? r.accuracy ?? 75,
+      catching: r.catching ?? 75,
+      routeRunning: r.routeRunning ?? r.agility ?? 75,
+      vision: r.awareness ?? 75,
+      toughness: r.toughness ?? 75,
+      jumping: r.jumping ?? r.agility ?? 75,
+      blocking: r.blocking ?? 75,
+      passBlock: r.blocking ?? r.passBlock ?? 75,
+      runBlock: r.blocking ?? r.runBlock ?? 75,
+    };
+  };
+
+  return {
+    QB: getPlayerRatings(roster?.offense?.QB),
+    RB: getPlayerRatings(roster?.offense?.RB),
+    WR1: getPlayerRatings(roster?.offense?.WR?.[0]),
+    WR2: getPlayerRatings(roster?.offense?.WR?.[1]),
+    TE: getPlayerRatings(roster?.offense?.TE),
+    OL: {
+      passBlock: roster?.offense?.OL?.passBlockRating ?? 75,
+      runBlock: roster?.offense?.OL?.runBlockRating ?? 75,
+    },
+  };
+}
+
+function calculateClockUsed(result: PlayResolutionResult): number {
+  let base = 30;
 
   if (result.success && !result.touchdown) {
     base = result.yards > 10 ? 35 : 30;
-  } else if (!result.success) {
+  } else if (!result.success && !result.sack) {
     base = 8; // Incomplete = clock stops
   }
 
   if (result.sack) base = 40;
-  if (result.touchdown) base = 0; // Clock stops
+  if (result.touchdown) base = 0;
   if (result.turnover) base = 15;
-
-  // Clock mode modifiers
-  if (clockMode === 'hurryUp') base = Math.max(8, base - 15);
-  if (clockMode === 'chewClock') base += 15;
 
   return base;
 }
 
-function resolveOffensivePlay(
-  card: Card,
-  gameState: GameState,
-  tendencies: Tendencies
-): PlayResult {
-  const baseSuccess = card.successRate / 100;
-
-  // Tendency adjustments
-  let successMod = 0;
-  if (card.type === 'run' && tendencies.runRate > 0.6) {
-    successMod = -0.1; // Defense expecting run
-  } else if (card.type === 'pass' && tendencies.runRate < 0.4) {
-    successMod = -0.1; // Defense expecting pass
-  } else if (card.type === 'pass' && tendencies.runRate > 0.55) {
-    successMod = 0.15; // Play action bonus!
-  }
-
-  const finalSuccess = Math.min(0.95, Math.max(0.05, baseSuccess + successMod));
-  const roll = Math.random();
-  const success = roll < finalSuccess;
-
-  let yards = 0;
-  let touchdown = false;
-  let firstDown = false;
-  let turnover = false;
-  let interception = false;
-  let fumble = false;
-  let sack = false;
-  let breakaway = false;
-
-  if (success) {
-    // Calculate yards
-    const range = card.yardRange.max - card.yardRange.min;
-    yards = card.yardRange.min + Math.floor(Math.random() * range);
-
-    // Breakaway check
-    if (Math.random() * 100 < card.breakawayChance) {
-      breakaway = true;
-      yards = Math.min(yards + 20 + Math.floor(Math.random() * 30), 100 - gameState.fieldPosition);
-    }
-
-    // Check for touchdown
-    if (gameState.fieldPosition + yards >= 100) {
-      touchdown = true;
-      yards = 100 - gameState.fieldPosition;
-    }
-
-    // Check for first down
-    if (yards >= gameState.distance) {
-      firstDown = true;
-    }
-  } else {
-    // Failed play
-    if (card.type === 'pass') {
-      // Check for INT
-      const intChance = (card.intRisk || 3) / 100;
-      if (Math.random() < intChance) {
-        interception = true;
-        turnover = true;
-        yards = 0;
-      }
-      // Otherwise incomplete
-    } else {
-      // Run stuffed
-      yards = Math.floor(Math.random() * 3) - 1; // -1 to 2 yards
-    }
-
-    // Sack check (pass plays only)
-    if (card.type === 'pass' && !interception && Math.random() < 0.15) {
-      sack = true;
-      yards = -(Math.floor(Math.random() * 8) + 3); // -3 to -10
-    }
-  }
-
-  // Fumble check
-  if (!turnover && Math.random() < (card.fumbleRisk || 2) / 100) {
-    fumble = true;
-    turnover = Math.random() < 0.5; // 50% recovery
-  }
-
-  // Calculate momentum change
-  let momentumChange = 0;
-  if (touchdown) momentumChange = 2;
-  else if (turnover) momentumChange = -3;
-  else if (firstDown) momentumChange = 1;
-  else if (sack) momentumChange = -1;
-  else if (breakaway) momentumChange = 1;
-
-  // Build description - runs NEVER say "incomplete"!
-  let description = '';
-  if (touchdown) {
-    description = `TOUCHDOWN! ${card.name} for ${yards} yards!`;
-  } else if (interception) {
-    description = `INTERCEPTED! ${card.name} picked off!`;
-  } else if (fumble && turnover) {
-    description = `FUMBLE LOST on ${card.name}!`;
-  } else if (sack) {
-    description = `SACKED for ${Math.abs(yards)} yard loss!`;
-  } else if (card.type === 'pass') {
-    // Pass plays
-    if (success) {
-      const extra = breakaway ? ' BREAKAWAY!' : '';
-      description = `${card.name} - ${yards} yard gain${extra}`;
-    } else if (yards === 0) {
-      description = `${card.name} - Incomplete`;
-    } else {
-      description = `${card.name} - Incomplete`;
-    }
-  } else {
-    // Run plays - NEVER say "incomplete"
-    if (success) {
-      const extra = breakaway ? ' BREAKAWAY!' : '';
-      description = `${card.name} - ${yards} yard gain${extra}`;
-    } else if (yards < 0) {
-      description = `${card.name} - Stuffed for ${Math.abs(yards)} yard loss`;
-    } else if (yards === 0) {
-      description = `${card.name} - Stuffed for no gain`;
-    } else {
-      description = `${card.name} - Limited to ${yards} yard${yards !== 1 ? 's' : ''}`;
-    }
-  }
-
-  return {
-    success,
-    yards,
-    touchdown,
-    firstDown,
-    turnover,
-    interception,
-    fumble,
-    sack,
-    breakaway,
-    clockUsed: calculateClockUsed({ success, yards, touchdown, turnover, sack } as PlayResult, gameState.clockMode),
-    momentumChange,
-    description,
-  };
-}
-
-function resolveDefensivePlay(
-  coverage: DefenseCard,
-  adjustment: DefenseCard | null,
-  gameState: GameState,
-  tendencies: Tendencies
-): PlayResult {
-  // AI picks a play
-  const aiPlayType = Math.random() < tendencies.opponentRunRate ? 'run' : 'pass';
-
-  // Calculate defense effectiveness
-  let defenseRating = aiPlayType === 'run' ? coverage.vsRun : coverage.vsPass;
-  if (adjustment) {
-    defenseRating += aiPlayType === 'run' ? adjustment.vsRun : adjustment.vsPass;
-  }
-
-  // AI success rate (inverse of defense rating)
-  const aiSuccessRate = (100 - defenseRating) / 100;
-  const roll = Math.random();
-  const aiSuccess = roll < aiSuccessRate;
-
-  let yards = 0;
-  let touchdown = false;
-  let firstDown = false;
-  let turnover = false;
-  let interception = false;
-  let sack = false;
-
-  if (aiSuccess) {
-    // AI gains yards
-    if (aiPlayType === 'run') {
-      yards = Math.floor(Math.random() * 8) + 2; // 2-10 yards
-    } else {
-      yards = Math.floor(Math.random() * 15) + 5; // 5-20 yards
-    }
-
-    // TD check
-    if (gameState.fieldPosition - yards <= 0) {
-      touchdown = true;
-      yards = gameState.fieldPosition;
-    }
-
-    if (yards >= gameState.distance) {
-      firstDown = true;
-    }
-  } else {
-    // Defense wins
-    if (aiPlayType === 'pass') {
-      // Incomplete or INT
-      if (Math.random() < 0.1) {
-        interception = true;
-        turnover = true;
-      }
-      // Sack check if blitzing
-      if (adjustment?.id === 'blitz' && Math.random() < 0.25) {
-        sack = true;
-        yards = -(Math.floor(Math.random() * 8) + 3);
-      }
-    } else {
-      // Stuffed run
-      yards = Math.floor(Math.random() * 2); // 0-1 yards
-    }
-  }
-
-  // Momentum change (from defensive perspective)
-  let momentumChange = 0;
-  if (turnover) momentumChange = 2;
-  else if (sack) momentumChange = 1;
-  else if (!firstDown && !touchdown) momentumChange = 0;
-  else if (touchdown) momentumChange = -2;
-
-  let description = '';
-  if (interception) description = 'INTERCEPTION! Turnover!';
-  else if (sack) description = `SACK! ${Math.abs(yards)} yard loss!`;
-  else if (touchdown) description = 'Opponent TOUCHDOWN...';
-  else if (firstDown) description = `Opponent gains ${yards} for first down`;
-  else description = `Opponent held to ${yards} yards`;
-
-  return {
-    success: !aiSuccess,
-    yards,
-    touchdown,
-    firstDown,
-    turnover,
-    interception,
-    fumble: false,
-    sack,
-    breakaway: false,
-    clockUsed: 30,
-    momentumChange,
-    description,
-  };
+function calculateMomentumChange(result: PlayResolutionResult): number {
+  if (result.touchdown) return 2;
+  if (result.turnover) return -3;
+  if (result.firstDown) return 1;
+  if (result.sack) return -1;
+  if (result.breakaway) return 1;
+  return 0;
 }
 
 // ============================================
 // STORE
 // ============================================
 
-export const useSimpleCardGameStore = create<SimpleCardGameState>((set, get) => ({
-  // Initial state
-  gameState: initialGameState,
-  offenseDeck: [],
-  defenseDeck: [],
-  hand: [],
-  discardPile: [],
-  momentum: initialMomentum,
-  tendencies: initialTendencies,
-  activeBonuses: [],
-  defenseIntel: null,
-  selectedCard: null,
-  selectedCoverage: null,
-  selectedAdjustment: null,
-  isPlayerOnOffense: true,
-
-  // Initialize game with drafted roster/deck
-  initializeGame: (_roster, deck) => {
-    // Ensure deck has 0-cost cards
-    let gameDeck = [...deck];
-    if (!gameDeck.some(c => c.cost === 0)) {
-      gameDeck.push(
-        { ...ZERO_COST_CARDS[0], id: `${ZERO_COST_CARDS[0].id}-${Date.now()}` },
-        { ...ZERO_COST_CARDS[1], id: `${ZERO_COST_CARDS[1].id}-${Date.now()}` }
-      );
-    }
-
-    // Shuffle deck
-    gameDeck = gameDeck.sort(() => Math.random() - 0.5);
-
-    // Draw initial hand
-    let hand = gameDeck.slice(0, 5);
-    let remainingDeck = gameDeck.slice(5);
-
-    // ENSURE hand has at least one 0-cost card
-    if (!hand.some(c => c.cost === 0)) {
-      const zeroCost = ZERO_COST_CARDS[0];
-      hand.push({ ...zeroCost, id: `${zeroCost.id}-init-${Date.now()}` });
-    }
-
-    set({
-      gameState: { ...initialGameState },
-      offenseDeck: remainingDeck,
-      defenseDeck: [], // Would generate from defensive roster
-      hand,
-      discardPile: [],
-      momentum: { ...initialMomentum },
-      tendencies: { ...initialTendencies },
-      activeBonuses: [],
-      defenseIntel: {
-        coordinator: 'Mike Blitzhauer',
-        personality: 'AGGRESSIVE',
-        showing: 'Nickel - Cover 1',
+export const useSimpleCardGameStore = create<SimpleCardGameState>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      gameState: initialGameState,
+      playbook: {
+        short: FULL_PLAYBOOK.short,
+        medium: FULL_PLAYBOOK.medium,
+        deep: FULL_PLAYBOOK.deep,
+        run: FULL_PLAYBOOK.run,
+        trick: FULL_PLAYBOOK.trick,
+        signature: [],
       },
-      selectedCard: null,
+      offensiveModifiers: OFFENSIVE_MODIFIERS,
+      dirtyModifiers: DIRTY_MODIFIERS,
+      rosterRatings: null,
+      momentum: initialMomentum,
+      tendencies: initialTendencies,
+      defenseIntel: null,
+      selectedCategory: 'short',
+      selectedPlay: null,
+      selectedModifier: null,
+      calculatedSuccess: null,
       selectedCoverage: null,
       selectedAdjustment: null,
       isPlayerOnOffense: true,
-    });
-  },
+      lastPlayResult: null,
+      showingResult: false,
 
-  selectCard: (card) => {
-    set({ selectedCard: card });
-  },
+      // Initialize game
+      initializeGame: (roster) => {
+        const rosterRatings = extractRosterRatings(roster);
 
-  selectCoverage: (coverage) => {
-    set({ selectedCoverage: coverage });
-  },
+        // Get unlocked signature cards based on roster
+        const unlockedSignatures = getUnlockedSignatures(rosterRatings);
 
-  selectAdjustment: (adjustment) => {
-    set({ selectedAdjustment: adjustment });
-  },
+        set({
+          gameState: { ...initialGameState },
+          playbook: {
+            short: FULL_PLAYBOOK.short,
+            medium: FULL_PLAYBOOK.medium,
+            deep: FULL_PLAYBOOK.deep,
+            run: FULL_PLAYBOOK.run,
+            trick: FULL_PLAYBOOK.trick,
+            signature: unlockedSignatures,
+          },
+          rosterRatings,
+          momentum: { ...initialMomentum },
+          tendencies: { ...initialTendencies },
+          defenseIntel: {
+            coordinator: 'Mike Blitzhauer',
+            personality: 'AGGRESSIVE',
+            showing: 'Nickel - Cover 1',
+            coverage: 'cover1',
+            adjustment: null,
+          },
+          selectedCategory: 'short',
+          selectedPlay: null,
+          selectedModifier: null,
+          calculatedSuccess: null,
+          selectedCoverage: null,
+          selectedAdjustment: null,
+          isPlayerOnOffense: true,
+          lastPlayResult: null,
+          showingResult: false,
+        });
+      },
 
-  canAffordCard: (card) => {
-    const { momentum, isPlayerOnOffense } = get();
-    const currentMomentum = isPlayerOnOffense ? momentum.offense : momentum.defense;
-    return currentMomentum >= card.cost;
-  },
+      // Set play category
+      setCategory: (category) => {
+        set({
+          selectedCategory: category,
+          selectedPlay: null,
+          calculatedSuccess: null,
+        });
+      },
 
-  snapBall: async (card) => {
-    const { gameState, tendencies, momentum, hand, offenseDeck } = get();
+      // Select a play
+      selectPlay: (play) => {
+        const state = get();
+        if (!play || !state.rosterRatings || !state.defenseIntel) {
+          set({ selectedPlay: null, calculatedSuccess: null });
+          return;
+        }
 
-    // Resolve play
-    const result = resolveOffensivePlay(card, gameState, tendencies);
+        // Calculate success rate
+        const success = calculatePlaySuccess(
+          play,
+          state.rosterRatings,
+          state.selectedModifier,
+          state.tendencies,
+          {
+            coverage: state.defenseIntel.coverage,
+            adjustment: state.defenseIntel.adjustment,
+          },
+          state.gameState
+        );
 
-    // Update tendencies
-    const newRecentPlays = [...tendencies.recentPlays, card.type].slice(-10);
-    const runCount = newRecentPlays.filter(p => p === 'run').length;
-    const newRunRate = newRecentPlays.length > 0 ? runCount / newRecentPlays.length : 0.5;
+        set({
+          selectedPlay: play,
+          calculatedSuccess: success,
+        });
+      },
 
-    // Update hand - remove played card, draw new one
-    let newHand = hand.filter(c => c.id !== card.id);
-    let newDeck = [...offenseDeck];
-    if (newDeck.length > 0) {
-      const idx = Math.floor(Math.random() * newDeck.length);
-      newHand.push(newDeck[idx]);
-      newDeck.splice(idx, 1);
-    }
+      // Select a modifier
+      selectModifier: (modifier) => {
+        const state = get();
+        set({ selectedModifier: modifier });
 
-    // Update game state
-    const newGameState = { ...gameState };
-    let staysOnOffense = true;
+        // Recalculate success if play is selected
+        if (state.selectedPlay && state.rosterRatings && state.defenseIntel) {
+          const success = calculatePlaySuccess(
+            state.selectedPlay,
+            state.rosterRatings,
+            modifier,
+            state.tendencies,
+            {
+              coverage: state.defenseIntel.coverage,
+              adjustment: state.defenseIntel.adjustment,
+            },
+            state.gameState
+          );
+          set({ calculatedSuccess: success });
+        }
+      },
 
-    if (result.touchdown) {
-      newGameState.playerScore += 7; // Assume XP made for now
-      newGameState.fieldPosition = 25;
-      newGameState.down = 1;
-      newGameState.distance = 10;
-      staysOnOffense = false;
-    } else if (result.turnover) {
-      newGameState.fieldPosition = 100 - (gameState.fieldPosition + result.yards);
-      newGameState.down = 1;
-      newGameState.distance = 10;
-      staysOnOffense = false;
-    } else {
-      newGameState.fieldPosition += result.yards;
+      selectCoverage: (coverage) => {
+        set({ selectedCoverage: coverage });
+      },
 
-      if (result.firstDown) {
-        newGameState.down = 1;
-        newGameState.distance = Math.min(10, 100 - newGameState.fieldPosition);
-      } else {
-        newGameState.down += 1;
-        newGameState.distance -= result.yards;
+      selectAdjustment: (adjustment) => {
+        set({ selectedAdjustment: adjustment });
+      },
 
-        // Turnover on downs
-        if (newGameState.down > 4) {
-          newGameState.fieldPosition = 100 - newGameState.fieldPosition;
+      // Get total cost of play + modifier
+      getTotalCost: () => {
+        const state = get();
+        let cost = 0;
+        if (state.selectedPlay) {
+          cost += state.selectedPlay.baseCost;
+        }
+        if (state.selectedModifier) {
+          cost += state.selectedModifier.cost;
+        }
+        return cost;
+      },
+
+      // Check if can afford current selection
+      canAffordPlay: () => {
+        const state = get();
+        const cost = get().getTotalCost();
+        return state.momentum.offense >= cost;
+      },
+
+      // Snap the ball
+      snapBall: async () => {
+        const state = get();
+
+        if (!state.selectedPlay || !state.rosterRatings || !state.calculatedSuccess) {
+          return null;
+        }
+
+        if (!get().canAffordPlay()) {
+          return null;
+        }
+
+        const play = state.selectedPlay;
+        const modifier = state.selectedModifier;
+        const successRate = state.calculatedSuccess.finalSuccess;
+
+        // Resolve the play
+        const resolution = resolvePlay(play, successRate, modifier, state.gameState);
+        const clockUsed = calculateClockUsed(resolution);
+        const momentumChange = calculateMomentumChange(resolution);
+
+        // Build play result
+        const result: PlayResult = {
+          ...resolution,
+          clockUsed,
+          momentumChange,
+        };
+
+        // Update tendencies
+        const newRecentPlays = [...state.tendencies.recentPlays, play.type].slice(-10);
+        const runCount = newRecentPlays.filter((p) => p === 'run').length;
+        const newRunRate = newRecentPlays.length > 0 ? runCount / newRecentPlays.length : 0.5;
+
+        // Calculate new game state
+        const newGameState = { ...state.gameState };
+        let staysOnOffense = true;
+
+        // Apply heat from dirty modifiers
+        if (modifier?.effect.heatGain) {
+          newGameState.heat = Math.min(100, newGameState.heat + modifier.effect.heatGain);
+        }
+
+        if (result.penalty && !result.freePlay) {
+          // Penalty - move back, replay down
+          newGameState.fieldPosition = Math.max(1, newGameState.fieldPosition - result.penalty.yards);
+        } else if (result.touchdown) {
+          newGameState.playerScore += 7;
+          newGameState.fieldPosition = 25;
           newGameState.down = 1;
           newGameState.distance = 10;
           staysOnOffense = false;
-        }
-      }
-    }
-
-    // Update clock
-    newGameState.clock -= result.clockUsed;
-    if (newGameState.clock <= 0) {
-      newGameState.quarter += 1;
-      newGameState.clock = 360;
-      if (newGameState.quarter > 4) {
-        newGameState.isGameOver = true;
-      }
-    }
-
-    // Calculate new momentum: cost deducted + bonuses applied
-    let newOffenseMomentum = Math.max(0, Math.min(momentum.max, momentum.offense - card.cost + result.momentumChange));
-
-    // If staying on offense, regen +1 momentum for NEXT play
-    if (staysOnOffense) {
-      newOffenseMomentum = Math.min(momentum.max, newOffenseMomentum + 1);
-
-      // SAFETY NET: Ensure hand has at least one playable card
-      const cheapestInHand = Math.min(...newHand.map(c => c.cost));
-      if (cheapestInHand > newOffenseMomentum) {
-        // Add a free checkdown card
-        newHand.push({ ...ZERO_COST_CARDS[0], id: `checkdown-${Date.now()}` });
-      }
-    }
-
-    const newMomentum = {
-      ...momentum,
-      offense: newOffenseMomentum,
-    };
-
-    // Calculate active bonuses
-    const newBonuses: Array<{ name: string; value: number }> = [];
-    if (newRunRate > 0.55) {
-      newBonuses.push({ name: 'Play Action', value: Math.round((newRunRate - 0.5) * 50) });
-    }
-
-    set({
-      gameState: newGameState,
-      momentum: newMomentum,
-      hand: newHand,
-      offenseDeck: newDeck,
-      tendencies: {
-        ...tendencies,
-        recentPlays: newRecentPlays,
-        runRate: newRunRate,
-        passRate: 1 - newRunRate,
-      },
-      activeBonuses: newBonuses,
-      selectedCard: null,
-      isPlayerOnOffense: staysOnOffense,
-    });
-
-    return result;
-  },
-
-  setDefense: async (coverage, adjustment) => {
-    const { gameState, tendencies, momentum } = get();
-
-    // Resolve defensive play
-    const result = resolveDefensivePlay(coverage, adjustment, gameState, tendencies);
-
-    // Calculate momentum cost
-    const cost = adjustment?.cost || 0;
-
-    // Update game state
-    const newGameState = { ...gameState };
-
-    if (result.touchdown) {
-      newGameState.opponentScore += 7;
-      newGameState.fieldPosition = 25;
-      newGameState.down = 1;
-      newGameState.distance = 10;
-      set({ isPlayerOnOffense: true });
-    } else if (result.turnover) {
-      newGameState.fieldPosition = 100 - (gameState.fieldPosition - result.yards);
-      newGameState.down = 1;
-      newGameState.distance = 10;
-      set({ isPlayerOnOffense: true });
-    } else {
-      newGameState.fieldPosition -= result.yards;
-
-      if (result.firstDown) {
-        newGameState.down = 1;
-        newGameState.distance = Math.min(10, newGameState.fieldPosition);
-      } else {
-        newGameState.down += 1;
-        newGameState.distance -= result.yards;
-
-        // Turnover on downs
-        if (newGameState.down > 4) {
-          newGameState.fieldPosition = 100 - newGameState.fieldPosition;
+        } else if (result.turnover) {
+          newGameState.fieldPosition = 100 - (state.gameState.fieldPosition + result.yards);
           newGameState.down = 1;
           newGameState.distance = 10;
-          set({ isPlayerOnOffense: true });
+          staysOnOffense = false;
+        } else {
+          newGameState.fieldPosition += result.yards;
+
+          if (result.firstDown) {
+            newGameState.down = 1;
+            newGameState.distance = Math.min(10, 100 - newGameState.fieldPosition);
+          } else {
+            newGameState.down += 1;
+            newGameState.distance = Math.max(1, newGameState.distance - result.yards);
+
+            if (newGameState.down > 4) {
+              newGameState.fieldPosition = 100 - newGameState.fieldPosition;
+              newGameState.down = 1;
+              newGameState.distance = 10;
+              staysOnOffense = false;
+            }
+          }
         }
-      }
+
+        // Update clock
+        newGameState.clock -= clockUsed;
+        if (newGameState.clock <= 0) {
+          newGameState.quarter += 1;
+          newGameState.clock = 360;
+          if (newGameState.quarter > 4) {
+            newGameState.isGameOver = true;
+          }
+        }
+
+        // Calculate new momentum
+        const cost = get().getTotalCost();
+        let newOffenseMomentum = Math.max(
+          0,
+          Math.min(state.momentum.max, state.momentum.offense - cost + momentumChange)
+        );
+
+        // Regen +1 if staying on offense
+        if (staysOnOffense) {
+          newOffenseMomentum = Math.min(state.momentum.max, newOffenseMomentum + 1);
+        }
+
+        set({
+          gameState: newGameState,
+          momentum: {
+            ...state.momentum,
+            offense: newOffenseMomentum,
+          },
+          tendencies: {
+            ...state.tendencies,
+            recentPlays: newRecentPlays,
+            runRate: newRunRate,
+            passRate: 1 - newRunRate,
+          },
+          selectedPlay: null,
+          selectedModifier: null,
+          calculatedSuccess: null,
+          isPlayerOnOffense: staysOnOffense,
+          lastPlayResult: result,
+          showingResult: true,
+        });
+
+        return result;
+      },
+
+      // Set defense
+      setDefense: async () => {
+        const state = get();
+
+        if (!state.selectedCoverage) {
+          return null;
+        }
+
+        // AI picks a play
+        const aiPlayType = Math.random() < state.tendencies.opponentRunRate ? 'run' : 'pass';
+
+        // Calculate defense effectiveness
+        let defenseRating =
+          aiPlayType === 'run' ? state.selectedCoverage.vsRun : state.selectedCoverage.vsPass;
+        if (state.selectedAdjustment) {
+          defenseRating +=
+            aiPlayType === 'run'
+              ? state.selectedAdjustment.vsRun
+              : state.selectedAdjustment.vsPass;
+        }
+
+        // AI success rate
+        const aiSuccessRate = (100 - defenseRating) / 100;
+        const aiSuccess = Math.random() < aiSuccessRate;
+
+        let yards = 0;
+        let touchdown = false;
+        let firstDown = false;
+        let turnover = false;
+        let interception = false;
+        let sack = false;
+
+        if (aiSuccess) {
+          if (aiPlayType === 'run') {
+            yards = Math.floor(Math.random() * 8) + 2;
+          } else {
+            yards = Math.floor(Math.random() * 15) + 5;
+          }
+
+          if (state.gameState.fieldPosition - yards <= 0) {
+            touchdown = true;
+            yards = state.gameState.fieldPosition;
+          }
+
+          if (yards >= state.gameState.distance) {
+            firstDown = true;
+          }
+        } else {
+          if (aiPlayType === 'pass') {
+            if (Math.random() < 0.1) {
+              interception = true;
+              turnover = true;
+            }
+            if (state.selectedAdjustment?.id === 'blitz' && Math.random() < 0.25) {
+              sack = true;
+              yards = -(Math.floor(Math.random() * 8) + 3);
+            }
+          } else {
+            yards = Math.floor(Math.random() * 2);
+          }
+        }
+
+        let momentumChange = 0;
+        if (turnover) momentumChange = 2;
+        else if (sack) momentumChange = 1;
+        else if (touchdown) momentumChange = -2;
+
+        let description = '';
+        if (interception) description = 'INTERCEPTION! Turnover!';
+        else if (sack) description = `SACK! ${Math.abs(yards)} yard loss!`;
+        else if (touchdown) description = 'Opponent TOUCHDOWN...';
+        else if (firstDown) description = `Opponent gains ${yards} for first down`;
+        else description = `Opponent held to ${yards} yards`;
+
+        const result: PlayResult = {
+          success: !aiSuccess,
+          yards,
+          touchdown,
+          firstDown,
+          turnover,
+          interception,
+          fumble: false,
+          sack,
+          breakaway: false,
+          clockUsed: 30,
+          momentumChange,
+          description,
+        };
+
+        // Update game state
+        const newGameState = { ...state.gameState };
+        let goesOnOffense = false;
+
+        if (result.touchdown) {
+          newGameState.opponentScore += 7;
+          newGameState.fieldPosition = 25;
+          newGameState.down = 1;
+          newGameState.distance = 10;
+          goesOnOffense = true;
+        } else if (result.turnover) {
+          newGameState.fieldPosition = 100 - (state.gameState.fieldPosition - result.yards);
+          newGameState.down = 1;
+          newGameState.distance = 10;
+          goesOnOffense = true;
+        } else {
+          newGameState.fieldPosition -= result.yards;
+
+          if (result.firstDown) {
+            newGameState.down = 1;
+            newGameState.distance = Math.min(10, newGameState.fieldPosition);
+          } else {
+            newGameState.down += 1;
+            newGameState.distance = Math.max(1, newGameState.distance - result.yards);
+
+            if (newGameState.down > 4) {
+              newGameState.fieldPosition = 100 - newGameState.fieldPosition;
+              newGameState.down = 1;
+              newGameState.distance = 10;
+              goesOnOffense = true;
+            }
+          }
+        }
+
+        // Update clock
+        newGameState.clock -= result.clockUsed;
+        if (newGameState.clock <= 0) {
+          newGameState.quarter += 1;
+          newGameState.clock = 360;
+          if (newGameState.quarter > 4) {
+            newGameState.isGameOver = true;
+          }
+        }
+
+        const cost = state.selectedAdjustment?.cost || 0;
+        const newDefenseMomentum = Math.max(
+          0,
+          Math.min(state.momentum.max, state.momentum.defense - cost + result.momentumChange)
+        );
+
+        set({
+          gameState: newGameState,
+          momentum: {
+            ...state.momentum,
+            defense: newDefenseMomentum,
+          },
+          selectedCoverage: null,
+          selectedAdjustment: null,
+          isPlayerOnOffense: goesOnOffense,
+          lastPlayResult: result,
+          showingResult: true,
+        });
+
+        return result;
+      },
+
+      // Dismiss result overlay
+      dismissResult: () => {
+        set({ showingResult: false, lastPlayResult: null });
+      },
+
+      // Use timeout
+      useTimeout: (team) => {
+        const state = get();
+
+        if (team === 'player' && state.gameState.playerTimeouts > 0) {
+          set({
+            gameState: {
+              ...state.gameState,
+              playerTimeouts: state.gameState.playerTimeouts - 1,
+            },
+          });
+        } else if (team === 'opponent' && state.gameState.opponentTimeouts > 0) {
+          set({
+            gameState: {
+              ...state.gameState,
+              opponentTimeouts: state.gameState.opponentTimeouts - 1,
+            },
+          });
+        }
+      },
+    }),
+    {
+      name: 'illegal-motion-game',
     }
-
-    // Update clock
-    newGameState.clock -= result.clockUsed;
-    if (newGameState.clock <= 0) {
-      newGameState.quarter += 1;
-      newGameState.clock = 360;
-      if (newGameState.quarter > 4) {
-        newGameState.isGameOver = true;
-      }
-    }
-
-    // Update momentum
-    const newMomentum = {
-      ...momentum,
-      defense: Math.max(0, Math.min(momentum.max, momentum.defense - cost + result.momentumChange)),
-    };
-
-    set({
-      gameState: newGameState,
-      momentum: newMomentum,
-      selectedCoverage: null,
-      selectedAdjustment: null,
-    });
-
-    return result;
-  },
-
-  drawCards: (count) => {
-    const { hand, offenseDeck, momentum } = get();
-
-    if (momentum.offense < 2) return; // Can't afford
-
-    const newCards: Card[] = [];
-    const deckCopy = [...offenseDeck];
-
-    for (let i = 0; i < count && deckCopy.length > 0; i++) {
-      const idx = Math.floor(Math.random() * deckCopy.length);
-      newCards.push(deckCopy.splice(idx, 1)[0]);
-    }
-
-    set({
-      hand: [...hand, ...newCards],
-      offenseDeck: deckCopy,
-      momentum: { ...momentum, offense: momentum.offense - 2 },
-    });
-  },
-
-  useTimeout: (team) => {
-    const { gameState } = get();
-
-    if (team === 'player' && gameState.playerTimeouts > 0) {
-      set({
-        gameState: { ...gameState, playerTimeouts: gameState.playerTimeouts - 1 },
-      });
-    } else if (team === 'opponent' && gameState.opponentTimeouts > 0) {
-      set({
-        gameState: { ...gameState, opponentTimeouts: gameState.opponentTimeouts - 1 },
-      });
-    }
-  },
-
-  advanceGame: (_result) => {
-    // Handle end of game, transitions, etc.
-  },
-}));
+  )
+);
 
 export default useSimpleCardGameStore;
