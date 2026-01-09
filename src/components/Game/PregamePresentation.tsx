@@ -180,14 +180,23 @@ const FlippingCard: React.FC<{
     }
   };
 
+  // Use a proper 3D flip with both faces always rendered
   return (
     <div className="perspective-1000">
-      <div className={`transform transition-transform duration-300 transform-style-3d ${isFlipping || card.isRevealed ? 'rotate-y-180' : ''}`}>
-        {card.isRevealed ? (
+      <div
+        className={`relative w-32 h-44 transform-style-3d transition-transform duration-500 ${
+          isFlipping || card.isRevealed ? 'rotate-y-180' : ''
+        }`}
+        onClick={handleClick}
+      >
+        {/* Back face (card back) */}
+        <div className="absolute inset-0 backface-hidden">
+          <CardBack category={card.category} onClick={() => {}} delay={delay} />
+        </div>
+        {/* Front face (revealed content) - counter-rotated */}
+        <div className="absolute inset-0 backface-hidden rotate-y-180">
           <CardFront card={card} />
-        ) : (
-          <CardBack category={card.category} onClick={handleClick} delay={delay} />
-        )}
+        </div>
       </div>
     </div>
   );
