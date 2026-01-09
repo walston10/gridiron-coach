@@ -213,6 +213,7 @@ export interface CardGameState {
 
   // === Current Play Selection ===
   playSelection: PlaySelection;
+  lastPlayedSelection: PlaySelection | null; // Preserved after play executes for result display
   fourthDownState: FourthDownState | null;
 
   // === Drive State ===
@@ -459,6 +460,7 @@ const initialState: CardGameState = {
   playerDeck: null,
   opponentDeck: null,
   playSelection: createInitialPlaySelection(),
+  lastPlayedSelection: null,
   fourthDownState: null,
   currentDrive: createInitialDrive(25, 1, QUARTER_CONFIG.DEFAULT_MINUTES, 0),
   driveNumber: 0,
@@ -520,6 +522,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       playerDeck: playerDeckState,
       opponentDeck: opponentDeckState,
       playSelection: createInitialPlaySelection(),
+      lastPlayedSelection: null,
       currentDrive: createInitialDrive(25, 1, quarterMinutes, 0),
       driveNumber: 1,
       playLog: [],
@@ -947,8 +950,9 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       get().switchPossession('SAFETY');
     }
 
-    // Reset selection
+    // Save selection for result display, then reset for next play
     set({
+      lastPlayedSelection: { ...state.playSelection },
       playSelection: createInitialPlaySelection(),
       phase: 'PLAY_RESULT',
     });
