@@ -391,6 +391,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isInitialized,
     playerState,
     opponentState,
+    playSelection,
     startGame,
     resetGame,
     selectOffensiveCard,
@@ -558,9 +559,17 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   // Play result screen
   if (phase === 'PLAY_RESULT' && lastResult) {
+    // Cast cards to their specific types
+    const offenseCard = playSelection.offenseCard as OffensiveCard | null;
+    const defenseCard = playSelection.defenseCard as DefensiveCard | null;
+
     return (
       <PlayResultDisplay
         result={lastResult}
+        offensePlayType={offenseCard?.playType}
+        targetPosition={playSelection.offenseTarget || undefined}
+        defenseCard={defenseCard || undefined}
+        defenseShade={playSelection.defenseShade || undefined}
         isPlayerOffense={isPlayerOnOffense()}
         onContinue={handleContinue}
         onXPChoice={handleXPChoice}
