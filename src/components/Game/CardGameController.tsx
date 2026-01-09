@@ -42,6 +42,162 @@ import { PlayResultDisplay } from './PlayResult';
 import { PregamePresentation } from './PregamePresentation';
 
 // =============================================================================
+// AI OFFENSE SELECTION
+// =============================================================================
+
+/**
+ * AI offense selection that considers game situation
+ */
+function selectAIOffenseCard(
+  cards: OffensiveCard[],
+  context: {
+    down: number;
+    yardsToGo: number;
+    yardsToEndzone: number;
+    scoreDifferential: number; // Positive = AI winning
+    quarter: number;
+    minutes: number;
+  }
+): { card: OffensiveCard; target: TargetPosition; modifier: OffensiveModifier } | null {
+  if (cards.length === 0) return null;
+
+  const { down, yardsToGo, yardsToEndzone, scoreDifferential, quarter, minutes } = context;
+
+  // Situational weights
+  const isShortYardage = yardsToGo <= 3;
+  const isLongYardage = yardsToGo >= 8;
+  const isRedZone = yardsToEndzone <= 20;
+  const isGoalLine = yardsToEndzone <= 5;
+  const isThirdDown = down === 3;
+  const isFourthQuarter = quarter === 4;
+  const isTwoMinuteDrill = isFourthQuarter && minutes <= 2;
+  const isTrailing = scoreDifferential < 0;
+  const isWinning = scoreDifferential > 7;
+  const isCloseGame = Math.abs(scoreDifferential) <= 7;
+
+  // Score each card
+  const scoredCards = cards.map(card => {
+    let score = card.successChance; // Base score
+
+    // Play type preferences based on situation
+    const isRun = ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(card.playType);
+    const isShortPass = ['SHORT_PASS', 'SCREEN'].includes(card.playType);
+    const isDeepPass = card.playType === 'DEEP_PASS';
+    const isMediumPass = card.playType === 'MEDIUM_PASS';
+
+    // Short yardage: Prefer runs and short passes
+    if (isShortYardage) {
+      if (isRun) score += 25;
+      if (isShortPass) score += 15;
+      if (card.playType === 'POWER_RUN') score += 20;
+    }
+
+    // Long yardage: Prefer passes
+    if (isLongYardage) {
+      if (isDeepPass) score += 20;
+      if (isMediumPass) score += 15;
+      if (isRun && card.playType !== 'DRAW') score -= 20;
+    }
+
+    // Red zone: Prefer high-success plays
+    if (isRedZone) {
+      score += card.successChance * 0.2; // Weight success more
+      if (isGoalLine && card.playType === 'POWER_RUN') score += 30;
+    }
+
+    // Third down: Prefer plays that can convert
+    if (isThirdDown) {
+      if (card.baseYards >= yardsToGo) score += 20;
+      score += card.successChance * 0.3;
+    }
+
+    // Two minute drill: Prefer passes (stop clock on incompletion)
+    if (isTwoMinuteDrill && isTrailing) {
+      if (!isRun) score += 25;
+      if (isDeepPass || isMediumPass) score += 15;
+    }
+
+    // Winning big: Be conservative
+    if (isWinning && isFourthQuarter) {
+      if (isRun) score += 30;
+      if (isShortPass) score += 10;
+      if (isDeepPass) score -= 20;
+    }
+
+    // Trailing late: Be aggressive
+    if (isTrailing && isFourthQuarter) {
+      if (isDeepPass) score += 25;
+      if (isMediumPass) score += 15;
+      if (card.bigPlayChance > 20) score += 15;
+    }
+
+    // Check situation bonuses on the card
+    card.situationBonuses.forEach(bonus => {
+      if (bonus.situation === 'SHORT_YARDAGE' && isShortYardage) score += bonus.modifier;
+      if (bonus.situation === 'RED_ZONE' && isRedZone) score += bonus.modifier;
+      if (bonus.situation === 'THIRD_DOWN' && isThirdDown) score += bonus.modifier;
+      if (bonus.situation === 'FOURTH_QUARTER' && isFourthQuarter) score += bonus.modifier;
+      if (bonus.situation === 'TRAILING' && isTrailing) score += bonus.modifier;
+      if (bonus.situation === 'TWO_MINUTE_WARNING' && isTwoMinuteDrill) score += bonus.modifier;
+      if (bonus.situation === 'CLOSE_GAME' && isCloseGame) score += bonus.modifier;
+    });
+
+    // Add small random factor (10%) to avoid being too predictable
+    score += Math.random() * 20 - 10;
+
+    return { card, score };
+  });
+
+  // Sort by score and pick the best
+  scoredCards.sort((a, b) => b.score - a.score);
+  const selectedCard = scoredCards[0].card;
+
+  // Select target based on play type
+  const isPass = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(selectedCard.playType);
+
+  let target: TargetPosition = 'RB';
+  if (isPass) {
+    // Weighted target selection - WR1 preferred, then WR2, TE, RB
+    const rand = Math.random();
+    if (rand < 0.4) target = 'WR1';
+    else if (rand < 0.7) target = 'WR2';
+    else if (rand < 0.85) target = 'TE';
+    else target = 'RB';
+
+    // In red zone, prefer TE and RB more
+    if (isRedZone) {
+      const rzRand = Math.random();
+      if (rzRand < 0.3) target = 'TE';
+      else if (rzRand < 0.5) target = 'RB';
+      else if (rzRand < 0.75) target = 'WR1';
+      else target = 'WR2';
+    }
+  }
+
+  // Select modifier (30% chance, smarter selection)
+  let modifier: OffensiveModifier = 'NONE';
+  const cpuModifiers = getAvailableModifiers(isPass, selectedCard.playType === 'PLAY_ACTION');
+
+  if (Math.random() < 0.35 && cpuModifiers.length > 1) {
+    // Pick modifier based on situation
+    if (isThirdDown && cpuModifiers.includes('MAX_PROTECT')) {
+      modifier = 'MAX_PROTECT';
+    } else if (isLongYardage && cpuModifiers.includes('MOTION')) {
+      modifier = 'MOTION'; // Motion helps create separation on long yardage
+    } else if (isShortYardage && cpuModifiers.includes('HEAVY_SET')) {
+      modifier = 'HEAVY_SET';
+    } else if (isTwoMinuteDrill && cpuModifiers.includes('QUICK_COUNT')) {
+      modifier = 'QUICK_COUNT'; // Speed up the game when trailing late
+    } else {
+      // Random from available
+      modifier = cpuModifiers[Math.floor(Math.random() * cpuModifiers.length)];
+    }
+  }
+
+  return { card: selectedCard, target, modifier };
+}
+
+// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -827,20 +983,25 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   const handleSetDefense = useCallback((card: DefensiveCard, prediction?: OffensivePlayType) => {
     selectDefensiveCard(card, prediction);
 
-    // CPU selects a random offense card, target, and modifier
+    // Get game state for smart AI selection
+    const gameState = useCardGameStore.getState();
+    const { fieldPosition, clock, playerState, opponentState } = gameState;
+
+    // CPU selects offense using situational AI
     const cpuOffenseCards = opponentDeck?.hand.offensiveCards || [];
     if (cpuOffenseCards.length > 0) {
-      const randomOffense = cpuOffenseCards[Math.floor(Math.random() * cpuOffenseCards.length)];
-      // CPU randomly picks a target based on play type
-      const isPass = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(randomOffense.playType);
-      const targets: TargetPosition[] = isPass ? ['WR1', 'WR2', 'TE', 'RB'] : ['RB'];
-      const randomTarget = targets[Math.floor(Math.random() * targets.length)];
-      // CPU randomly picks a modifier (30% chance to use one)
-      const cpuModifiers = getAvailableModifiers(isPass, randomOffense.playType === 'PLAY_ACTION');
-      const randomModifier = Math.random() < 0.3 && cpuModifiers.length > 1
-        ? cpuModifiers[Math.floor(Math.random() * cpuModifiers.length)]
-        : 'NONE';
-      selectOffensiveCard(randomOffense, randomTarget, randomModifier);
+      const aiSelection = selectAIOffenseCard(cpuOffenseCards, {
+        down: fieldPosition.down,
+        yardsToGo: fieldPosition.yardsToGo,
+        yardsToEndzone: fieldPosition.yardsToEndzone,
+        scoreDifferential: opponentState.score - playerState.score, // From AI's perspective
+        quarter: typeof clock.quarter === 'number' ? clock.quarter : 5,
+        minutes: clock.minutes,
+      });
+
+      if (aiSelection) {
+        selectOffensiveCard(aiSelection.card, aiSelection.target, aiSelection.modifier);
+      }
     }
 
     // Execute the play after both cards are selected

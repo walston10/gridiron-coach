@@ -1049,6 +1049,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     get().playCard(offenseCard.id, isPlayerOffense);
     get().playCard(defenseCard.id, !isPlayerOffense);
 
+    // Draw new cards to replenish hands
+    get().drawCard('OFFENSIVE', isPlayerOffense);
+    get().drawCard('DEFENSIVE', !isPlayerOffense);
+
     return result;
   },
 
