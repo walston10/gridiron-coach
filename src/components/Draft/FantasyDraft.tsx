@@ -197,14 +197,19 @@ export const FantasyDraft: React.FC<FantasyDraftProps> = ({ onComplete, onCancel
         <button
           onClick={handleConfirm}
           disabled={!rosterComplete}
-          className={`w-full py-3 rounded-lg font-bold text-lg uppercase tracking-wide transition-all ${
+          className={`w-full py-4 rounded-lg font-bold text-xl uppercase tracking-wide transition-all ${
             rosterComplete
-              ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black hover:from-amber-500 hover:to-amber-400 shadow-lg shadow-amber-500/25'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:from-amber-400 hover:to-amber-300 shadow-xl shadow-amber-500/40 animate-pulse ring-2 ring-amber-300'
               : 'bg-gray-800 text-gray-600 cursor-not-allowed'
           }`}
         >
-          {rosterComplete ? 'Confirm Roster' : 'Fill Required Positions'}
+          {rosterComplete ? '✓ CONFIRM & START SEASON →' : 'Fill Required Positions'}
         </button>
+        {rosterComplete && (
+          <p className="text-center text-amber-400 text-sm mt-2 font-medium">
+            Your roster is complete! Tap above to begin.
+          </p>
+        )}
       </div>
 
       {/* Roster Preview Modal */}
