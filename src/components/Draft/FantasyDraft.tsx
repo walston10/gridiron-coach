@@ -76,9 +76,10 @@ export const FantasyDraft: React.FC<FantasyDraftProps> = ({ onComplete, onCancel
   const [showRoster, setShowRoster] = useState(false);
   const [showReturnerModal, setShowReturnerModal] = useState(false);
 
-  // Initialize on mount
+  // Initialize on mount with default flex type (WR3)
+  // TODO: Add flex type selection UI before draft
   useEffect(() => {
-    initializeDraft();
+    initializeDraft('WR3');
   }, [initializeDraft]);
 
   // Computed values

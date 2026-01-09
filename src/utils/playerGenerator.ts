@@ -235,13 +235,13 @@ export const generateAIRoster = (
   const rb = generateFullPlayer('RB');
   const wr1 = generateFullPlayer('WR');
   const wr2 = generateFullPlayer('WR', 3);
+  const wr3 = generateFullPlayer('WR', 5); // Flex WR3
   const te = generateFullPlayer('TE');
-  const lb1 = generateFullPlayer('LB');
-  const lb2 = generateFullPlayer('LB', 3);
+  const lb = generateFullPlayer('LB'); // Single LB in simplified roster
   const cb1 = generateFullPlayer('CB');
   const cb2 = generateFullPlayer('CB', 3);
   const s = generateFullPlayer('S');
-  const st = generateFullPlayer('ST');
+  const kp = generateFullPlayer('ST'); // K/P - handles both kicking duties
 
   // Generate line units
   const olUnit: import('../types/player.types').OLineUnit = {
@@ -272,30 +272,34 @@ export const generateAIRoster = (
     },
   };
 
-  // Build roster structure
+  // Build roster structure (simplified 12-player + 2 unit roster)
   const roster: import('../types/player.types').Roster = {
     offense: {
       QB: qb,
       RB: rb,
-      WR: [wr1, wr2],
+      WR1: wr1,
+      WR2: wr2,
       TE: te,
       OL: olUnit,
     },
     defense: {
       DL: dlUnit,
-      LB: [lb1, lb2],
-      CB: [cb1, cb2],
+      LB: lb,
+      CB1: cb1,
+      CB2: cb2,
       S: s,
     },
     specialTeams: {
-      ST: st,
+      KP: kp,
+    },
+    flex: {
+      type: 'WR3' as const,
+      player: wr3,
     },
     returner: {
       kickReturner: rb.id,
       puntReturner: wr1.id,
     },
-    bench: [],
-    practiceSquad: [],
   };
 
   return roster;

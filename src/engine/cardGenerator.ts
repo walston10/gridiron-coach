@@ -1877,15 +1877,34 @@ export function buildDeck(roster: Roster): Deck {
   offensiveCards.push(...rbCards);
   trackSource(roster.offense.RB.id, `${roster.offense.RB.firstName} ${roster.offense.RB.lastName}`, 'RB', rbCards);
 
-  roster.offense.WR.forEach((wr, i) => {
-    const wrCards = generateWRCards(wr);
-    offensiveCards.push(...wrCards);
-    trackSource(wr.id, `${wr.firstName} ${wr.lastName}`, `WR${i + 1}`, wrCards);
-  });
+  // WR1 and WR2
+  const wr1Cards = generateWRCards(roster.offense.WR1);
+  offensiveCards.push(...wr1Cards);
+  trackSource(roster.offense.WR1.id, `${roster.offense.WR1.firstName} ${roster.offense.WR1.lastName}`, 'WR1', wr1Cards);
+
+  const wr2Cards = generateWRCards(roster.offense.WR2);
+  offensiveCards.push(...wr2Cards);
+  trackSource(roster.offense.WR2.id, `${roster.offense.WR2.firstName} ${roster.offense.WR2.lastName}`, 'WR2', wr2Cards);
 
   const teCards = generateTECards(roster.offense.TE);
   offensiveCards.push(...teCards);
   trackSource(roster.offense.TE.id, `${roster.offense.TE.firstName} ${roster.offense.TE.lastName}`, 'TE', teCards);
+
+  // Flex player - generate cards based on their position type
+  const flexPlayer = roster.flex.player;
+  if (flexPlayer.position === 'WR') {
+    const flexCards = generateWRCards(flexPlayer);
+    offensiveCards.push(...flexCards);
+    trackSource(flexPlayer.id, `${flexPlayer.firstName} ${flexPlayer.lastName}`, roster.flex.type, flexCards);
+  } else if (flexPlayer.position === 'RB') {
+    const flexCards = generateRBCards(flexPlayer);
+    offensiveCards.push(...flexCards);
+    trackSource(flexPlayer.id, `${flexPlayer.firstName} ${flexPlayer.lastName}`, roster.flex.type, flexCards);
+  } else if (flexPlayer.position === 'TE') {
+    const flexCards = generateTECards(flexPlayer);
+    offensiveCards.push(...flexCards);
+    trackSource(flexPlayer.id, `${flexPlayer.firstName} ${flexPlayer.lastName}`, roster.flex.type, flexCards);
+  }
 
   // OL affects card quality but doesn't generate cards
   // Apply OL modifier to all offensive cards
@@ -1900,26 +1919,29 @@ export function buildDeck(roster: Roster): Deck {
   defensiveCards.push(...dlCards);
   trackSource(roster.defense.DL.id, roster.defense.DL.name, 'DL', dlCards);
 
-  roster.defense.LB.forEach((lb, i) => {
-    const lbCards = generateLBCards(lb);
-    defensiveCards.push(...lbCards);
-    trackSource(lb.id, `${lb.firstName} ${lb.lastName}`, `LB${i + 1}`, lbCards);
-  });
+  // Single LB in simplified roster
+  const lbCards = generateLBCards(roster.defense.LB);
+  defensiveCards.push(...lbCards);
+  trackSource(roster.defense.LB.id, `${roster.defense.LB.firstName} ${roster.defense.LB.lastName}`, 'LB', lbCards);
 
-  roster.defense.CB.forEach((cb, i) => {
-    const cbCards = generateCBCards(cb);
-    defensiveCards.push(...cbCards);
-    trackSource(cb.id, `${cb.firstName} ${cb.lastName}`, `CB${i + 1}`, cbCards);
-  });
+  // CB1 and CB2
+  const cb1Cards = generateCBCards(roster.defense.CB1);
+  defensiveCards.push(...cb1Cards);
+  trackSource(roster.defense.CB1.id, `${roster.defense.CB1.firstName} ${roster.defense.CB1.lastName}`, 'CB1', cb1Cards);
+
+  const cb2Cards = generateCBCards(roster.defense.CB2);
+  defensiveCards.push(...cb2Cards);
+  trackSource(roster.defense.CB2.id, `${roster.defense.CB2.firstName} ${roster.defense.CB2.lastName}`, 'CB2', cb2Cards);
 
   const sCards = generateSCards(roster.defense.S);
   defensiveCards.push(...sCards);
   trackSource(roster.defense.S.id, `${roster.defense.S.firstName} ${roster.defense.S.lastName}`, 'S', sCards);
 
   // === Generate Special Teams Cards ===
-  const stCards = generateSTCards(roster.specialTeams.ST);
+  // KP = Kicker/Punter (handles both duties)
+  const stCards = generateSTCards(roster.specialTeams.KP);
   specialTeamsCards.push(...stCards);
-  trackSource(roster.specialTeams.ST.id, `${roster.specialTeams.ST.firstName} ${roster.specialTeams.ST.lastName}`, 'ST', stCards);
+  trackSource(roster.specialTeams.KP.id, `${roster.specialTeams.KP.firstName} ${roster.specialTeams.KP.lastName}`, 'K/P', stCards);
 
   // Generate return cards from designated returner
   // Find the returner player from roster
@@ -1971,22 +1993,23 @@ function findPlayerById(roster: Roster, playerId: string): Player | undefined {
   // Check offense
   if (roster.offense.QB.id === playerId) return roster.offense.QB;
   if (roster.offense.RB.id === playerId) return roster.offense.RB;
-  const wr = roster.offense.WR.find(p => p.id === playerId);
-  if (wr) return wr;
+  if (roster.offense.WR1.id === playerId) return roster.offense.WR1;
+  if (roster.offense.WR2.id === playerId) return roster.offense.WR2;
   if (roster.offense.TE.id === playerId) return roster.offense.TE;
 
   // Check defense
-  const lb = roster.defense.LB.find(p => p.id === playerId);
-  if (lb) return lb;
-  const cb = roster.defense.CB.find(p => p.id === playerId);
-  if (cb) return cb;
+  if (roster.defense.LB.id === playerId) return roster.defense.LB;
+  if (roster.defense.CB1.id === playerId) return roster.defense.CB1;
+  if (roster.defense.CB2.id === playerId) return roster.defense.CB2;
   if (roster.defense.S.id === playerId) return roster.defense.S;
 
-  // Check ST
-  if (roster.specialTeams.ST.id === playerId) return roster.specialTeams.ST;
+  // Check K/P
+  if (roster.specialTeams.KP.id === playerId) return roster.specialTeams.KP;
 
-  // Check bench
-  return roster.bench.find(p => p.id === playerId);
+  // Check flex
+  if (roster.flex.player.id === playerId) return roster.flex.player;
+
+  return undefined;
 }
 
 function calculateDeckComposition(

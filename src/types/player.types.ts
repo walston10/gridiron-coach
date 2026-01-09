@@ -198,41 +198,60 @@ export interface PlayerPersonality {
 // =============================================================================
 
 /**
+ * Flex position type - chosen at team creation
+ * Allows teams to specialize with an extra receiver, running back, or tight end
+ */
+export type FlexType = 'WR3' | 'RB2' | 'TE2';
+
+/**
+ * Backup rating constant - used when a starter is injured/suspended
+ * No backup players exist; this flat rating is used instead
+ */
+export const BACKUP_RATING = 65;
+
+/**
  * Simplified roster for card game.
- * Smaller than real NFL - manageable deck building.
+ * 12 players + 2 unit ratings. No backups - injured players use BACKUP_RATING.
+ *
+ * OFFENSE (5 players + 1 unit): QB, RB, WR1, WR2, TE + OL
+ * DEFENSE (4 players + 1 unit): LB, CB1, CB2, S + DL
+ * SPECIAL TEAMS (1 player): K/P
+ * FLEX (1 player): WR3 OR RB2 OR TE2 (chosen at team creation)
  */
 export interface Roster {
   // Offense (generates offensive cards)
   offense: {
-    QB: Player;                 // 1 starter
-    RB: Player;                 // 1 starter
-    WR: [Player, Player];       // 2 starters
-    TE: Player;                 // 1 starter
-    OL: OLineUnit;              // Composite unit
+    QB: Player;                 // Quarterback
+    RB: Player;                 // Running Back
+    WR1: Player;                // Primary Wide Receiver
+    WR2: Player;                // Secondary Wide Receiver
+    TE: Player;                 // Tight End
+    OL: OLineUnit;              // Offensive Line (single rating unit)
   };
 
   // Defense (generates defensive cards)
   defense: {
-    DL: DLineUnit;              // Composite unit
-    LB: [Player, Player];       // 2 starters
-    CB: [Player, Player];       // 2 starters
-    S: Player;                  // 1 starter (represents both safeties)
+    DL: DLineUnit;              // Defensive Line (single rating unit)
+    LB: Player;                 // Linebacker
+    CB1: Player;                // Primary Cornerback
+    CB2: Player;                // Secondary Cornerback
+    S: Player;                  // Safety
   };
 
   // Special Teams (generates ST cards)
   specialTeams: {
-    ST: Player;                 // Kicker/Punter (position: 'ST')
+    KP: Player;                 // Kicker/Punter (handles both duties)
+  };
+
+  // Flex slot - type chosen at team creation
+  flex: {
+    type: FlexType;             // WR3, RB2, or TE2
+    player: Player;             // The flex player
   };
 
   // Returner designation - which skill player handles returns
   // Affects kick/punt return cards and risk/reward on returns
   returner: ReturnerDesignation;
-
-  // Bench (backups, can be promoted)
-  bench: Player[];
-
-  // Practice squad (development, not in deck)
-  practiceSquad: Player[];
 }
 
 /**
@@ -323,6 +342,76 @@ export function getCardQualityModifier(player: Player): number {
   const baseModifier = Math.floor((player.overall - 50) / 5); // -10 to +10 from skill
   const statusModifier = player.status.cardQualityModifier;
   return baseModifier + statusModifier;
+}
+
+/**
+ * Get effective player rating, accounting for injuries/suspensions.
+ * Returns BACKUP_RATING (65) if player is unavailable, otherwise their actual overall.
+ */
+export function getEffectiveRating(player: Player): number {
+  if (!isPlayerAvailable(player)) {
+    return BACKUP_RATING;
+  }
+  return player.overall;
+}
+
+/**
+ * Get all players from a roster (excluding units)
+ */
+export function getAllRosterPlayers(roster: Roster): Player[] {
+  return [
+    // Offense
+    roster.offense.QB,
+    roster.offense.RB,
+    roster.offense.WR1,
+    roster.offense.WR2,
+    roster.offense.TE,
+    // Defense
+    roster.defense.LB,
+    roster.defense.CB1,
+    roster.defense.CB2,
+    roster.defense.S,
+    // Special Teams
+    roster.specialTeams.KP,
+    // Flex
+    roster.flex.player,
+  ];
+}
+
+/**
+ * Get roster slot labels for display
+ */
+export const ROSTER_SLOT_LABELS: Record<string, string> = {
+  // Offense
+  QB: 'Quarterback',
+  RB: 'Running Back',
+  WR1: 'Wide Receiver 1',
+  WR2: 'Wide Receiver 2',
+  TE: 'Tight End',
+  OL: 'Offensive Line',
+  // Defense
+  DL: 'Defensive Line',
+  LB: 'Linebacker',
+  CB1: 'Cornerback 1',
+  CB2: 'Cornerback 2',
+  S: 'Safety',
+  // Special Teams
+  KP: 'Kicker/Punter',
+  // Flex
+  WR3: 'Wide Receiver 3',
+  RB2: 'Running Back 2',
+  TE2: 'Tight End 2',
+};
+
+/**
+ * Get the position type for a flex slot
+ */
+export function getFlexPositionType(flexType: FlexType): Position {
+  switch (flexType) {
+    case 'WR3': return 'WR';
+    case 'RB2': return 'RB';
+    case 'TE2': return 'TE';
+  }
 }
 
 /** Position importance for salary calculations */
