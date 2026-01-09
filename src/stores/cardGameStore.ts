@@ -31,7 +31,6 @@ import type {
   RefereeStyle,
   PregameModifiers,
   PregameCard,
-  StadiumEvent,
   CombinedPregameEffects,
 } from '../types/game.types';
 import {
@@ -43,7 +42,6 @@ import {
   generateRandomPregameModifiers,
   createPregameCards,
   calculateCombinedEffects,
-  STADIUM_CONFIGS,
 } from '../types/game.types';
 import type {
   Card,

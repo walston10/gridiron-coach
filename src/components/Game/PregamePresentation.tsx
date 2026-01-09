@@ -3,7 +3,6 @@
 
 import React, { useState, useEffect } from 'react';
 import type { PregameCard, StadiumEvent, WeatherCondition, RefereeStyle } from '../../types/game.types';
-import { STADIUM_CONFIGS, WEATHER_EFFECTS, REFEREE_STYLES } from '../../types/game.types';
 
 interface PregamePresentationProps {
   cards: PregameCard[];
@@ -63,31 +62,6 @@ function getRefereeIcon(style: RefereeStyle): string {
     case 'NORMAL': return '📋';
     default: return '🦓';
   }
-}
-
-// Get card flavor text
-function getFlavorText(card: PregameCard): string {
-  if (card.category === 'STADIUM') {
-    const config = STADIUM_CONFIGS[card.value as StadiumEvent];
-    return config?.flavorText || '';
-  }
-  if (card.category === 'WEATHER') {
-    switch (card.value as WeatherCondition) {
-      case 'CLEAR': return 'Perfect football weather.';
-      case 'RAIN': return 'The rain is coming down. Hold onto the ball.';
-      case 'SNOW': return 'A winter wonderland on the gridiron.';
-      case 'WIND': return 'Flags are whipping. Deep balls will be tricky.';
-      case 'EXTREME_COLD': return 'Breath visible in the frigid air.';
-      case 'EXTREME_HEAT': return 'The heat is oppressive. Stay hydrated.';
-      case 'DOME': return 'Climate controlled perfection.';
-      default: return '';
-    }
-  }
-  if (card.category === 'REFEREE') {
-    const config = REFEREE_STYLES[card.value as RefereeStyle];
-    return config?.description || '';
-  }
-  return '';
 }
 
 // Card back component
@@ -156,8 +130,6 @@ const CardFront: React.FC<{
       default: return 'from-slate-800 to-slate-900';
     }
   };
-
-  const flavorText = getFlavorText(card);
 
   return (
     <div className="animate-flip-in">
@@ -270,19 +242,16 @@ export const PregamePresentation: React.FC<PregamePresentationProps> = ({
           </div>
 
           <div className="space-y-2 text-sm">
-            {cards.map((card) => {
-              const flavorText = getFlavorText(card);
-              return (
-                <div key={card.category} className="flex items-center gap-2 text-slate-300">
-                  <span className="text-lg">
-                    {card.category === 'STADIUM' && getStadiumIcon(card.value as StadiumEvent)}
-                    {card.category === 'WEATHER' && getWeatherIcon(card.value as WeatherCondition)}
-                    {card.category === 'REFEREE' && getRefereeIcon(card.value as RefereeStyle)}
-                  </span>
-                  <span className="font-medium">{card.description}</span>
-                </div>
-              );
-            })}
+            {cards.map((card) => (
+              <div key={card.category} className="flex items-center gap-2 text-slate-300">
+                <span className="text-lg">
+                  {card.category === 'STADIUM' && getStadiumIcon(card.value as StadiumEvent)}
+                  {card.category === 'WEATHER' && getWeatherIcon(card.value as WeatherCondition)}
+                  {card.category === 'REFEREE' && getRefereeIcon(card.value as RefereeStyle)}
+                </span>
+                <span className="font-medium">{card.description}</span>
+              </div>
+            ))}
           </div>
 
           {/* Coin toss result */}
