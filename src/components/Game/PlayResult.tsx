@@ -766,12 +766,16 @@ interface BreakawaySequenceProps {
 const BreakawaySequence: React.FC<BreakawaySequenceProps> = ({
   currentYard,
   isTouchdown,
+  onComplete,
 }) => {
   const displayYard = currentYard > 50 ? 100 - currentYard : currentYard;
   const isOpponentSide = currentYard > 50;
 
   return (
-    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50">
+    <div
+      className="fixed inset-0 bg-black/95 flex items-center justify-center z-50"
+      onClick={onComplete}
+    >
       <div className="text-center animate-pulse">
         <div className="text-6xl font-black text-white mb-4">
           {isTouchdown && currentYard >= 95 ? (
@@ -797,6 +801,11 @@ const BreakawaySequence: React.FC<BreakawaySequenceProps> = ({
           {currentYard >= 50 && currentYard < 70 && '20...'}
           {currentYard >= 70 && currentYard < 90 && '10...'}
           {currentYard >= 90 && !isTouchdown && '5...'}
+        </div>
+
+        {/* Tap to skip hint */}
+        <div className="mt-8 text-xs text-gray-600">
+          Tap to skip
         </div>
       </div>
     </div>

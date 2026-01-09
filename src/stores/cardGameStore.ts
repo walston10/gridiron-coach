@@ -97,10 +97,10 @@ export const MOMENTUM_RULES = {
 
 /** Hand limits */
 export const HAND_LIMITS = {
-  MAX_OFFENSIVE: 5,
+  MAX_OFFENSIVE: 6,
   MAX_DEFENSIVE: 5,
   MAX_DIRTY: 2,
-  STARTING_OFFENSIVE: 4,
+  STARTING_OFFENSIVE: 5,
   STARTING_DEFENSIVE: 4,
 } as const;
 

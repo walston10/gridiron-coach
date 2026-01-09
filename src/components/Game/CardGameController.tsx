@@ -207,6 +207,39 @@ interface CardGameControllerProps {
 }
 
 // =============================================================================
+// PLAY CARD BUTTON (reusable card in playbook)
+// =============================================================================
+
+interface PlayCardButtonProps {
+  card: OffensiveCard;
+  isSelected: boolean;
+  onSelect: (card: OffensiveCard) => void;
+  accentColor: 'green' | 'blue' | 'amber' | 'purple';
+}
+
+const PlayCardButton: React.FC<PlayCardButtonProps> = ({ card, isSelected, onSelect, accentColor }) => {
+  const colorClasses = {
+    green: isSelected ? 'border-green-500 bg-green-900/30' : 'border-gray-700 bg-gray-800 hover:border-green-700',
+    blue: isSelected ? 'border-blue-500 bg-blue-900/30' : 'border-gray-700 bg-gray-800 hover:border-blue-700',
+    amber: isSelected ? 'border-amber-500 bg-amber-900/30' : 'border-gray-700 bg-gray-800 hover:border-amber-700',
+    purple: isSelected ? 'border-purple-500 bg-purple-900/30' : 'border-gray-700 bg-gray-800 hover:border-purple-700',
+  };
+
+  return (
+    <button
+      onClick={() => onSelect(card)}
+      className={`p-3 rounded-lg border-2 transition-all text-left ${colorClasses[accentColor]}`}
+    >
+      <div className="font-bold text-white text-sm truncate">{card.name}</div>
+      <div className="flex justify-between mt-1 text-xs">
+        <span className="text-green-400">{card.successChance}%</span>
+        <span className="text-blue-400">{card.baseYards} yds</span>
+      </div>
+    </button>
+  );
+};
+
+// =============================================================================
 // OFFENSIVE PLAY UI (Inline for now - the full component)
 // =============================================================================
 
@@ -391,32 +424,72 @@ const OffensivePlayUI: React.FC<{
         </div>
       )}
 
-      {/* Card Hand */}
+      {/* Playbook - Categorized Cards */}
       <div className="flex-1 p-4 overflow-y-auto">
         <div className="flex justify-between items-center mb-3">
           <div className="text-gray-400 text-sm">1. Select a play:</div>
           <button onClick={() => setShowHelp(true)} className="text-blue-400 text-xs hover:text-blue-300">? Help</button>
         </div>
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          {cards.map(card => (
-            <button
-              key={card.id}
-              onClick={() => handleCardSelect(card)}
-              className={`p-4 rounded-lg border-2 transition-all text-left ${
-                selectedCard?.id === card.id
-                  ? 'border-amber-500 bg-amber-900/30'
-                  : 'border-gray-700 bg-gray-800 hover:border-gray-600'
-              }`}
-            >
-              <div className="font-bold text-white text-sm truncate">{card.name}</div>
-              <div className="text-gray-400 text-xs mt-1">{card.playType.replace(/_/g, ' ')}</div>
-              <div className="flex justify-between mt-2 text-xs">
-                <span className="text-green-400">{card.successChance}%</span>
-                <span className="text-blue-400">{card.baseYards} yds</span>
-              </div>
-            </button>
-          ))}
-        </div>
+
+        {/* Run Plays */}
+        {cards.filter(c => ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(c.playType)).length > 0 && (
+          <div className="mb-4">
+            <div className="text-green-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+              Run Plays
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {cards.filter(c => ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(c.playType)).map(card => (
+                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="green" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Short Pass Plays */}
+        {cards.filter(c => ['SHORT_PASS', 'SCREEN'].includes(c.playType)).length > 0 && (
+          <div className="mb-4">
+            <div className="text-blue-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+              Short Pass
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {cards.filter(c => ['SHORT_PASS', 'SCREEN'].includes(c.playType)).map(card => (
+                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="blue" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Medium Pass Plays */}
+        {cards.filter(c => ['MEDIUM_PASS', 'PLAY_ACTION'].includes(c.playType)).length > 0 && (
+          <div className="mb-4">
+            <div className="text-amber-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+              Medium Pass
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {cards.filter(c => ['MEDIUM_PASS', 'PLAY_ACTION'].includes(c.playType)).map(card => (
+                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="amber" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Deep Pass Plays */}
+        {cards.filter(c => c.playType === 'DEEP_PASS').length > 0 && (
+          <div className="mb-4">
+            <div className="text-purple-400 text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+              Deep Pass
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {cards.filter(c => c.playType === 'DEEP_PASS').map(card => (
+                <PlayCardButton key={card.id} card={card} isSelected={selectedCard?.id === card.id} onSelect={handleCardSelect} accentColor="purple" />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Target Selection (when card is selected) */}
         {selectedCard && availableTargets.length > 0 && (
@@ -449,24 +522,51 @@ const OffensivePlayUI: React.FC<{
           <div className="mb-4">
             <div className="text-gray-400 text-sm mb-2">3. Modifier:</div>
             <div className="flex gap-2 flex-wrap">
-              {availableModifiers.map(mod => (
-                <button
-                  key={mod}
-                  onClick={() => setSelectedModifier(mod)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    selectedModifier === mod
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                  }`}
-                  title={MODIFIER_EFFECTS[mod].description}
-                >
-                  {mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}
-                </button>
-              ))}
+              {availableModifiers.map(mod => {
+                const effect = MODIFIER_EFFECTS[mod];
+                return (
+                  <button
+                    key={mod}
+                    onClick={() => setSelectedModifier(mod)}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      selectedModifier === mod
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                    title={effect.description}
+                  >
+                    {mod === 'NONE' ? 'Standard' : mod.replace(/_/g, ' ')}
+                  </button>
+                );
+              })}
             </div>
             {selectedModifier !== 'NONE' && (
-              <div className="mt-2 text-xs text-purple-300">
-                {MODIFIER_EFFECTS[selectedModifier].description}
+              <div className="mt-2 p-2 bg-purple-900/30 rounded-lg border border-purple-800/50">
+                <div className="text-xs text-purple-300 mb-1">
+                  {MODIFIER_EFFECTS[selectedModifier].description}
+                </div>
+                <div className="flex gap-3 text-xs">
+                  {MODIFIER_EFFECTS[selectedModifier].successBonus !== 0 && (
+                    <span className={MODIFIER_EFFECTS[selectedModifier].successBonus > 0 ? 'text-green-400' : 'text-red-400'}>
+                      {MODIFIER_EFFECTS[selectedModifier].successBonus > 0 ? '+' : ''}{MODIFIER_EFFECTS[selectedModifier].successBonus}% success
+                    </span>
+                  )}
+                  {MODIFIER_EFFECTS[selectedModifier].protectionBonus !== 0 && (
+                    <span className="text-blue-400">
+                      +{MODIFIER_EFFECTS[selectedModifier].protectionBonus}% protection
+                    </span>
+                  )}
+                  {MODIFIER_EFFECTS[selectedModifier].yardsBonus !== 0 && (
+                    <span className="text-amber-400">
+                      +{MODIFIER_EFFECTS[selectedModifier].yardsBonus} yds
+                    </span>
+                  )}
+                  {MODIFIER_EFFECTS[selectedModifier].turnoverRisk !== 0 && (
+                    <span className="text-red-400">
+                      +{MODIFIER_EFFECTS[selectedModifier].turnoverRisk}% TO risk
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
