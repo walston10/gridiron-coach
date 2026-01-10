@@ -35,7 +35,9 @@ import {
   DEFENSE_MODIFIER_CONFIG,
   getSchemesForAnticipation,
   getModifiersForScheme,
+  CLOCK_MODE_CONFIG,
 } from '../../types/game.types';
+import type { ClockMode } from '../../types/game.types';
 
 // Universal Playbook
 import { UNIVERSAL_OFFENSIVE_PLAYS } from '../../data/universalPlaybook';
@@ -230,29 +232,48 @@ const PlayButton: React.FC<PlayButtonProps> = ({ play, isSelected, onSelect }) =
     SPECIAL: { selected: 'border-gray-500 bg-gray-900/30', default: 'border-gray-700 bg-gray-800 hover:border-gray-600' },
   };
 
+  // Momentum cost tier styling
+  const momentumTiers: Record<number, { bg: string; text: string; label: string }> = {
+    0: { bg: 'bg-gray-700', text: 'text-gray-300', label: 'FREE' },
+    1: { bg: 'bg-amber-900/70', text: 'text-amber-400', label: '⚡1' },
+    2: { bg: 'bg-orange-900/70', text: 'text-orange-400', label: '⚡2' },
+    3: { bg: 'bg-red-900/70', text: 'text-yellow-400', label: '⚡3' },
+  };
+
   const colors = categoryColors[play.category] || categoryColors.SPECIAL;
+  const momentumStyle = momentumTiers[play.momentumCost] || momentumTiers[0];
 
   return (
     <button
       onClick={() => onSelect(play)}
-      className={`p-3 rounded-lg border-2 transition-all text-left ${isSelected ? colors.selected : colors.default}`}
+      className={`rounded-lg border-2 transition-all text-left overflow-hidden ${isSelected ? colors.selected : colors.default}`}
     >
-      <div className="flex items-center gap-2">
-        <div className="font-bold text-white text-sm truncate flex-1">{play.name}</div>
-        {play.buffIndicator === 'boosted' && <span className="text-green-400 text-xs">▲</span>}
-        {play.buffIndicator === 'weak' && <span className="text-red-400 text-xs">▼</span>}
-      </div>
-      <div className="text-gray-400 text-xs mt-0.5 truncate">{play.description}</div>
-      <div className="flex justify-between mt-2 text-xs">
-        <span className="text-green-400">{play.successChance}%</span>
-        <span className="text-blue-400">{play.yards} yds</span>
-        {play.bigPlayChance > 15 && <span className="text-yellow-400">💥{play.bigPlayChance}%</span>}
-      </div>
-      {play.buffReason && (
-        <div className={`text-xs mt-1 ${play.buffIndicator === 'boosted' ? 'text-green-400' : 'text-red-400'}`}>
-          {play.buffReason}
+      {/* Momentum Cost Bar - Top of Card */}
+      <div className={`${momentumStyle.bg} px-2 py-1 flex items-center justify-between`}>
+        <span className={`text-xs font-bold ${momentumStyle.text}`}>
+          {momentumStyle.label}
+        </span>
+        <div className="flex items-center gap-1">
+          {play.buffIndicator === 'boosted' && <span className="text-green-400 text-xs">▲</span>}
+          {play.buffIndicator === 'weak' && <span className="text-red-400 text-xs">▼</span>}
         </div>
-      )}
+      </div>
+
+      {/* Card Content */}
+      <div className="p-2">
+        <div className="font-bold text-white text-sm truncate">{play.name}</div>
+        <div className="text-gray-400 text-xs mt-0.5 truncate">{play.description}</div>
+        <div className="flex justify-between mt-2 text-xs">
+          <span className="text-green-400">{play.successChance}%</span>
+          <span className="text-blue-400">{play.yards} yds</span>
+          {play.bigPlayChance > 15 && <span className="text-yellow-400">💥{play.bigPlayChance}%</span>}
+        </div>
+        {play.buffReason && (
+          <div className={`text-xs mt-1 ${play.buffIndicator === 'boosted' ? 'text-green-400' : 'text-red-400'}`}>
+            {play.buffReason}
+          </div>
+        )}
+      </div>
     </button>
   );
 };
@@ -306,6 +327,9 @@ const OffensivePlayUI: React.FC<{
     opponentState,
     playerRoster,
     offensiveMomentum,
+    clockMode,
+    setClockMode,
+    canUseClockMode,
   } = useCardGameStore();
 
   const { draftedRoster } = useGameStore();
@@ -328,6 +352,7 @@ const OffensivePlayUI: React.FC<{
         playType: play.playType,
         category: play.category,
         formation: play.formation,
+        momentumCost: play.momentumCost,
         successChance: play.baseSuccessChance,
         yards: play.baseYards,
         bigPlayChance: play.baseBigPlayChance,
@@ -650,6 +675,67 @@ const OffensivePlayUI: React.FC<{
                 {MODIFIER_EFFECTS[selectedModifier].description}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Clock Mode Controls */}
+      <div className="bg-gray-900 border-t border-gray-800 px-4 pt-3">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-gray-400 text-xs">Tempo:</span>
+          <div className="flex gap-1 flex-1">
+            {(['NORMAL', 'TWO_MINUTE_DRILL', 'CHEW_CLOCK'] as ClockMode[]).map((mode) => {
+              const config = CLOCK_MODE_CONFIG[mode];
+              const isActive = clockMode === mode;
+              const canUse = canUseClockMode(mode);
+              const modeStyles: Record<ClockMode, { active: string; inactive: string }> = {
+                NORMAL: {
+                  active: 'bg-gray-600 border-gray-400',
+                  inactive: 'bg-gray-800 border-gray-700 hover:border-gray-500',
+                },
+                TWO_MINUTE_DRILL: {
+                  active: 'bg-amber-600 border-amber-400',
+                  inactive: 'bg-gray-800 border-amber-700 hover:border-amber-500',
+                },
+                CHEW_CLOCK: {
+                  active: 'bg-green-600 border-green-400',
+                  inactive: 'bg-gray-800 border-green-700 hover:border-green-500',
+                },
+              };
+              const style = modeStyles[mode];
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setClockMode(mode)}
+                  disabled={!canUse}
+                  className={`flex-1 px-2 py-1.5 rounded border text-xs font-medium transition-all ${
+                    isActive
+                      ? `${style.active} text-white`
+                      : canUse
+                        ? `${style.inactive} text-gray-300`
+                        : 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
+                  }`}
+                  title={config.description}
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    {mode === 'NORMAL' && '⏱️'}
+                    {mode === 'TWO_MINUTE_DRILL' && '⚡'}
+                    {mode === 'CHEW_CLOCK' && '🐢'}
+                    <span className="hidden sm:inline">{config.name}</span>
+                  </div>
+                  {config.momentumCost > 0 && (
+                    <div className={`text-xs ${canUse ? 'text-amber-400' : 'text-red-400'}`}>
+                      -{config.momentumCost}/play
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {clockMode !== 'NORMAL' && (
+          <div className="text-xs text-gray-400 mb-2 text-center">
+            {CLOCK_MODE_CONFIG[clockMode].description}
           </div>
         )}
       </div>
