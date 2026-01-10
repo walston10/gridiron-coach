@@ -648,19 +648,31 @@ const YardLineVisual: React.FC<YardLineVisualProps> = ({
   const direction = yardsGained >= 0 ? 'right' : 'left';
   const absYards = Math.abs(yardsGained);
 
+  // Football field yard markers: 10-20-30-40-50-40-30-20-10 (mirrors at 50)
+  const yardMarkers = [10, 20, 30, 40, 50, 40, 30, 20, 10];
+
   return (
     <div className="px-4 py-3 bg-gray-800/50">
       <div className="relative h-8 bg-green-900 rounded-lg overflow-hidden">
-        {/* Field markings */}
+        {/* Field markings - mirrors at 50 */}
         <div className="absolute inset-0 flex">
-          {[...Array(10)].map((_, i) => (
+          {/* Goal line (own) */}
+          <div className="w-[5%] border-r-2 border-white/40 flex items-center justify-center">
+            <span className="text-[8px] text-white/40">G</span>
+          </div>
+          {/* Yard markers */}
+          {yardMarkers.map((yard, i) => (
             <div
               key={i}
               className="flex-1 border-r border-white/20 flex items-center justify-center"
             >
-              <span className="text-xs text-white/30">{(i + 1) * 10}</span>
+              <span className="text-[10px] text-white/30">{yard}</span>
             </div>
           ))}
+          {/* Goal line (opp) */}
+          <div className="w-[5%] flex items-center justify-center">
+            <span className="text-[8px] text-white/40">G</span>
+          </div>
         </div>
 
         {/* Movement indicator */}

@@ -1072,6 +1072,8 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     playerState,
     opponentState,
     lastPlayedSelection,
+    lastPlayWasPlayerOffense,
+    possessionState,
     fourthDownState,
     opponentDeck,
     startGame,
@@ -1084,6 +1086,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isPlayerOnOffense,
     setFourthDownOffenseChoice,
     setFourthDownDefenseResponse,
+    handleExtraPoint,
     // Pregame
     pregameModifiers,
     pregameCards,
@@ -1254,20 +1257,25 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
       return;
     }
 
+    // If opponent scored TD and XP is pending, auto-kick XP for them
+    if (possessionState.xpPending && !lastPlayWasPlayerOffense) {
+      // CPU always kicks XP (95% success rate handled in store)
+      handleExtraPoint('XP');
+      return;
+    }
+
     // Set phase based on possession
     if (isPlayerOnOffense()) {
       setPhase('OFFENSE_SELECT');
     } else {
       setPhase('DEFENSE_SELECT');
     }
-  }, [phase, isPlayerOnOffense, setPhase, playerState.score, opponentState.score, onGameEnd]);
+  }, [phase, isPlayerOnOffense, setPhase, playerState.score, opponentState.score, onGameEnd, possessionState.xpPending, lastPlayWasPlayerOffense, handleExtraPoint]);
 
   // Handle XP choice
   const handleXPChoice = useCallback((choice: 'XP' | 'TWO_POINT') => {
-    // TODO: Implement XP choice
-    console.log('XP choice:', choice);
-    handleContinue();
-  }, [handleContinue]);
+    handleExtraPoint(choice);
+  }, [handleExtraPoint]);
 
   // Pregame presentation
   if (phase === 'PREGAME' && pregameCards.length > 0 && pregameModifiers) {
@@ -1346,7 +1354,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
         targetPosition={lastPlayedSelection?.offenseTarget || undefined}
         defenseCard={defenseCard || undefined}
         defenseShade={lastPlayedSelection?.defenseShade || undefined}
-        isPlayerOffense={isPlayerOnOffense()}
+        isPlayerOffense={lastPlayWasPlayerOffense ?? isPlayerOnOffense()}
         onContinue={handleContinue}
         onXPChoice={handleXPChoice}
       />
