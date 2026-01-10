@@ -40,6 +40,8 @@ export interface ModifiedPlay {
   playType: string;
   category: string;
   formation: string;
+  // Momentum cost (0-3)
+  momentumCost: 0 | 1 | 2 | 3;
   // Modified stats (after buffs)
   successChance: number;
   yards: number;
@@ -175,6 +177,7 @@ export function applyRosterBuffs(
     playType: play.playType,
     category: play.category,
     formation: play.formation,
+    momentumCost: play.momentumCost,
     successChance,
     yards,
     bigPlayChance,

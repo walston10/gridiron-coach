@@ -18,6 +18,12 @@ export interface UniversalPlay {
   playType: OffensivePlayType;
   formation: Formation;
   category: 'RUN' | 'SHORT' | 'MEDIUM' | 'DEEP' | 'TRICK' | 'SPECIAL';
+  // Momentum cost (0-3)
+  // 0 = Basic/desperation plays (always available)
+  // 1 = Standard plays
+  // 2 = Advanced plays
+  // 3 = Premium/explosive plays
+  momentumCost: 0 | 1 | 2 | 3;
   // Base stats before roster modifiers
   baseSuccessChance: number;  // 0-100
   baseYards: number;
@@ -54,6 +60,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'INSIDE_RUN',
     formation: 'I_FORM',
     category: 'RUN',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 55,
     baseYards: 4,
     baseBigPlayChance: 8,
@@ -68,6 +75,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'POWER_RUN',
     formation: 'I_FORM',
     category: 'RUN',
+    momentumCost: 1,  // Standard
     baseSuccessChance: 50,
     baseYards: 4,
     baseBigPlayChance: 10,
@@ -83,6 +91,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'OUTSIDE_RUN',
     formation: 'SINGLEBACK',
     category: 'RUN',
+    momentumCost: 1,  // Standard
     baseSuccessChance: 48,
     baseYards: 5,
     baseBigPlayChance: 15,
@@ -98,6 +107,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'OUTSIDE_RUN',
     formation: 'SHOTGUN',
     category: 'RUN',
+    momentumCost: 2,  // Advanced - explosive but risky
     baseSuccessChance: 45,
     baseYards: 6,
     baseBigPlayChance: 18,
@@ -113,6 +123,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DRAW',
     formation: 'SHOTGUN',
     category: 'RUN',
+    momentumCost: 1,  // Standard
     baseSuccessChance: 50,
     baseYards: 6,
     baseBigPlayChance: 12,
@@ -127,6 +138,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'POWER_RUN',
     formation: 'GOAL_LINE',
     category: 'RUN',
+    momentumCost: 0,  // Basic - always available for short yardage
     baseSuccessChance: 60,
     baseYards: 2,
     baseBigPlayChance: 2,
@@ -141,6 +153,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'INSIDE_RUN',
     formation: 'SINGLEBACK',
     category: 'RUN',
+    momentumCost: 2,  // Advanced - misdirection
     baseSuccessChance: 48,
     baseYards: 5,
     baseBigPlayChance: 14,
@@ -156,6 +169,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'QB_RUN',
     formation: 'UNDER_CENTER',
     category: 'RUN',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 70,
     baseYards: 1,
     baseBigPlayChance: 1,
@@ -172,6 +186,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SHORT_PASS',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 65,
     baseYards: 7,
     baseBigPlayChance: 8,
@@ -186,6 +201,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SHORT_PASS',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 68,
     baseYards: 6,
     baseBigPlayChance: 5,
@@ -201,6 +217,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SHORT_PASS',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 0,  // Basic - desperation available
     baseSuccessChance: 75,
     baseYards: 4,
     baseBigPlayChance: 10,
@@ -215,6 +232,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SHORT_PASS',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 70,
     baseYards: 5,
     baseBigPlayChance: 12,
@@ -229,6 +247,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SCREEN',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 1,  // Standard - requires setup
     baseSuccessChance: 55,
     baseYards: 5,
     baseBigPlayChance: 18,
@@ -244,6 +263,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SCREEN',
     formation: 'SHOTGUN',
     category: 'SHORT',
+    momentumCost: 1,  // Standard - requires setup
     baseSuccessChance: 52,
     baseYards: 6,
     baseBigPlayChance: 20,
@@ -261,6 +281,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'MEDIUM_PASS',
     formation: 'SHOTGUN',
     category: 'MEDIUM',
+    momentumCost: 1,  // Standard
     baseSuccessChance: 55,
     baseYards: 12,
     baseBigPlayChance: 10,
@@ -276,6 +297,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'MEDIUM_PASS',
     formation: 'SHOTGUN',
     category: 'MEDIUM',
+    momentumCost: 1,  // Standard
     baseSuccessChance: 58,
     baseYards: 14,
     baseBigPlayChance: 12,
@@ -290,6 +312,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'MEDIUM_PASS',
     formation: 'SHOTGUN',
     category: 'MEDIUM',
+    momentumCost: 2,  // Advanced - deeper routes
     baseSuccessChance: 52,
     baseYards: 15,
     baseBigPlayChance: 15,
@@ -305,6 +328,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'MEDIUM_PASS',
     formation: 'SINGLEBACK',
     category: 'MEDIUM',
+    momentumCost: 2,  // Advanced - mismatch exploitation
     baseSuccessChance: 50,
     baseYards: 18,
     baseBigPlayChance: 18,
@@ -320,6 +344,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'PLAY_ACTION',
     formation: 'UNDER_CENTER',
     category: 'MEDIUM',
+    momentumCost: 2,  // Advanced - requires setup
     baseSuccessChance: 52,
     baseYards: 18,
     baseBigPlayChance: 20,
@@ -334,6 +359,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'MEDIUM_PASS',
     formation: 'SHOTGUN',
     category: 'MEDIUM',
+    momentumCost: 2,  // Advanced - red zone weapon
     baseSuccessChance: 48,
     baseYards: 20,
     baseBigPlayChance: 15,
@@ -351,6 +377,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DEEP_PASS',
     formation: 'SHOTGUN',
     category: 'DEEP',
+    momentumCost: 3,  // Premium - explosive deep ball
     baseSuccessChance: 38,
     baseYards: 35,
     baseBigPlayChance: 40,
@@ -366,6 +393,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DEEP_PASS',
     formation: 'SHOTGUN',
     category: 'DEEP',
+    momentumCost: 2,  // Advanced
     baseSuccessChance: 42,
     baseYards: 28,
     baseBigPlayChance: 35,
@@ -381,6 +409,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DEEP_PASS',
     formation: 'SHOTGUN',
     category: 'DEEP',
+    momentumCost: 2,  // Advanced
     baseSuccessChance: 45,
     baseYards: 25,
     baseBigPlayChance: 28,
@@ -395,6 +424,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DEEP_PASS',
     formation: 'SHOTGUN',
     category: 'DEEP',
+    momentumCost: 3,  // Premium - Hail Mary
     baseSuccessChance: 30,
     baseYards: 50,
     baseBigPlayChance: 55,
@@ -410,6 +440,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'DEEP_PASS',
     formation: 'SHOTGUN',
     category: 'DEEP',
+    momentumCost: 3,  // Premium - burns coverage
     baseSuccessChance: 35,
     baseYards: 40,
     baseBigPlayChance: 45,
@@ -427,6 +458,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'TRICK_PLAY',
     formation: 'SHOTGUN',
     category: 'TRICK',
+    momentumCost: 3,  // Premium - trick play
     baseSuccessChance: 40,
     baseYards: 35,
     baseBigPlayChance: 50,
@@ -441,6 +473,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'TRICK_PLAY',
     formation: 'SINGLEBACK',
     category: 'TRICK',
+    momentumCost: 3,  // Premium - trick play
     baseSuccessChance: 45,
     baseYards: 12,
     baseBigPlayChance: 30,
@@ -455,6 +488,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'TRICK_PLAY',
     formation: 'SHOTGUN',
     category: 'TRICK',
+    momentumCost: 3,  // Premium - high risk trick
     baseSuccessChance: 35,
     baseYards: 25,
     baseBigPlayChance: 40,
@@ -469,6 +503,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'QB_RUN',
     formation: 'SHOTGUN',
     category: 'TRICK',
+    momentumCost: 1,  // Standard - reactive play
     baseSuccessChance: 55,
     baseYards: 8,
     baseBigPlayChance: 15,
@@ -484,6 +519,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'QB_RUN',
     formation: 'PISTOL',
     category: 'TRICK',
+    momentumCost: 2,  // Advanced - designed QB run
     baseSuccessChance: 50,
     baseYards: 10,
     baseBigPlayChance: 20,
@@ -500,6 +536,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'SPIKE',
     formation: 'SHOTGUN',
     category: 'SPECIAL',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 100,
     baseYards: 0,
     baseBigPlayChance: 0,
@@ -514,6 +551,7 @@ export const UNIVERSAL_OFFENSIVE_PLAYS: UniversalPlay[] = [
     playType: 'KNEEL',
     formation: 'SHOTGUN',
     category: 'SPECIAL',
+    momentumCost: 0,  // Basic - always available
     baseSuccessChance: 100,
     baseYards: -1,
     baseBigPlayChance: 0,

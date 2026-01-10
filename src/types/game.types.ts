@@ -1699,6 +1699,7 @@ export type DefenseAnticipation =
 export const ANTICIPATION_CONFIG: Record<DefenseAnticipation, {
   name: string;
   description: string;
+  momentumCost: 0 | 1;     // 0 = balanced, 1 = committed
   vsRunBonus: number;      // % bonus vs run plays
   vsPassBonus: number;     // % bonus vs pass plays
   vulnerableRun: number;   // % penalty if wrong (vs run)
@@ -1707,6 +1708,7 @@ export const ANTICIPATION_CONFIG: Record<DefenseAnticipation, {
   RUN_HEAVY: {
     name: 'Run Heavy',
     description: 'Stack the box, 8+ men near line',
+    momentumCost: 1,       // Committing to a read
     vsRunBonus: 15,
     vsPassBonus: -10,
     vulnerableRun: 0,
@@ -1715,6 +1717,7 @@ export const ANTICIPATION_CONFIG: Record<DefenseAnticipation, {
   PASS_HEAVY: {
     name: 'Pass Heavy',
     description: 'Light box, extra DBs deep',
+    momentumCost: 1,       // Committing to a read
     vsRunBonus: -10,
     vsPassBonus: 15,
     vulnerableRun: 15,
@@ -1723,6 +1726,7 @@ export const ANTICIPATION_CONFIG: Record<DefenseAnticipation, {
   BALANCED: {
     name: 'Balanced',
     description: 'Standard alignment, react to play',
+    momentumCost: 0,       // Safe, no commitment
     vsRunBonus: 0,
     vsPassBonus: 0,
     vulnerableRun: 5,
@@ -1766,6 +1770,7 @@ export interface DefenseSchemeConfig {
   name: string;
   description: string;
   category: 'COVERAGE' | 'PRESSURE' | 'RUN_STOP' | 'SPECIALTY';
+  momentumCost: 0 | 1;      // 0 = basic scheme, 1 = specialized/aggressive
   vsRunRating: number;      // 0-100
   vsPassRating: number;     // 0-100
   blitzChance: number;      // % chance of getting pressure
@@ -1781,6 +1786,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 0 (Man Free)',
     description: 'Pure man coverage, no safety help. High risk, high reward.',
     category: 'COVERAGE',
+    momentumCost: 1,  // Aggressive - no safety help
     vsRunRating: 55,
     vsPassRating: 70,
     blitzChance: 60,
@@ -1793,6 +1799,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 1 (Man)',
     description: 'Man coverage with one deep safety. Balanced man look.',
     category: 'COVERAGE',
+    momentumCost: 0,  // Basic man coverage
     vsRunRating: 60,
     vsPassRating: 65,
     blitzChance: 35,
@@ -1805,6 +1812,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 2 (Zone)',
     description: 'Two safeties deep, five underneath. Good vs outside.',
     category: 'COVERAGE',
+    momentumCost: 0,  // Basic zone
     vsRunRating: 50,
     vsPassRating: 70,
     blitzChance: 15,
@@ -1817,6 +1825,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 3 (Sky)',
     description: 'Three deep zones, four underneath. Classic zone shell.',
     category: 'COVERAGE',
+    momentumCost: 0,  // Basic zone
     vsRunRating: 65,
     vsPassRating: 60,
     blitzChance: 20,
@@ -1829,6 +1838,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 4 (Quarters)',
     description: 'Four deep zones. Great vs verticals, vulnerable underneath.',
     category: 'COVERAGE',
+    momentumCost: 0,  // Basic zone
     vsRunRating: 45,
     vsPassRating: 75,
     blitzChance: 10,
@@ -1841,6 +1851,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Tampa 2',
     description: 'Cover 2 with MLB dropping deep. Covers the deep middle hole.',
     category: 'COVERAGE',
+    momentumCost: 1,  // Specialized variation
     vsRunRating: 45,
     vsPassRating: 75,
     blitzChance: 10,
@@ -1853,6 +1864,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Cover 6 (Quarter-Quarter-Half)',
     description: 'Cover 4 to field, Cover 2 to boundary. Versatile look.',
     category: 'COVERAGE',
+    momentumCost: 1,  // Complex combination
     vsRunRating: 55,
     vsPassRating: 70,
     blitzChance: 15,
@@ -1861,12 +1873,13 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     vulnerableTo: ['DRAW', 'PLAY_ACTION'],
   },
 
-  // Pressure packages
+  // Pressure packages (all cost 1 - aggressive)
   ZONE_BLITZ: {
     scheme: 'ZONE_BLITZ',
     name: 'Zone Blitz',
     description: 'Rush unexpected players, drop linemen into zones. Confusing.',
     category: 'PRESSURE',
+    momentumCost: 1,
     vsRunRating: 60,
     vsPassRating: 65,
     blitzChance: 55,
@@ -1879,6 +1892,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Fire Zone',
     description: '5-man pressure with 3 deep coverage. Popular zone blitz.',
     category: 'PRESSURE',
+    momentumCost: 1,
     vsRunRating: 55,
     vsPassRating: 70,
     blitzChance: 65,
@@ -1891,6 +1905,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Zero Blitz',
     description: 'All-out pressure, pure man, no safety help. Boom or bust.',
     category: 'PRESSURE',
+    momentumCost: 1,
     vsRunRating: 50,
     vsPassRating: 60,
     blitzChance: 80,
@@ -1903,6 +1918,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Overload Blitz',
     description: 'Stack one side and bring the house. Hard to pick up.',
     category: 'PRESSURE',
+    momentumCost: 1,
     vsRunRating: 45,
     vsPassRating: 65,
     blitzChance: 75,
@@ -1915,6 +1931,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Delay Blitz',
     description: 'LBs show coverage then rush late. Catches offenses off guard.',
     category: 'PRESSURE',
+    momentumCost: 1,
     vsRunRating: 55,
     vsPassRating: 60,
     blitzChance: 45,
@@ -1923,12 +1940,13 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     vulnerableTo: ['QUICK_PASS', 'SCREEN'],
   },
 
-  // Run-focused fronts
+  // Run-focused fronts (all cost 1 - specialized)
   BEAR_FRONT: {
     scheme: 'BEAR_FRONT',
     name: 'Bear Front (46)',
     description: '4-6 defensive front, 2-gap everything. Stuffs inside runs.',
     category: 'RUN_STOP',
+    momentumCost: 1,
     vsRunRating: 85,
     vsPassRating: 40,
     blitzChance: 25,
@@ -1941,6 +1959,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Under Front',
     description: 'Defensive line shifts toward run strength. Sound vs run.',
     category: 'RUN_STOP',
+    momentumCost: 1,
     vsRunRating: 75,
     vsPassRating: 50,
     blitzChance: 30,
@@ -1953,6 +1972,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Over Front',
     description: 'Line shifts away from TE. Sets edge against outside runs.',
     category: 'RUN_STOP',
+    momentumCost: 1,
     vsRunRating: 70,
     vsPassRating: 55,
     blitzChance: 30,
@@ -1965,6 +1985,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Goal Line',
     description: 'Heavy front, max run stoppers. Last stand defense.',
     category: 'RUN_STOP',
+    momentumCost: 1,
     vsRunRating: 90,
     vsPassRating: 30,
     blitzChance: 20,
@@ -1979,6 +2000,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Prevent Defense',
     description: 'Give up short stuff, protect the deep ball. Clock killer.',
     category: 'SPECIALTY',
+    momentumCost: 0,  // Conservative, safe
     vsRunRating: 35,
     vsPassRating: 50,
     blitzChance: 5,
@@ -1991,6 +2013,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Nickel (5 DBs)',
     description: '5 defensive backs, balanced against pass with run support.',
     category: 'SPECIALTY',
+    momentumCost: 0,  // Standard sub package
     vsRunRating: 55,
     vsPassRating: 65,
     blitzChance: 30,
@@ -2003,6 +2026,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Dime (6 DBs)',
     description: '6 defensive backs, pass-heavy sub package.',
     category: 'SPECIALTY',
+    momentumCost: 1,  // Specialized
     vsRunRating: 40,
     vsPassRating: 75,
     blitzChance: 25,
@@ -2015,6 +2039,7 @@ export const DEFENSE_SCHEME_CONFIG: Record<DefenseScheme, DefenseSchemeConfig> =
     name: 'Quarter (7 DBs)',
     description: '7 defensive backs, extreme pass prevent. Hail Mary defense.',
     category: 'SPECIALTY',
+    momentumCost: 1,  // Specialized
     vsRunRating: 25,
     vsPassRating: 80,
     blitzChance: 10,
@@ -2041,6 +2066,10 @@ export type DefenseModifier =
   | 'GREEN_DOG'         // Rush if your man blocks
   | 'ROBBER'            // Safety plays underneath vs crossing routes
   | 'RAT_IN_HOLE'       // LB sits in throwing lane
+  // Premium modifiers (3 cost)
+  | 'KITCHEN_SINK'      // All-out pressure, max blitz, huge risk
+  | 'DOUBLE_BRACKET'    // Double team WR1 AND TE
+  | 'AMOEBA'            // Disguised pre-snap chaos
 ;
 
 export interface DefenseModifierConfig {
@@ -2186,6 +2215,41 @@ export const DEFENSE_MODIFIER_CONFIG: Record<DefenseModifier, DefenseModifierCon
     specialEffect: 'Denies primary receiver on short/medium routes',
     bestUsedWith: ['COVER_2', 'TAMPA_2', 'ZONE_BLITZ'],
     counters: ['SHORT_PASS', 'MEDIUM_PASS'],
+  },
+
+  // Premium modifiers (3 cost) - high risk, high reward
+  KITCHEN_SINK: {
+    modifier: 'KITCHEN_SINK',
+    name: 'Kitchen Sink',
+    description: 'Max blitz with safety blitz. Everyone rushes, no help deep.',
+    momentumCost: 3,
+    vsRunEffect: 20,
+    vsPassEffect: 25,
+    specialEffect: '+40% sack chance, +30% big play allowed. Boom or bust.',
+    bestUsedWith: ['ZERO_BLITZ', 'COVER_0', 'OVERLOAD_BLITZ'],
+    counters: ['QUICK_PASS', 'SCREEN', 'INSIDE_RUN'],
+  },
+  DOUBLE_BRACKET: {
+    modifier: 'DOUBLE_BRACKET',
+    name: 'Double Bracket',
+    description: 'Double team BOTH WR1 and TE. Eliminates two threats.',
+    momentumCost: 3,
+    vsRunEffect: -15,
+    vsPassEffect: 25,
+    specialEffect: '+25% coverage vs WR1 and TE targets. Very weak vs run.',
+    bestUsedWith: ['COVER_2', 'TAMPA_2', 'COVER_4'],
+    counters: ['WR1_TARGET', 'TE_TARGET'],
+  },
+  AMOEBA: {
+    modifier: 'AMOEBA',
+    name: 'Amoeba Defense',
+    description: 'Pre-snap chaos. Defenders move constantly, disguise everything.',
+    momentumCost: 3,
+    vsRunEffect: 15,
+    vsPassEffect: 20,
+    specialEffect: '35% chance offense picks wrong protection. If they read it, +25% yards.',
+    bestUsedWith: ['ZONE_BLITZ', 'FIRE_ZONE', 'NICKEL'],
+    counters: ['PLAY_ACTION', 'DRAW', 'TRICK_PLAY'],
   },
 };
 
