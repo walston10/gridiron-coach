@@ -17,6 +17,8 @@ import {
   type PassiveAlert,
 } from '../../stores/managementStore';
 import { useEventStore } from '../../stores/eventStore';
+import { useLeagueStore, getTeamAbbreviation } from '../../stores/leagueStore';
+import { STATIC_TEAMS } from '../../data/staticTeams';
 import { OwnerWelcomeEvent, type ChoiceResult } from '../Events/OwnerWelcomeEvent';
 
 // =============================================================================
@@ -83,6 +85,13 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     completeOwnerWelcome,
     currentWeek: eventWeek,
   } = useEventStore();
+
+  // League store for standings
+  const {
+    phase: leaguePhase,
+    standings,
+    getStandingsSorted,
+  } = useLeagueStore();
 
   const owner = getOwner();
   const showOwnerWelcome = eventWeek === 1 && !hasSeenOwnerWelcome;
@@ -213,6 +222,11 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
         <div className="w-full lg:w-80 space-y-4">
           {/* Alerts */}
           <AlertsSidebar alerts={alerts} />
+
+          {/* League Standings (if league is active) */}
+          {leaguePhase !== 'NOT_STARTED' && standings.length > 0 && (
+            <LeagueStandingsCompact standings={getStandingsSorted()} />
+          )}
 
           {/* Game Day Button */}
           <GameDayButton
@@ -968,6 +982,83 @@ const GameDayButton: React.FC<GameDayButtonProps> = ({
           All events resolved - ready for game day!
         </div>
       )}
+    </div>
+  );
+};
+
+// =============================================================================
+// LEAGUE STANDINGS COMPACT
+// =============================================================================
+
+interface LeagueStandingsCompactProps {
+  standings: Array<{ teamId: string; wins: number; losses: number }>;
+}
+
+const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standings }) => {
+  // Find user team ID (the one not in STATIC_TEAMS)
+  const userTeamId = standings.find(s =>
+    !STATIC_TEAMS.some(t => t.info.id === s.teamId)
+  )?.teamId || '';
+
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-900/50">
+      <div className="px-4 py-3 border-b border-gray-800">
+        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
+          League Standings
+        </h3>
+      </div>
+
+      <div className="p-3 space-y-1">
+        {standings.slice(0, 8).map((standing, index) => {
+          const isUserTeam = standing.teamId === userTeamId;
+          const isPlayoffPosition = index < 4;
+          const isPlayoffLine = index === 3;
+          const staticTeam = STATIC_TEAMS.find(t => t.info.id === standing.teamId);
+          const primaryColor = staticTeam?.info.primaryColor || '#4a5568';
+          const abbr = getTeamAbbreviation(standing.teamId);
+
+          return (
+            <div
+              key={standing.teamId}
+              className={`flex items-center justify-between p-2 rounded transition-colors ${
+                isUserTeam ? 'bg-blue-900/30' : 'hover:bg-gray-700/50'
+              } ${isPlayoffLine ? 'border-b border-b-blue-500' : ''}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`w-5 text-xs font-bold ${
+                  isPlayoffPosition ? 'text-blue-400' : 'text-gray-500'
+                }`}>
+                  {index + 1}
+                </span>
+
+                <div
+                  className="w-5 h-5 rounded text-xs flex items-center justify-center text-white font-bold"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {abbr.charAt(0)}
+                </div>
+
+                <span className={`text-sm ${isUserTeam ? 'text-blue-400 font-medium' : 'text-gray-300'}`}>
+                  {abbr}
+                  {isUserTeam && <span className="text-xs text-blue-400/50 ml-1">(You)</span>}
+                </span>
+              </div>
+
+              <span className="text-sm text-gray-400">
+                {standing.wins}-{standing.losses}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Playoff indicator */}
+      <div className="px-4 py-2 border-t border-gray-800">
+        <div className="flex items-center gap-2 text-xs">
+          <div className="w-2 h-2 bg-blue-500 rounded-full" />
+          <span className="text-gray-500">Top 4 make playoffs</span>
+        </div>
+      </div>
     </div>
   );
 };
