@@ -18,7 +18,9 @@ import {
 } from '../../stores/managementStore';
 import { useEventStore } from '../../stores/eventStore';
 import { useLeagueStore, getTeamAbbreviation } from '../../stores/leagueStore';
-import { STATIC_TEAMS } from '../../data/staticTeams';
+import { useGameStore } from '../../stores/gameStore';
+import { STATIC_TEAMS, getStaticTeam } from '../../data/staticTeams';
+import type { Roster } from '../../types/player.types';
 import { OwnerWelcomeEvent, type ChoiceResult } from '../Events/OwnerWelcomeEvent';
 
 // =============================================================================
@@ -59,6 +61,7 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
   const [selectedEvent, setSelectedEvent] = useState<ManagementEvent | null>(null);
   const [eventResult, setEventResult] = useState<EventResult | null>(null);
   const [showPracticeModal, setShowPracticeModal] = useState(false);
+  const [viewingRosterTeamId, setViewingRosterTeamId] = useState<string | null>(null);
 
   const {
     currentWeek,
@@ -92,6 +95,9 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
     standings,
     getStandingsSorted,
   } = useLeagueStore();
+
+  // Game store for user roster
+  const { draftedRoster, userTeamId } = useGameStore();
 
   const owner = getOwner();
   const showOwnerWelcome = eventWeek === 1 && !hasSeenOwnerWelcome;
@@ -225,7 +231,11 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
 
           {/* League Standings (if league is active) */}
           {leaguePhase !== 'NOT_STARTED' && standings.length > 0 && (
-            <LeagueStandingsCompact standings={getStandingsSorted()} />
+            <LeagueStandingsCompact
+              standings={getStandingsSorted()}
+              userTeamId={userTeamId || ''}
+              onTeamClick={(teamId) => setViewingRosterTeamId(teamId)}
+            />
           )}
 
           {/* Game Day Button */}
@@ -261,6 +271,16 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
           positions={POSITION_GROUPS}
           onSelect={handlePracticeFocus}
           onClose={() => setShowPracticeModal(false)}
+        />
+      )}
+
+      {/* === ROSTER MODAL === */}
+      {viewingRosterTeamId && (
+        <TeamRosterModal
+          teamId={viewingRosterTeamId}
+          userTeamId={userTeamId || ''}
+          userRoster={draftedRoster}
+          onClose={() => setViewingRosterTeamId(null)}
         />
       )}
     </div>
@@ -992,20 +1012,18 @@ const GameDayButton: React.FC<GameDayButtonProps> = ({
 
 interface LeagueStandingsCompactProps {
   standings: Array<{ teamId: string; wins: number; losses: number }>;
+  userTeamId: string;
+  onTeamClick: (teamId: string) => void;
 }
 
-const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standings }) => {
-  // Find user team ID (the one not in STATIC_TEAMS)
-  const userTeamId = standings.find(s =>
-    !STATIC_TEAMS.some(t => t.info.id === s.teamId)
-  )?.teamId || '';
-
+const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standings, userTeamId, onTeamClick }) => {
   return (
     <div className="rounded-lg border border-gray-800 bg-gray-900/50">
       <div className="px-4 py-3 border-b border-gray-800">
         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">
           League Standings
         </h3>
+        <p className="text-xs text-gray-500 mt-1">Tap team to view roster</p>
       </div>
 
       <div className="p-3 space-y-1">
@@ -1018,10 +1036,11 @@ const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standin
           const abbr = getTeamAbbreviation(standing.teamId);
 
           return (
-            <div
+            <button
               key={standing.teamId}
-              className={`flex items-center justify-between p-2 rounded transition-colors ${
-                isUserTeam ? 'bg-blue-900/30' : 'hover:bg-gray-700/50'
+              onClick={() => onTeamClick(standing.teamId)}
+              className={`w-full flex items-center justify-between p-2 rounded transition-colors cursor-pointer ${
+                isUserTeam ? 'bg-blue-900/30 hover:bg-blue-900/50' : 'hover:bg-gray-700/50'
               } ${isPlayoffLine ? 'border-b border-b-blue-500' : ''}`}
             >
               <div className="flex items-center gap-2">
@@ -1047,7 +1066,7 @@ const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standin
               <span className="text-sm text-gray-400">
                 {standing.wins}-{standing.losses}
               </span>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -1057,6 +1076,164 @@ const LeagueStandingsCompact: React.FC<LeagueStandingsCompactProps> = ({ standin
         <div className="flex items-center gap-2 text-xs">
           <div className="w-2 h-2 bg-blue-500 rounded-full" />
           <span className="text-gray-500">Top 4 make playoffs</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// TEAM ROSTER MODAL
+// =============================================================================
+
+interface TeamRosterModalProps {
+  teamId: string;
+  userTeamId: string;
+  userRoster: Roster | null;
+  onClose: () => void;
+}
+
+const TeamRosterModal: React.FC<TeamRosterModalProps> = ({ teamId, userTeamId, userRoster, onClose }) => {
+  const isUserTeam = teamId === userTeamId;
+  const staticTeam = getStaticTeam(teamId);
+
+  // Get the appropriate roster
+  const roster: Roster | null = isUserTeam ? userRoster : staticTeam?.roster || null;
+  const teamName = isUserTeam ? 'Your Team' : staticTeam?.info.name || 'Unknown Team';
+  const teamCity = isUserTeam ? '' : staticTeam?.info.city || '';
+  const primaryColor = staticTeam?.info.primaryColor || '#3b82f6';
+
+  if (!roster) {
+    return (
+      <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
+        <div className="bg-gray-900 rounded-lg p-6 max-w-md" onClick={e => e.stopPropagation()}>
+          <p className="text-gray-400">No roster data available</p>
+          <button onClick={onClose} className="mt-4 px-4 py-2 bg-gray-700 rounded text-white">
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Group players by position type using actual Roster structure
+  const offense = [
+    { label: 'QB', player: roster.offense.QB },
+    { label: 'RB', player: roster.offense.RB },
+    { label: 'WR1', player: roster.offense.WR1 },
+    { label: 'WR2', player: roster.offense.WR2 },
+    { label: 'TE', player: roster.offense.TE },
+  ];
+
+  const defense = [
+    { label: 'LB', player: roster.defense.LB },
+    { label: 'CB1', player: roster.defense.CB1 },
+    { label: 'CB2', player: roster.defense.CB2 },
+    { label: 'S', player: roster.defense.S },
+  ];
+
+  const flexLabel = roster.flex.type;
+  const flexPlayer = roster.flex.player;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-gray-900 rounded-lg w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="p-4 border-b border-gray-700"
+          style={{ backgroundColor: `${primaryColor}20` }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-400">{teamCity}</div>
+              <h2 className="text-xl font-bold text-white">{teamName}</h2>
+              {isUserTeam && <span className="text-xs text-blue-400">(Your Team)</span>}
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-gray-400 hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Offense */}
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <h3 className="text-sm font-bold text-green-400 mb-2">Offense</h3>
+            <div className="space-y-1">
+              {offense.map(({ label, player }) => (
+                <div key={label} className="flex justify-between text-sm py-1">
+                  <span className="text-gray-500 w-12">{label}</span>
+                  <span className="text-gray-300 flex-1">{player.firstName} {player.lastName}</span>
+                  <span className="text-gray-500">OVR {player.overall}</span>
+                </div>
+              ))}
+            </div>
+            {/* O-Line Unit */}
+            <div className="mt-3 pt-3 border-t border-gray-700">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 w-12">OL</span>
+                <span className="text-gray-300 flex-1">{roster.offense.OL.name}</span>
+                <span className="text-gray-500">OVR {roster.offense.OL.overall}</span>
+              </div>
+              <div className="text-xs text-gray-600 ml-12 mt-1">
+                Pass Block: {roster.offense.OL.passBlockRating} | Run Block: {roster.offense.OL.runBlockRating}
+              </div>
+            </div>
+          </div>
+
+          {/* Defense */}
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <h3 className="text-sm font-bold text-blue-400 mb-2">Defense</h3>
+            <div className="space-y-1">
+              {defense.map(({ label, player }) => (
+                <div key={label} className="flex justify-between text-sm py-1">
+                  <span className="text-gray-500 w-12">{label}</span>
+                  <span className="text-gray-300 flex-1">{player.firstName} {player.lastName}</span>
+                  <span className="text-gray-500">OVR {player.overall}</span>
+                </div>
+              ))}
+            </div>
+            {/* D-Line Unit */}
+            <div className="mt-3 pt-3 border-t border-gray-700">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 w-12">DL</span>
+                <span className="text-gray-300 flex-1">{roster.defense.DL.name}</span>
+                <span className="text-gray-500">OVR {roster.defense.DL.overall}</span>
+              </div>
+              <div className="text-xs text-gray-600 ml-12 mt-1">
+                Pass Rush: {roster.defense.DL.passRushRating} | Run Stop: {roster.defense.DL.runStopRating}
+              </div>
+            </div>
+          </div>
+
+          {/* Flex Player */}
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <h3 className="text-sm font-bold text-amber-400 mb-2">Flex</h3>
+            <div className="flex justify-between text-sm py-1">
+              <span className="text-gray-500 w-12">{flexLabel}</span>
+              <span className="text-gray-300 flex-1">{flexPlayer.firstName} {flexPlayer.lastName}</span>
+              <span className="text-gray-500">OVR {flexPlayer.overall}</span>
+            </div>
+          </div>
+
+          {/* Special Teams */}
+          <div className="bg-gray-800/50 rounded-lg p-3">
+            <h3 className="text-sm font-bold text-purple-400 mb-2">Special Teams</h3>
+            <div className="flex justify-between text-sm py-1">
+              <span className="text-gray-500 w-12">K/P</span>
+              <span className="text-gray-300 flex-1">{roster.specialTeams.KP.firstName} {roster.specialTeams.KP.lastName}</span>
+              <span className="text-gray-500">OVR {roster.specialTeams.KP.overall}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
