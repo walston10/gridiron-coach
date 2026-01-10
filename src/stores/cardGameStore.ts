@@ -32,6 +32,7 @@ import type {
   PregameModifiers,
   PregameCard,
   CombinedPregameEffects,
+  ClockMode,
 } from '../types/game.types';
 import {
   INITIAL_STAMINA,
@@ -42,6 +43,9 @@ import {
   generateRandomPregameModifiers,
   createPregameCards,
   calculateCombinedEffects,
+  CLOCK_MODE_CONFIG,
+  calculateClockRunoff,
+  determineOutOfBounds,
 } from '../types/game.types';
 import type {
   Card,
@@ -200,6 +204,7 @@ export interface CardGameState {
   // === Score & Clock ===
   clock: GameClock;
   playClock: number;
+  clockMode: ClockMode;
 
   // === Field Position ===
   fieldPosition: FieldPosition;
@@ -382,6 +387,8 @@ interface CardGameActions {
   tickClock: (seconds: number) => void;
   stopClock: () => void;
   startClock: () => void;
+  setClockMode: (mode: ClockMode) => void;
+  canUseClockMode: (mode: ClockMode) => boolean;
 
   // === Possession Management ===
   switchPossession: (reason: PossessionChangeReason) => void;
@@ -478,6 +485,7 @@ const initialState: CardGameState = {
   opponentState: createInitialTeamState(),
   clock: createInitialClock(),
   playClock: QUARTER_CONFIG.PLAY_CLOCK,
+  clockMode: 'NORMAL' as ClockMode,
   fieldPosition: createInitialFieldPosition(),
   possessionState: createInitialPossessionState(),
   offensiveMomentum: MOMENTUM_CONFIG.STARTING,
@@ -568,6 +576,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       quarterMinutes,
       playerStamina: { ...INITIAL_STAMINA },
       opponentStamina: { ...INITIAL_STAMINA },
+      clockMode: 'NORMAL' as ClockMode,
     });
 
     // Draw starting hands
@@ -708,6 +717,36 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
 
   startClock: () => set((state) => ({ clock: { ...state.clock, isRunning: true } })),
 
+  setClockMode: (mode) => {
+    // Only allow if the mode is available
+    if (!get().canUseClockMode(mode)) return;
+    set({ clockMode: mode });
+  },
+
+  canUseClockMode: (mode) => {
+    const state = get();
+    const config = CLOCK_MODE_CONFIG[mode];
+    const isPlayerOffense = state.possessionState.possession === 'player';
+
+    // Only offense can control clock modes
+    if (!isPlayerOffense) return false;
+
+    // Check availability conditions
+    if (config.availableWhen === 'LEADING') {
+      return state.playerState.score > state.opponentState.score;
+    }
+    if (config.availableWhen === 'TRAILING') {
+      return state.playerState.score < state.opponentState.score;
+    }
+
+    // Check momentum cost
+    if (config.momentumCost > 0) {
+      return state.offensiveMomentum >= config.momentumCost;
+    }
+
+    return true;
+  },
+
   // =========================================================================
   // POSSESSION MANAGEMENT
   // =========================================================================
@@ -842,6 +881,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       driveNumber: newDriveNumber,
       fieldPosition: createInitialFieldPosition(yardLine),
       phase: get().isPlayerOnOffense() ? 'OFFENSE_SELECT' : 'DEFENSE_SELECT',
+      clockMode: 'NORMAL' as ClockMode, // Reset clock mode on new drive
     });
   },
 
@@ -899,6 +939,12 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
 
     const isPlayerOffense = get().isPlayerOnOffense();
     const isThirdDown = state.fieldPosition.down === 3;
+
+    // Apply momentum cost for Two-Minute Drill
+    const clockModeConfig = CLOCK_MODE_CONFIG[state.clockMode];
+    if (clockModeConfig.momentumCost > 0 && isPlayerOffense) {
+      get().depleteOffensiveMomentum(clockModeConfig.momentumCost);
+    }
 
     // Handle penalty if present and accepted
     if (result.penalty && !result.penalty.declined) {
@@ -1046,8 +1092,19 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       phase: 'PLAY_RESULT',
     });
 
-    // Tick clock
-    get().tickClock(result.success ? 25 : 8);
+    // Determine if the clock stops
+    const isPassPlay = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(offenseCard.playType);
+    const isIncompletion = isPassPlay && !result.success && !result.turnover && !result.sack;
+    const wentOutOfBounds = result.success && determineOutOfBounds(
+      offenseCard.playType,
+      state.clockMode,
+      result.success
+    );
+    const clockStopped = result.touchdown || result.turnover || isIncompletion || wentOutOfBounds;
+
+    // Calculate and apply clock runoff
+    const clockRunoff = calculateClockRunoff(offenseCard.playType, state.clockMode, clockStopped);
+    get().tickClock(clockRunoff);
 
     // Move cards to discard
     get().playCard(offenseCard.id, isPlayerOffense);
@@ -1670,6 +1727,9 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     const pregameEffects = state.pregameEffects;
     const isHomeTeamOnOffense = state.playerIsHome === isPlayerOffense;
 
+    // Get defense read bonus from clock mode (e.g., +5% for chew clock)
+    const clockModeDefenseBonus = CLOCK_MODE_CONFIG[state.clockMode].defenseReadBonus;
+
     return {
       offenseRoster: isPlayerOffense ? state.playerRoster : state.opponentRoster,
       defenseRoster: isPlayerOffense ? state.opponentRoster : state.playerRoster,
@@ -1693,6 +1753,9 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       // Pregame effects context
       pregameEffects: pregameEffects || undefined,
       isHomeTeamOnOffense,
+      // Clock mode context
+      clockMode: state.clockMode,
+      clockModeDefenseBonus,
     };
   },
 }));

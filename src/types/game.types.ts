@@ -748,6 +748,131 @@ export interface PlayClock {
 }
 
 // =============================================================================
+// CLOCK MODES - Offense-controlled tempo
+// =============================================================================
+
+/**
+ * Clock modes that offense can select to control game tempo.
+ * Defense can only use timeouts.
+ */
+export type ClockMode = 'NORMAL' | 'TWO_MINUTE_DRILL' | 'CHEW_CLOCK';
+
+export interface ClockModeConfig {
+  name: string;
+  description: string;
+  momentumCost: number;          // Cost per play (0 for normal/chew)
+  baseRunoffMin: number;         // Min seconds for running clock
+  baseRunoffMax: number;         // Max seconds for running clock
+  clockStopRunoffMin: number;    // Min seconds for clock-stopping plays
+  clockStopRunoffMax: number;    // Max seconds for clock-stopping plays
+  oobChanceBonus: number;        // Added to base OOB chance (0-100)
+  defenseReadBonus: number;      // Bonus to defense reading play (0-100)
+  availableWhen: 'ALWAYS' | 'TRAILING' | 'LEADING';
+}
+
+export const CLOCK_MODE_CONFIG: Record<ClockMode, ClockModeConfig> = {
+  NORMAL: {
+    name: 'Normal',
+    description: 'Standard tempo',
+    momentumCost: 0,
+    baseRunoffMin: 32,
+    baseRunoffMax: 40,
+    clockStopRunoffMin: 6,
+    clockStopRunoffMax: 12,
+    oobChanceBonus: 0,
+    defenseReadBonus: 0,
+    availableWhen: 'ALWAYS',
+  },
+  TWO_MINUTE_DRILL: {
+    name: 'Two-Minute Drill',
+    description: 'Hurry-up offense, 70% OOB chance',
+    momentumCost: 1,
+    baseRunoffMin: 8,           // Even if tackled, no huddle
+    baseRunoffMax: 12,
+    clockStopRunoffMin: 6,
+    clockStopRunoffMax: 10,
+    oobChanceBonus: 60,         // 70% total OOB (base ~10% + 60%)
+    defenseReadBonus: 0,
+    availableWhen: 'ALWAYS',    // Can use anytime but costs momentum
+  },
+  CHEW_CLOCK: {
+    name: 'Chew Clock',
+    description: 'Milk the clock, defense gets +5% read',
+    momentumCost: 0,
+    baseRunoffMin: 40,
+    baseRunoffMax: 44,
+    clockStopRunoffMin: 8,
+    clockStopRunoffMax: 14,
+    oobChanceBonus: -5,         // Slightly less likely to go OOB
+    defenseReadBonus: 5,        // Defense can read you better
+    availableWhen: 'LEADING',   // Only when ahead
+  },
+};
+
+/**
+ * Base OOB (out of bounds) chances by play type.
+ * These are BEFORE clock mode bonuses.
+ */
+export const BASE_OOB_CHANCE: Record<string, number> = {
+  // Runs
+  INSIDE_RUN: 5,
+  POWER_RUN: 5,
+  OUTSIDE_RUN: 15,
+  DRAW: 8,
+  QB_RUN: 12,
+  // Passes
+  SHORT_PASS: 10,
+  MEDIUM_PASS: 10,
+  DEEP_PASS: 8,
+  SCREEN: 12,
+  PLAY_ACTION: 10,
+  // Special
+  TRICK_PLAY: 10,
+  SPIKE: 0,
+  KNEEL: 0,
+};
+
+/**
+ * Calculate clock runoff for a play result.
+ */
+export function calculateClockRunoff(
+  _playType: string,  // Reserved for future use (spike/kneel special handling)
+  clockMode: ClockMode,
+  clockStopped: boolean,  // Incompletion, turnover, TD, or OOB
+): number {
+  const config = CLOCK_MODE_CONFIG[clockMode];
+
+  if (clockStopped) {
+    // Clock-stopping play: only play duration
+    const min = config.clockStopRunoffMin;
+    const max = config.clockStopRunoffMax;
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  // Running clock: full runoff
+  const min = config.baseRunoffMin;
+  const max = config.baseRunoffMax;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * Determine if a play results in the ball carrier going out of bounds.
+ */
+export function determineOutOfBounds(
+  playType: string,
+  clockMode: ClockMode,
+  isCompletion: boolean,  // Only completions/runs can go OOB
+): boolean {
+  if (!isCompletion) return false;  // Incompletions don't go OOB (already clock stop)
+
+  const baseChance = BASE_OOB_CHANCE[playType] || 10;
+  const modeBonus = CLOCK_MODE_CONFIG[clockMode].oobChanceBonus;
+  const totalChance = Math.max(0, Math.min(95, baseChance + modeBonus));
+
+  return Math.random() * 100 < totalChance;
+}
+
+// =============================================================================
 // FIELD POSITION
 // =============================================================================
 

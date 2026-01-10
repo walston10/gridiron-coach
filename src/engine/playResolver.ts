@@ -134,6 +134,9 @@ export interface PlayContext {
   // Pregame effects
   pregameEffects?: CombinedPregameEffects; // Combined stadium/weather/referee effects
   isHomeTeamOnOffense?: boolean;    // Is the home team currently on offense
+  // Clock mode
+  clockMode?: 'NORMAL' | 'TWO_MINUTE_DRILL' | 'CHEW_CLOCK'; // Current clock mode
+  clockModeDefenseBonus?: number;   // Defense read bonus from clock mode (e.g., +5% for chew clock)
 }
 
 export interface PlayResult {
@@ -1004,6 +1007,12 @@ export function resolveOffensivePlay(
     breakdown.matchupModifier = matchupResult.modifier;
     breakdown.matchupDetails = matchupResult.details;
     successChance += matchupResult.modifier;
+  }
+
+  // === Step 12: Apply clock mode defense bonus (e.g., chew clock gives +5% to defense) ===
+  const clockDefenseBonus = context.clockModeDefenseBonus || 0;
+  if (clockDefenseBonus > 0) {
+    successChance -= clockDefenseBonus; // Reduces offense success rate
   }
 
   // Clamp success chance

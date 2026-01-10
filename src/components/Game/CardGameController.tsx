@@ -35,7 +35,9 @@ import {
   DEFENSE_MODIFIER_CONFIG,
   getSchemesForAnticipation,
   getModifiersForScheme,
+  CLOCK_MODE_CONFIG,
 } from '../../types/game.types';
+import type { ClockMode } from '../../types/game.types';
 
 // Universal Playbook
 import { UNIVERSAL_OFFENSIVE_PLAYS } from '../../data/universalPlaybook';
@@ -325,6 +327,9 @@ const OffensivePlayUI: React.FC<{
     opponentState,
     playerRoster,
     offensiveMomentum,
+    clockMode,
+    setClockMode,
+    canUseClockMode,
   } = useCardGameStore();
 
   const { draftedRoster } = useGameStore();
@@ -670,6 +675,67 @@ const OffensivePlayUI: React.FC<{
                 {MODIFIER_EFFECTS[selectedModifier].description}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Clock Mode Controls */}
+      <div className="bg-gray-900 border-t border-gray-800 px-4 pt-3">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-gray-400 text-xs">Tempo:</span>
+          <div className="flex gap-1 flex-1">
+            {(['NORMAL', 'TWO_MINUTE_DRILL', 'CHEW_CLOCK'] as ClockMode[]).map((mode) => {
+              const config = CLOCK_MODE_CONFIG[mode];
+              const isActive = clockMode === mode;
+              const canUse = canUseClockMode(mode);
+              const modeStyles: Record<ClockMode, { active: string; inactive: string }> = {
+                NORMAL: {
+                  active: 'bg-gray-600 border-gray-400',
+                  inactive: 'bg-gray-800 border-gray-700 hover:border-gray-500',
+                },
+                TWO_MINUTE_DRILL: {
+                  active: 'bg-amber-600 border-amber-400',
+                  inactive: 'bg-gray-800 border-amber-700 hover:border-amber-500',
+                },
+                CHEW_CLOCK: {
+                  active: 'bg-green-600 border-green-400',
+                  inactive: 'bg-gray-800 border-green-700 hover:border-green-500',
+                },
+              };
+              const style = modeStyles[mode];
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setClockMode(mode)}
+                  disabled={!canUse}
+                  className={`flex-1 px-2 py-1.5 rounded border text-xs font-medium transition-all ${
+                    isActive
+                      ? `${style.active} text-white`
+                      : canUse
+                        ? `${style.inactive} text-gray-300`
+                        : 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
+                  }`}
+                  title={config.description}
+                >
+                  <div className="flex items-center justify-center gap-1">
+                    {mode === 'NORMAL' && '⏱️'}
+                    {mode === 'TWO_MINUTE_DRILL' && '⚡'}
+                    {mode === 'CHEW_CLOCK' && '🐢'}
+                    <span className="hidden sm:inline">{config.name}</span>
+                  </div>
+                  {config.momentumCost > 0 && (
+                    <div className={`text-xs ${canUse ? 'text-amber-400' : 'text-red-400'}`}>
+                      -{config.momentumCost}/play
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {clockMode !== 'NORMAL' && (
+          <div className="text-xs text-gray-400 mb-2 text-center">
+            {CLOCK_MODE_CONFIG[clockMode].description}
           </div>
         )}
       </div>
