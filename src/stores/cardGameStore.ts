@@ -97,10 +97,10 @@ export const MOMENTUM_RULES = {
 
 /** Hand limits */
 export const HAND_LIMITS = {
-  MAX_OFFENSIVE: 5,
+  MAX_OFFENSIVE: 6,
   MAX_DEFENSIVE: 5,
   MAX_DIRTY: 2,
-  STARTING_OFFENSIVE: 4,
+  STARTING_OFFENSIVE: 5,
   STARTING_DEFENSIVE: 4,
 } as const;
 
@@ -1048,6 +1048,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
     // Move cards to discard
     get().playCard(offenseCard.id, isPlayerOffense);
     get().playCard(defenseCard.id, !isPlayerOffense);
+
+    // Draw new cards to replenish hands
+    get().drawCard('OFFENSIVE', isPlayerOffense);
+    get().drawCard('DEFENSIVE', !isPlayerOffense);
 
     return result;
   },
