@@ -128,41 +128,42 @@ export function applyRosterBuffs(
   play: UniversalPlay,
   buffs: RosterBuffs
 ): ModifiedPlay {
-  // Get the primary stat buff
+  // Get the primary stat buff (returns -15 to +15 based on rating)
   const primaryBuff = getStatBuff(play.primaryStat, buffs);
   const secondaryBuff = play.secondaryStat ? getStatBuff(play.secondaryStat, buffs) * 0.5 : 0;
 
-  // Calculate total buff (scale by 0.1 to get percentage modifier)
-  const totalBuff = (primaryBuff + secondaryBuff) * 0.15;
+  // Calculate total modifier: ADD to base, don't multiply
+  // primaryBuff of +10 means +5% success, -10 means -5% success
+  const successModifier = Math.round((primaryBuff + secondaryBuff) * 0.5);
 
-  // Apply buffs
-  let successChance = Math.round(play.baseSuccessChance * (1 + totalBuff));
-  let yards = Math.round(play.baseYards * (1 + totalBuff * 0.5));
-  let bigPlayChance = Math.round(play.baseBigPlayChance * (1 + buffs.bigPlayBonus * 0.02));
-  let turnoverRisk = Math.round(play.baseTurnoverRisk * (1 - buffs.protectionBonus * 0.02));
+  // Apply buffs - ADDITIVE, not multiplicative
+  let successChance = play.baseSuccessChance + successModifier;
+  let yards = Math.round(play.baseYards * (1 + successModifier * 0.02)); // Small yards adjustment
+  let bigPlayChance = Math.round(play.baseBigPlayChance + buffs.bigPlayBonus * 0.3);
+  let turnoverRisk = Math.round(play.baseTurnoverRisk - buffs.protectionBonus * 0.2);
 
-  // Apply category-specific buffs
+  // Apply category-specific buffs (smaller additive bonuses)
   if (play.category === 'RUN') {
-    successChance += buffs.rushingBonus;
-    yards = Math.round(yards * (1 + buffs.rushingBonus * 0.03));
+    successChance += Math.round(buffs.rushingBonus * 0.5);
+    yards += Math.round(buffs.rushingBonus * 0.1);
   } else if (['SHORT', 'MEDIUM', 'DEEP'].includes(play.category)) {
-    successChance += buffs.passingBonus;
+    successChance += Math.round(buffs.passingBonus * 0.5);
   }
 
-  // Clamp values
-  successChance = Math.max(15, Math.min(95, successChance));
+  // Clamp values to reasonable ranges
+  successChance = Math.max(15, Math.min(85, successChance));
   yards = Math.max(1, yards);
-  bigPlayChance = Math.max(0, Math.min(60, bigPlayChance));
-  turnoverRisk = Math.max(1, Math.min(30, turnoverRisk));
+  bigPlayChance = Math.max(0, Math.min(40, bigPlayChance));
+  turnoverRisk = Math.max(2, Math.min(25, turnoverRisk));
 
   // Determine buff indicator
   let buffIndicator: 'boosted' | 'neutral' | 'weak' = 'neutral';
   let buffReason: string | undefined;
 
-  if (totalBuff >= 0.1) {
+  if (successModifier >= 3) {
     buffIndicator = 'boosted';
     buffReason = getBoostedReason(play.primaryStat);
-  } else if (totalBuff <= -0.1) {
+  } else if (successModifier <= -3) {
     buffIndicator = 'weak';
     buffReason = getWeakReason(play.primaryStat);
   }
