@@ -110,7 +110,7 @@ export const HAND_LIMITS = {
 
 /** Quarter settings */
 export const QUARTER_CONFIG = {
-  DEFAULT_MINUTES: 4, // Quick games
+  DEFAULT_MINUTES: 15, // Full 15-minute quarters
   FULL_MINUTES: 15,
   TWO_MINUTE_WARNING: 2,
   PLAY_CLOCK: 40,
