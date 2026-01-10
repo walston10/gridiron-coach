@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useGameStore } from './stores/gameStore';
 import { useDraftStore } from './stores/draftStore';
 import { useSeasonStore } from './stores/seasonStore';
+import { useLeagueStore } from './stores/leagueStore';
 import { MainLayout } from './components/Layout/MainLayout';
 import { WeeklyDashboard } from './components/Management/WeeklyDashboard';
 import { PlayDesigner } from './components/PlayDesigner/PlayDesigner';
@@ -20,6 +21,7 @@ type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting'
 function App() {
   const { gamePhase, userTeamId, setPhase, initializeGame, setDraftedRoster } = useGameStore();
   const { season, initializeSeason, getCurrentUserGame } = useSeasonStore();
+  const { initializeSeason: initializeLeague } = useLeagueStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
 
   // Intro flow - render based on gamePhase
@@ -54,6 +56,9 @@ function App() {
               prestige: t.info.prestige,
             }));
             initializeSeason(DEFAULT_TEAMS[3].info.id, leagueTeams);
+
+            // Initialize the league standings system (7 AI teams + 1 user)
+            initializeLeague(DEFAULT_TEAMS[3].info.id);
 
             setPhase('desk');
           }}
