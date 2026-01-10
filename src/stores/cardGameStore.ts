@@ -223,6 +223,7 @@ export interface CardGameState {
   // === Current Play Selection ===
   playSelection: PlaySelection;
   lastPlayedSelection: PlaySelection | null; // Preserved after play executes for result display
+  lastPlayWasPlayerOffense: boolean | null; // Who was on offense when the last play executed
   fourthDownState: FourthDownState | null;
 
   // === Drive State ===
@@ -488,6 +489,7 @@ const initialState: CardGameState = {
   opponentDeck: null,
   playSelection: createInitialPlaySelection(),
   lastPlayedSelection: null,
+  lastPlayWasPlayerOffense: null,
   fourthDownState: null,
   currentDrive: createInitialDrive(25, 1, QUARTER_CONFIG.DEFAULT_MINUTES, 0),
   driveNumber: 0,
@@ -557,6 +559,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       opponentDeck: opponentDeckState,
       playSelection: createInitialPlaySelection(),
       lastPlayedSelection: null,
+      lastPlayWasPlayerOffense: null,
       currentDrive: createInitialDrive(25, 1, quarterMinutes, 0),
       driveNumber: 1,
       playLog: [],
@@ -1035,9 +1038,10 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       get().switchPossession('SAFETY');
     }
 
-    // Save selection for result display, then reset for next play
+    // Save selection and offense status for result display, then reset for next play
     set({
       lastPlayedSelection: { ...state.playSelection },
+      lastPlayWasPlayerOffense: isPlayerOffense,
       playSelection: createInitialPlaySelection(),
       phase: 'PLAY_RESULT',
     });
@@ -1207,19 +1211,46 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
 
   applyMomentumEvent: (event, forPlayer) => {
     const amount = MOMENTUM_RULES[event];
+    // Offensive events (happen when that team is on offense)
+    const isOffensiveEvent = ['FIRST_DOWN', 'TOUCHDOWN', 'FIELD_GOAL', 'BIG_PLAY', 'TURNOVER_LOST', 'SACK_TAKEN', 'FAILED_FOURTH'].includes(event);
+    // Defensive events (happen when that team is on defense)
+    const isDefensiveEvent = ['TURNOVER_GAINED', 'SACK', 'THIRD_DOWN_STOP'].includes(event);
+    // Positive for the team it applies to
     const isPositive = ['FIRST_DOWN', 'TOUCHDOWN', 'FIELD_GOAL', 'TURNOVER_GAINED', 'SACK', 'BIG_PLAY', 'THIRD_DOWN_STOP'].includes(event);
 
-    if (isPositive) {
-      if (forPlayer) {
-        get().recoverOffensiveMomentum(amount);
-      } else {
-        get().recoverDefensiveMomentum(amount);
+    if (forPlayer) {
+      // Event benefits the player
+      if (isOffensiveEvent) {
+        // Player did something on offense
+        if (isPositive) {
+          get().recoverOffensiveMomentum(amount);
+        } else {
+          get().depleteOffensiveMomentum(amount);
+        }
+      } else if (isDefensiveEvent) {
+        // Player did something on defense
+        if (isPositive) {
+          get().recoverDefensiveMomentum(amount);
+        } else {
+          get().depleteDefensiveMomentum(amount);
+        }
       }
     } else {
-      if (forPlayer) {
-        get().depleteOffensiveMomentum(amount);
-      } else {
-        get().depleteDefensiveMomentum(amount);
+      // Event benefits the opponent - so it HURTS the player
+      if (isOffensiveEvent) {
+        // Opponent did something on offense = player failed on defense
+        if (isPositive) {
+          get().depleteDefensiveMomentum(amount);
+        } else {
+          get().recoverDefensiveMomentum(amount);
+        }
+      } else if (isDefensiveEvent) {
+        // Opponent did something on defense = player failed on offense
+        if (isPositive) {
+          get().depleteOffensiveMomentum(amount);
+        } else {
+          get().recoverOffensiveMomentum(amount);
+        }
       }
     }
   },

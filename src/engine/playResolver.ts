@@ -177,8 +177,31 @@ export interface PlayBreakdown {
   staminaModifier: number;
   modifierBonus: number;        // Pre-snap modifier effect
   pregameModifier: number;      // Stadium/weather/referee combined effects
+  matchupModifier: number;      // Individual player matchup result
+  matchupDetails?: MatchupDetails; // Detailed matchup info for display
   finalSuccessChance: number;
   rolls: { name: string; target: number; result: number; success: boolean }[];
+}
+
+/** Individual player matchup details for display */
+export interface MatchupDetails {
+  // Offensive player in the matchup
+  offensePlayer: {
+    position: TargetPosition | 'QB';
+    rating: number;       // Primary rating used
+    ratingName: string;   // e.g., "Throwing", "Catching", "Power"
+  };
+  // Defensive player in the matchup
+  defensePlayer: {
+    position: string;     // e.g., "CB1", "LB", "S"
+    rating: number;       // Primary rating used
+    ratingName: string;   // e.g., "Coverage", "Tackling"
+  };
+  // Matchup result
+  advantageTeam: 'OFFENSE' | 'DEFENSE' | 'EVEN';
+  differential: number;   // Rating difference
+  modifier: number;       // Applied modifier to success chance
+  description: string;    // e.g., "WR1 (92 SPD) vs CB1 (78 COV) = +7%"
 }
 
 export interface FourthDownResult {
@@ -732,6 +755,7 @@ export function resolveOffensivePlay(
       staminaModifier: 0,
       modifierBonus: 0,
       pregameModifier: 0,
+      matchupModifier: 0,
       finalSuccessChance: 0,
       rolls: [],
     };
@@ -766,6 +790,7 @@ export function resolveOffensivePlay(
     staminaModifier: 0,
     modifierBonus: 0,
     pregameModifier: 0,
+    matchupModifier: 0,
     finalSuccessChance: 0,
     rolls: [],
   };
@@ -925,6 +950,61 @@ export function resolveOffensivePlay(
 
   breakdown.modifierBonus = modifierBonus;
   successChance += modifierBonus;
+
+  // === Step 11.5: Apply individual player matchups ===
+  const isDeepPass = offenseCard.playType === 'DEEP_PASS';
+  const isRunPlay = ['INSIDE_RUN', 'OUTSIDE_RUN', 'POWER_RUN', 'DRAW', 'QB_RUN'].includes(offenseCard.playType);
+  const isPowerRun = offenseCard.playType === 'POWER_RUN' || offenseCard.playType === 'INSIDE_RUN';
+
+  let matchupResult: { modifier: number; details: MatchupDetails } | null = null;
+
+  if (isRunPlay) {
+    // Run play: RB vs Front 7 matchup
+    matchupResult = resolveRunMatchup(context.offenseRoster, context.defenseRoster, isPowerRun);
+  } else if (isPassPlay && context.offenseTarget) {
+    // Pass play with target: Receiver vs Coverage matchup
+    matchupResult = resolvePassMatchup(
+      context.offenseRoster,
+      context.defenseRoster,
+      context.offenseTarget,
+      isDeepPass
+    );
+
+    // Also factor in QB accuracy
+    const qbMod = resolveQBAccuracy(
+      context.offenseRoster.offense.QB,
+      isDeepPass,
+      false // Will be set to true if under pressure later
+    );
+    if (matchupResult) {
+      matchupResult.modifier += qbMod;
+      matchupResult.details.description += ` | QB: ${qbMod >= 0 ? '+' : ''}${qbMod}%`;
+    }
+  } else if (isPassPlay) {
+    // Pass play without specific target - use default WR1
+    matchupResult = resolvePassMatchup(
+      context.offenseRoster,
+      context.defenseRoster,
+      'WR1',
+      isDeepPass
+    );
+
+    const qbMod = resolveQBAccuracy(
+      context.offenseRoster.offense.QB,
+      isDeepPass,
+      false
+    );
+    if (matchupResult) {
+      matchupResult.modifier += qbMod;
+      matchupResult.details.description += ` | QB: ${qbMod >= 0 ? '+' : ''}${qbMod}%`;
+    }
+  }
+
+  if (matchupResult) {
+    breakdown.matchupModifier = matchupResult.modifier;
+    breakdown.matchupDetails = matchupResult.details;
+    successChance += matchupResult.modifier;
+  }
 
   // Clamp success chance
   breakdown.finalSuccessChance = Math.max(5, Math.min(95, successChance));
@@ -1154,6 +1234,203 @@ export function resolveOffensivePlay(
 
 // =============================================================================
 // SUB-RESOLUTION FUNCTIONS
+// =============================================================================
+
+// =============================================================================
+// PLAYER MATCHUP RESOLUTION
+// =============================================================================
+
+/**
+ * Resolve pass play matchup: Receiver vs Coverage defender
+ * Returns modifier and details for the play breakdown
+ */
+function resolvePassMatchup(
+  offenseRoster: Roster,
+  defenseRoster: Roster,
+  target: TargetPosition,
+  isDeepPass: boolean
+): { modifier: number; details: MatchupDetails } {
+  // Get the receiver
+  const receiver = getTargetPlayer(offenseRoster, target);
+  const receiverSpeed = receiver.ratings.speed;
+  const receiverCatching = receiver.ratings.catching;
+  const receiverAgility = receiver.ratings.agility;
+
+  // Primary receiver rating: blend of speed and catching
+  const receiverRating = isDeepPass
+    ? Math.round(receiverSpeed * 0.7 + receiverCatching * 0.3)  // Deep passes favor speed
+    : Math.round(receiverCatching * 0.5 + receiverSpeed * 0.3 + receiverAgility * 0.2);  // Short/medium favor hands
+
+  // Get the coverage defender based on target
+  let defender: { rating: number; position: string; ratingName: string };
+
+  if (target === 'WR1') {
+    defender = {
+      rating: defenseRoster.defense.CB1.ratings.coverage,
+      position: 'CB1',
+      ratingName: 'Coverage',
+    };
+  } else if (target === 'WR2') {
+    defender = {
+      rating: defenseRoster.defense.CB2.ratings.coverage,
+      position: 'CB2',
+      ratingName: 'Coverage',
+    };
+  } else if (target === 'TE') {
+    // TE is covered by LB or S depending on situation
+    const lbCoverage = defenseRoster.defense.LB.ratings.coverage;
+    const sCoverage = defenseRoster.defense.S.ratings.coverage;
+    if (isDeepPass) {
+      defender = { rating: sCoverage, position: 'S', ratingName: 'Coverage' };
+    } else {
+      defender = { rating: lbCoverage, position: 'LB', ratingName: 'Coverage' };
+    }
+  } else {
+    // RB - covered by LB
+    defender = {
+      rating: defenseRoster.defense.LB.ratings.coverage,
+      position: 'LB',
+      ratingName: 'Coverage',
+    };
+  }
+
+  // Calculate matchup differential
+  const differential = receiverRating - defender.rating;
+
+  // Convert to modifier: every 10 points = ~5% modifier
+  const modifier = Math.round(differential * 0.5);
+
+  // Determine advantage
+  let advantageTeam: 'OFFENSE' | 'DEFENSE' | 'EVEN' = 'EVEN';
+  if (differential >= 5) advantageTeam = 'OFFENSE';
+  else if (differential <= -5) advantageTeam = 'DEFENSE';
+
+  const details: MatchupDetails = {
+    offensePlayer: {
+      position: target,
+      rating: receiverRating,
+      ratingName: isDeepPass ? 'Speed' : 'Catching',
+    },
+    defensePlayer: defender,
+    advantageTeam,
+    differential,
+    modifier,
+    description: `${target} (${receiverRating}) vs ${defender.position} (${defender.rating} ${defender.ratingName}) = ${modifier >= 0 ? '+' : ''}${modifier}%`,
+  };
+
+  return { modifier, details };
+}
+
+/**
+ * Resolve run play matchup: RB vs front seven
+ * Returns modifier and details for the play breakdown
+ */
+function resolveRunMatchup(
+  offenseRoster: Roster,
+  defenseRoster: Roster,
+  isPowerRun: boolean
+): { modifier: number; details: MatchupDetails } {
+  const rb = offenseRoster.offense.RB;
+  const ol = offenseRoster.offense.OL;
+  const dl = defenseRoster.defense.DL;
+  const lb = defenseRoster.defense.LB;
+
+  // RB rating: power for inside/power runs, agility for outside runs
+  const rbPower = rb.ratings.strength;
+  const rbAgility = rb.ratings.agility;
+  const rbSpeed = rb.ratings.speed;
+
+  const rbRating = isPowerRun
+    ? Math.round(rbPower * 0.6 + rbAgility * 0.2 + rbSpeed * 0.2)
+    : Math.round(rbAgility * 0.4 + rbSpeed * 0.4 + rbPower * 0.2);
+
+  // Defense run stopping: DL run stop + LB tackling + OL run blocking factor
+  const olRunBlock = ol.runBlockRating;
+  const dlRunStop = dl.runStopRating;
+  const lbTackling = lb.ratings.tackling;
+
+  // Offensive line vs DL
+  const lineMatchup = olRunBlock - dlRunStop;
+
+  // Second level: RB vs LB
+  const secondLevelMatchup = rbRating - lbTackling;
+
+  // Combined: 60% line play, 40% second level
+  const totalDifferential = Math.round(lineMatchup * 0.6 + secondLevelMatchup * 0.4);
+
+  // Convert to modifier
+  const modifier = Math.round(totalDifferential * 0.4);
+
+  let advantageTeam: 'OFFENSE' | 'DEFENSE' | 'EVEN' = 'EVEN';
+  if (totalDifferential >= 5) advantageTeam = 'OFFENSE';
+  else if (totalDifferential <= -5) advantageTeam = 'DEFENSE';
+
+  const details: MatchupDetails = {
+    offensePlayer: {
+      position: 'RB',
+      rating: rbRating,
+      ratingName: isPowerRun ? 'Power' : 'Agility',
+    },
+    defensePlayer: {
+      position: 'Front 7',
+      rating: Math.round((dlRunStop + lbTackling) / 2),
+      ratingName: 'Run Stop',
+    },
+    advantageTeam,
+    differential: totalDifferential,
+    modifier,
+    description: `RB (${rbRating} ${isPowerRun ? 'PWR' : 'AGI'}) + OL (${olRunBlock}) vs DL (${dlRunStop}) + LB (${lbTackling} TKL) = ${modifier >= 0 ? '+' : ''}${modifier}%`,
+  };
+
+  return { modifier, details };
+}
+
+/**
+ * QB accuracy check - affects pass completion chance
+ * Returns modifier based on QB throwing + accuracy
+ */
+function resolveQBAccuracy(
+  qb: Roster['offense']['QB'],
+  isDeepPass: boolean,
+  isPressured: boolean
+): number {
+  const throwing = qb.ratings.throwing;
+  const awareness = qb.ratings.awareness;
+  // clutch rating available for future pressure situations
+
+  // Base accuracy: throwing + awareness blend
+  let accuracy = Math.round(throwing * 0.6 + awareness * 0.4);
+
+  // Deep passes require more arm strength
+  if (isDeepPass) {
+    accuracy = Math.round(throwing * 0.8 + awareness * 0.2);
+  }
+
+  // Pressure hurts accuracy (awareness helps mitigate)
+  if (isPressured) {
+    const pressurePenalty = Math.max(5, 15 - Math.round(awareness * 0.1));
+    accuracy -= pressurePenalty;
+  }
+
+  // Convert to modifier: 75 = neutral, every 5 points = ~2.5%
+  return Math.round((accuracy - 75) * 0.5);
+}
+
+/**
+ * Get the targeted player from the roster
+ */
+function getTargetPlayer(roster: Roster, target: TargetPosition) {
+  switch (target) {
+    case 'WR1': return roster.offense.WR1;
+    case 'WR2': return roster.offense.WR2;
+    case 'TE': return roster.offense.TE;
+    case 'RB': return roster.offense.RB;
+    default: return roster.offense.WR1;
+  }
+}
+
+// =============================================================================
+// EXISTING SUB-RESOLUTION FUNCTIONS
 // =============================================================================
 
 interface PocketResult {
