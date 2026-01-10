@@ -19,6 +19,15 @@ import type { TargetPosition, ShadePosition } from '../../types/game.types';
 // TYPES
 // =============================================================================
 
+/** Player names for narration */
+interface NarrationNames {
+  qb: string;
+  rb: string;
+  wr1: string;
+  wr2: string;
+  te: string;
+}
+
 interface PlayResultDisplayProps {
   result: PlayResult | FourthDownResult;
   offensePlayType?: OffensivePlayType;
@@ -26,6 +35,7 @@ interface PlayResultDisplayProps {
   defenseCard?: DefensiveCard;
   defenseShade?: ShadePosition;
   isPlayerOffense: boolean;
+  offensePlayerNames?: NarrationNames;  // Actual player names from roster
   onContinue: () => void;
   onXPChoice?: (choice: 'XP' | 'TWO_POINT') => void;
 }
@@ -203,6 +213,7 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
   defenseCard,
   defenseShade,
   isPlayerOffense,
+  offensePlayerNames,
   onContinue,
   onXPChoice,
 }) => {
@@ -244,8 +255,8 @@ export const PlayResultDisplay: React.FC<PlayResultDisplayProps> = ({
 
   // Generate narration text
   const generatedNarration = useMemo(() => {
-    return generateNarration(result, resultType, offensePlayType, targetPosition);
-  }, [result, resultType, offensePlayType, targetPosition]);
+    return generateNarration(result, resultType, offensePlayType, targetPosition, offensePlayerNames);
+  }, [result, resultType, offensePlayType, targetPosition, offensePlayerNames]);
 
   // Generate secondary effects
   const generatedEffects = useMemo(() => {
@@ -1434,25 +1445,28 @@ function generateNarration(
   result: PlayResult | FourthDownResult,
   resultType: ResultType,
   _playType?: OffensivePlayType,
-  targetPosition?: TargetPosition
+  targetPosition?: TargetPosition,
+  playerNames?: NarrationNames
 ): string {
   const yards = 'yardsGained' in result ? Math.abs(result.yardsGained ?? 0) : 0;
   const isBigPlay = 'bigPlay' in result && result.bigPlay;
 
-  // Get player names
-  const qbName = PLAYER_NAMES.QB[Math.floor(Math.random() * PLAYER_NAMES.QB.length)];
-  const rbName = PLAYER_NAMES.RB[Math.floor(Math.random() * PLAYER_NAMES.RB.length)];
+  // Use actual player names if provided, otherwise fall back to random
+  const qbName = playerNames?.qb || PLAYER_NAMES.QB[Math.floor(Math.random() * PLAYER_NAMES.QB.length)];
+  const rbName = playerNames?.rb || PLAYER_NAMES.RB[Math.floor(Math.random() * PLAYER_NAMES.RB.length)];
 
   // Get target name based on position
-  let targetName = PLAYER_NAMES.WR[Math.floor(Math.random() * PLAYER_NAMES.WR.length)];
+  let targetName: string;
   if (targetPosition === 'WR1') {
-    targetName = PLAYER_NAMES.WR1[Math.floor(Math.random() * PLAYER_NAMES.WR1.length)];
+    targetName = playerNames?.wr1 || PLAYER_NAMES.WR1[Math.floor(Math.random() * PLAYER_NAMES.WR1.length)];
   } else if (targetPosition === 'WR2') {
-    targetName = PLAYER_NAMES.WR2[Math.floor(Math.random() * PLAYER_NAMES.WR2.length)];
+    targetName = playerNames?.wr2 || PLAYER_NAMES.WR2[Math.floor(Math.random() * PLAYER_NAMES.WR2.length)];
   } else if (targetPosition === 'TE') {
-    targetName = PLAYER_NAMES.TE[Math.floor(Math.random() * PLAYER_NAMES.TE.length)];
+    targetName = playerNames?.te || PLAYER_NAMES.TE[Math.floor(Math.random() * PLAYER_NAMES.TE.length)];
   } else if (targetPosition === 'RB') {
     targetName = rbName;
+  } else {
+    targetName = playerNames?.wr1 || PLAYER_NAMES.WR[Math.floor(Math.random() * PLAYER_NAMES.WR.length)];
   }
 
   let templates: string[];

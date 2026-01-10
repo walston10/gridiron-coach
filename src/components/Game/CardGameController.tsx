@@ -1071,6 +1071,8 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     isInitialized,
     playerState,
     opponentState,
+    playerRoster,
+    opponentRoster,
     lastPlayedSelection,
     lastPlayWasPlayerOffense,
     possessionState,
@@ -1347,6 +1349,17 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     const offenseCard = lastPlayedSelection?.offenseCard as OffensiveCard | null;
     const defenseCard = lastPlayedSelection?.defenseCard as DefensiveCard | null;
 
+    // Get actual player names from the roster that was on offense
+    const wasPlayerOffense = lastPlayWasPlayerOffense ?? isPlayerOnOffense();
+    const offRoster = wasPlayerOffense ? playerRoster : opponentRoster;
+    const offensePlayerNames = offRoster ? {
+      qb: offRoster.offense.QB.lastName,
+      rb: offRoster.offense.RB.lastName,
+      wr1: offRoster.offense.WR1.lastName,
+      wr2: offRoster.offense.WR2.lastName,
+      te: offRoster.offense.TE.lastName,
+    } : undefined;
+
     return (
       <PlayResultDisplay
         result={lastResult}
@@ -1354,7 +1367,8 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
         targetPosition={lastPlayedSelection?.offenseTarget || undefined}
         defenseCard={defenseCard || undefined}
         defenseShade={lastPlayedSelection?.defenseShade || undefined}
-        isPlayerOffense={lastPlayWasPlayerOffense ?? isPlayerOnOffense()}
+        isPlayerOffense={wasPlayerOffense}
+        offensePlayerNames={offensePlayerNames}
         onContinue={handleContinue}
         onXPChoice={handleXPChoice}
       />
