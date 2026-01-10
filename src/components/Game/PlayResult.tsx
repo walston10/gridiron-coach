@@ -1594,6 +1594,14 @@ function generateSecondaryEffects(
 function getResultType(result: PlayResult | FourthDownResult, offensePlayType?: OffensivePlayType): ResultType {
   // Check for special results first
   if (result.touchdown) return 'TOUCHDOWN';
+
+  // Fourth down specific - check BEFORE turnover since missed FGs have turnover: true
+  if ('type' in result) {
+    if (result.type === 'FIELD_GOAL') return result.success ? 'FIELD_GOAL_GOOD' : 'FIELD_GOAL_MISS';
+    if (result.type === 'PUNT') return 'PUNT';
+  }
+
+  // Check for turnovers (but not for missed FGs which are handled above)
   if (result.turnover) {
     if ('turnoverType' in result && result.turnoverType === 'INTERCEPTION') return 'INTERCEPTION';
     if ('turnoverType' in result && result.turnoverType === 'FUMBLE') return 'FUMBLE';
@@ -1602,12 +1610,6 @@ function getResultType(result: PlayResult | FourthDownResult, offensePlayType?: 
   }
   if ('safety' in result && result.safety) return 'SAFETY';
   if ('sack' in result && result.sack) return 'SACK';
-
-  // Fourth down specific
-  if ('type' in result) {
-    if (result.type === 'FIELD_GOAL') return result.success ? 'FIELD_GOAL_GOOD' : 'FIELD_GOAL_MISS';
-    if (result.type === 'PUNT') return 'PUNT';
-  }
 
   // Regular plays
   if ('penalty' in result && result.penalty) return 'PENALTY';

@@ -204,6 +204,111 @@ function selectAIOffenseCard(
 }
 
 // =============================================================================
+// AI FOURTH DOWN DECISION
+// =============================================================================
+
+/**
+ * AI decision for 4th down - should they punt, kick FG, or go for it?
+ */
+function selectAIFourthDownChoice(context: {
+  yardsToGo: number;
+  yardsToEndzone: number;
+  scoreDifferential: number; // Positive = AI winning
+  quarter: number;
+  minutes: number;
+  ownTerritory: boolean;  // True if ball is in AI's own half
+}): FourthDownCategory {
+  const { yardsToGo, yardsToEndzone, scoreDifferential, quarter, minutes, ownTerritory } = context;
+
+  const fgDistance = yardsToEndzone + 17;
+  const fgMakeable = fgDistance <= 55; // Max realistic FG range
+  const fgEasy = fgDistance <= 40;
+  const isFourthQuarter = quarter === 4;
+  const isTwoMinuteDrill = isFourthQuarter && minutes <= 2;
+  const isShortYardage = yardsToGo <= 2;
+  const isVeryShort = yardsToGo <= 1;
+  const isTrailingBig = scoreDifferential < -10;
+  const isTrailing = scoreDifferential < 0;
+  const isWinning = scoreDifferential > 0;
+
+  // RULE 1: In field goal range and not desperate, try field goal
+  if (fgMakeable && !isTrailingBig) {
+    // Easy FG (under 40 yards) - almost always kick
+    if (fgEasy && !isTwoMinuteDrill) {
+      return 'FIELD_GOAL';
+    }
+    // Medium FG (40-55 yards) - kick unless short yardage opportunity
+    if (fgMakeable && !isVeryShort) {
+      return 'FIELD_GOAL';
+    }
+  }
+
+  // RULE 2: In own territory - usually punt
+  if (ownTerritory) {
+    // 4th and very short in own territory: go for it 30% of the time
+    if (isVeryShort && Math.random() < 0.3) {
+      return 'GO_FOR_IT';
+    }
+    // 4th and short at own 40+ (not deep in own territory): 20% go for it
+    if (isShortYardage && yardsToEndzone <= 60 && Math.random() < 0.2) {
+      return 'GO_FOR_IT';
+    }
+    // Trailing late? Be more aggressive
+    if (isTrailing && isFourthQuarter && minutes <= 5) {
+      if (isShortYardage || Math.random() < 0.4) {
+        return 'GO_FOR_IT';
+      }
+    }
+    // Default: punt from own territory
+    return 'PUNT';
+  }
+
+  // RULE 3: Opponent's territory, outside FG range
+  if (!fgMakeable) {
+    // 4th and short in opponent territory: go for it more often
+    if (isVeryShort) {
+      return Math.random() < 0.7 ? 'GO_FOR_IT' : 'PUNT';
+    }
+    if (isShortYardage) {
+      return Math.random() < 0.5 ? 'GO_FOR_IT' : 'PUNT';
+    }
+    // 4th and long in opponent territory: usually punt
+    if (yardsToGo >= 5) {
+      return Math.random() < 0.2 ? 'GO_FOR_IT' : 'PUNT';
+    }
+    // 4th and medium: 40% go for it
+    return Math.random() < 0.4 ? 'GO_FOR_IT' : 'PUNT';
+  }
+
+  // RULE 4: Desperate situations - be aggressive
+  if (isTrailingBig && isFourthQuarter) {
+    // Trailing by a lot in 4th quarter - go for it more
+    if (fgEasy) {
+      return 'FIELD_GOAL'; // Still take easy points
+    }
+    return 'GO_FOR_IT';
+  }
+
+  if (isTwoMinuteDrill && isTrailing) {
+    // 2-minute drill trailing - be aggressive
+    if (fgMakeable && scoreDifferential >= -3) {
+      return 'FIELD_GOAL'; // FG can tie or win
+    }
+    return 'GO_FOR_IT';
+  }
+
+  // RULE 5: Winning comfortably - be conservative
+  if (isWinning && isFourthQuarter) {
+    if (fgMakeable) return 'FIELD_GOAL';
+    return 'PUNT';
+  }
+
+  // Default: If we have a makeable FG, kick it. Otherwise punt.
+  if (fgMakeable) return 'FIELD_GOAL';
+  return 'PUNT';
+}
+
+// =============================================================================
 // TYPES
 // =============================================================================
 
@@ -1155,6 +1260,8 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   const {
     phase,
     isInitialized,
+    fieldPosition,
+    clock,
     playerState,
     opponentState,
     playerRoster,
@@ -1200,6 +1307,27 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
       initializePregame();
     }
   }, [initStarted, isInitialized, draftedRoster, draftedDeck, pregamePhase, initializePregame]);
+
+  // Handle AI 4th down decision when opponent is on offense
+  useEffect(() => {
+    if (phase === 'FOURTH_DOWN_DECISION' && !isPlayerOnOffense()) {
+      // AI needs to decide: PUNT, FIELD_GOAL, or GO_FOR_IT
+      const aiChoice = selectAIFourthDownChoice({
+        yardsToGo: fieldPosition.yardsToGo,
+        yardsToEndzone: fieldPosition.yardsToEndzone,
+        scoreDifferential: opponentState.score - playerState.score, // From AI's perspective
+        quarter: typeof clock.quarter === 'number' ? clock.quarter : 5,
+        minutes: clock.minutes,
+        ownTerritory: fieldPosition.yardLine <= 50, // AI's own territory is 50 and under from their perspective
+      });
+
+      // Set the AI's choice
+      setFourthDownOffenseChoice(aiChoice, false);
+
+      // Transition to defense response
+      setPhase('FOURTH_DOWN_DEFENSE');
+    }
+  }, [phase, isPlayerOnOffense, fieldPosition, opponentState.score, playerState.score, clock, setFourthDownOffenseChoice, setPhase]);
 
   // Handle pregame completion - now start the actual game
   const handlePregameComplete = useCallback(() => {
