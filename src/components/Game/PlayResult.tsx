@@ -1114,6 +1114,58 @@ const BreakdownPanel: React.FC<BreakdownPanelProps> = ({ breakdown }) => {
           </span>
         </div>
       )}
+
+      {/* Player Matchup Section */}
+      {breakdown.matchupModifier !== 0 && (
+        <div className="border-t border-gray-700 pt-2 mt-2">
+          <div className="flex justify-between items-center">
+            <span className="text-gray-500">Matchup</span>
+            <span className={breakdown.matchupModifier > 0 ? 'text-green-400' : 'text-red-400'}>
+              {breakdown.matchupModifier > 0 ? '+' : ''}{breakdown.matchupModifier}%
+            </span>
+          </div>
+          {breakdown.matchupDetails && (
+            <div className="mt-1 p-2 bg-gray-900/50 rounded text-[10px]">
+              <div className="flex items-center justify-between gap-2">
+                {/* Offense Player */}
+                <div className={`flex-1 text-center p-1 rounded ${
+                  breakdown.matchupDetails.advantageTeam === 'OFFENSE'
+                    ? 'bg-green-900/30 border border-green-700/50'
+                    : 'bg-gray-800/50'
+                }`}>
+                  <div className="text-amber-400 font-bold">{breakdown.matchupDetails.offensePlayer.position}</div>
+                  <div className="text-white">{breakdown.matchupDetails.offensePlayer.rating}</div>
+                  <div className="text-gray-500">{breakdown.matchupDetails.offensePlayer.ratingName}</div>
+                </div>
+
+                {/* VS */}
+                <div className="text-gray-600 font-bold">vs</div>
+
+                {/* Defense Player */}
+                <div className={`flex-1 text-center p-1 rounded ${
+                  breakdown.matchupDetails.advantageTeam === 'DEFENSE'
+                    ? 'bg-red-900/30 border border-red-700/50'
+                    : 'bg-gray-800/50'
+                }`}>
+                  <div className="text-red-400 font-bold">{breakdown.matchupDetails.defensePlayer.position}</div>
+                  <div className="text-white">{breakdown.matchupDetails.defensePlayer.rating}</div>
+                  <div className="text-gray-500">{breakdown.matchupDetails.defensePlayer.ratingName}</div>
+                </div>
+              </div>
+              {/* Advantage indicator */}
+              <div className={`text-center mt-1 ${
+                breakdown.matchupDetails.advantageTeam === 'OFFENSE' ? 'text-green-400' :
+                breakdown.matchupDetails.advantageTeam === 'DEFENSE' ? 'text-red-400' : 'text-gray-400'
+              }`}>
+                {breakdown.matchupDetails.advantageTeam === 'OFFENSE' && '▲ Offense Advantage'}
+                {breakdown.matchupDetails.advantageTeam === 'DEFENSE' && '▼ Defense Advantage'}
+                {breakdown.matchupDetails.advantageTeam === 'EVEN' && '= Even Matchup'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex justify-between border-t border-gray-700 pt-1 mt-1">
         <span className="text-gray-400 font-bold">Final</span>
         <span className="text-white font-bold">{breakdown.finalSuccessChance}%</span>
