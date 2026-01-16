@@ -14,9 +14,10 @@ import { DraftPage } from './components/Draft/DraftPage';
 import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 import { StartScreen, FranchiseIntro, GMNameInput } from './components/intro';
 import { FantasyDraft } from './components/Draft/FantasyDraft';
+import { PlayViewer } from './components/PlayAnimation';
 import { DEFAULT_TEAMS } from './data/defaultTeams';
 
-type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
+type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency' | 'playviewer';
 
 function App() {
   const { gamePhase, userTeamId, setPhase, initializeGame, setDraftedRoster } = useGameStore();
@@ -93,6 +94,11 @@ function App() {
   // Game day is full-screen without sidebar
   if (currentPage === 'gameday') {
     return <CardGameController onBack={() => setCurrentPage('home')} />;
+  }
+
+  // Play viewer is full-screen like gameday
+  if (currentPage === 'playviewer') {
+    return <PlayViewer onBack={() => setCurrentPage('home')} />;
   }
 
   const renderPage = () => {

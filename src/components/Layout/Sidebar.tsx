@@ -1,6 +1,6 @@
 import React from 'react';
 
-type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency';
+type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency' | 'playviewer';
 
 interface SidebarProps {
   currentPage: Page;
@@ -10,6 +10,7 @@ interface SidebarProps {
 const NAV_ITEMS: { key: Page; label: string; icon: string }[] = [
   { key: 'home', label: 'Office', icon: '🪑' },
   { key: 'gameday', label: 'Game Day', icon: '🏟️' },
+  { key: 'playviewer', label: 'Film Room', icon: '🎬' },
   { key: 'playbook', label: 'Playbook', icon: '📋' },
   { key: 'designer', label: 'Schemes', icon: '✏️' },
   { key: 'roster', label: 'Roster', icon: '👥' },
