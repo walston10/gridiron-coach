@@ -623,12 +623,12 @@ function handleQBThrow(
   const isPressured = defenderDistance < pressureRange;
 
   // Calculate minimum throw time based on pressure
-  // Normal: 1.0s after snap, Pressured: 0.6s, Heavy pressure: 0.3s
-  let minThrowDelay = 1000;  // Normal timing
+  // Normal: 0.5s after snap, Pressured: 0.3s, Heavy pressure: 0.1s
+  let minThrowDelay = 500;  // Faster normal timing
   if (isHeavyPressure) {
-    minThrowDelay = 300;  // Must throw quickly
+    minThrowDelay = 100;  // Must throw quickly
   } else if (isPressured) {
-    minThrowDelay = 600;  // Throw earlier under pressure
+    minThrowDelay = 300;  // Throw earlier under pressure
   }
 
   const minThrowTime = config.preSnapDurationMs + minThrowDelay;
@@ -645,11 +645,11 @@ function handleQBThrow(
     : null;
   const isOpen = !coveringDefender || coveringDefender.distance > config.coverageRadius;
 
-  // QB decision to throw
-  const shouldThrow = canThrow && (
+  // QB decision to throw - more aggressive
+  const shouldThrow = canThrow && receiver && (
     isOpen ||                                    // Receiver is open
-    isHeavyPressure ||                           // Must throw under heavy pressure
-    state.timeMs > config.preSnapDurationMs + 2500  // Throw after 2.5s no matter what
+    isPressured ||                               // Throw under any pressure
+    state.timeMs > config.preSnapDurationMs + 1500  // Throw after 1.5s no matter what
   );
 
   if (shouldThrow && receiver) {
@@ -839,7 +839,7 @@ function handleBlocking(state: SimulationState, _play: Play): void {
   const blockingAssignments: Record<string, DefensePositionSlot[]> = {
     'LT': ['DE_L', 'OLB_L'],           // Left Tackle blocks Left End
     'LG': ['DT_L', 'NT'],              // Left Guard blocks Left DT or Nose
-    'C':  ['NT', 'DT_L', 'DT_R'],      // Center blocks Nose or helps
+    'C':  ['NT', 'MIKE'],              // Center blocks Nose or Mike LB
     'RG': ['DT_R', 'NT'],              // Right Guard blocks Right DT or Nose
     'RT': ['DE_R', 'OLB_R'],           // Right Tackle blocks Right End
   };
@@ -848,7 +848,7 @@ function handleBlocking(state: SimulationState, _play: Play): void {
     ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.positionSlot)
   );
 
-  // First pass: assign blocks based on proper matchups
+  // Process each lineman
   for (const lineman of oLinemen) {
     // Skip if already blocking
     if (lineman.isBlocked) continue;
@@ -867,11 +867,12 @@ function handleBlocking(state: SimulationState, _play: Play): void {
       }
     }
 
-    // If no assigned rusher, help with nearest unblocked pass rusher
+    // If no assigned rusher found, find nearest unblocked pass rusher
     if (!targetRusher) {
       let closestDist = Infinity;
       for (const defender of state.defenders) {
-        if (!isPassRusher(defender.positionSlot) || defender.isBlocked) continue;
+        if (!isPassRusher(defender.positionSlot)) continue;
+        if (defender.isBlocked) continue;
         const dist = Math.sqrt(
           Math.pow(defender.x - lineman.x, 2) +
           Math.pow(defender.y - lineman.y, 2)
@@ -889,22 +890,21 @@ function handleBlocking(state: SimulationState, _play: Play): void {
         Math.pow(targetRusher.y - lineman.y, 2)
       );
 
-      // Move toward rusher
+      // ALWAYS engage block immediately - lineman will move to maintain it
+      // This ensures pass rushers are blocked from the start
+      targetRusher.isBlocked = true;
+      lineman.isBlocked = true;
+
+      // Move lineman toward their blocked rusher to stay engaged
       if (distance > 2) {
         const dx = targetRusher.x - lineman.x;
         const dy = targetRusher.y - lineman.y;
-        const moveSpeed = 1.2;  // Units per tick
+        // Move quickly to catch up
+        const moveSpeed = Math.min(distance * 0.3, 2.0);
         lineman.x += (dx / distance) * moveSpeed;
-        // Step up toward rusher
-        if (lineman.y > 46) {
+        if (lineman.y > 45) {
           lineman.y += (dy / distance) * moveSpeed * 0.5;
         }
-      }
-
-      // Engage block when within range
-      if (distance < 8) {
-        targetRusher.isBlocked = true;
-        lineman.isBlocked = true;
       }
     }
   }
