@@ -610,25 +610,39 @@ function handleQBThrow(
   const qb = state.offensePlayers.find(p => p.positionSlot === 'QB');
   if (!qb) return;
 
-  // Check pressure level
-  const closestDefender = getClosestDefender(state.defenders, qb.x, qb.y);
-  const defenderDistance = closestDefender?.distance ?? 100;
+  // Only pass rushers can pressure/sack the QB (not coverage players)
+  const passRushers = state.defenders.filter(d =>
+    isPassRusher(d.positionSlot) && !d.isBlocked
+  );
+
+  // Find closest unblocked pass rusher
+  let closestRusher: { defender: DefenderState; distance: number } | null = null;
+  for (const rusher of passRushers) {
+    const dist = Math.sqrt(
+      Math.pow(rusher.x - qb.x, 2) + Math.pow(rusher.y - qb.y, 2)
+    );
+    if (!closestRusher || dist < closestRusher.distance) {
+      closestRusher = { defender: rusher, distance: dist };
+    }
+  }
+
+  const rusherDistance = closestRusher?.distance ?? 100;
 
   // Pressure thresholds (in field units)
-  const heavyPressureRange = 4;   // Defender very close
-  const pressureRange = 8;        // Defender approaching
-  const sackRange = 2;            // Too close to escape
+  const heavyPressureRange = 4;
+  const pressureRange = 8;
+  const sackRange = 2;
 
-  const isHeavyPressure = defenderDistance < heavyPressureRange;
-  const isPressured = defenderDistance < pressureRange;
+  const isHeavyPressure = rusherDistance < heavyPressureRange;
+  const isPressured = rusherDistance < pressureRange;
 
   // Calculate minimum throw time based on pressure
   // Normal: 0.5s after snap, Pressured: 0.3s, Heavy pressure: 0.1s
-  let minThrowDelay = 500;  // Faster normal timing
+  let minThrowDelay = 500;
   if (isHeavyPressure) {
-    minThrowDelay = 100;  // Must throw quickly
+    minThrowDelay = 100;
   } else if (isPressured) {
-    minThrowDelay = 300;  // Throw earlier under pressure
+    minThrowDelay = 300;
   }
 
   const minThrowTime = config.preSnapDurationMs + minThrowDelay;
@@ -647,35 +661,31 @@ function handleQBThrow(
 
   // QB decision to throw - more aggressive
   const shouldThrow = canThrow && receiver && (
-    isOpen ||                                    // Receiver is open
-    isPressured ||                               // Throw under any pressure
-    state.timeMs > config.preSnapDurationMs + 1500  // Throw after 1.5s no matter what
+    isOpen ||
+    isPressured ||
+    state.timeMs > config.preSnapDurationMs + 1500
   );
 
-  if (shouldThrow && receiver) {
+  if (shouldThrow) {
     // Throw the ball
     state.ballInAir = true;
     state.ballThrowTime = state.timeMs;
     qb.hasBall = false;
     state.ballCarrier = null;
 
-    // Set ball target position - lead the receiver
     state.ball.targetX = receiver.x;
-    state.ball.targetY = receiver.y - 5;  // Lead the receiver downfield
+    state.ball.targetY = receiver.y - 5;
     state.ball.isInFlight = true;
     state.phase = 'THROW';
     return;
   }
 
-  // Sack check - only if we didn't throw
-  // Defender must be very close AND QB must have had time to throw
-  if (defenderDistance < sackRange && state.timeMs > config.preSnapDurationMs + 500) {
-    // Give QB one last chance to throw under extreme pressure
+  // Sack check - only UNBLOCKED PASS RUSHERS can sack
+  if (rusherDistance < sackRange && state.timeMs > config.preSnapDurationMs + 500) {
     const qbRating = offenseRatings.qbAccuracy ?? 70;
-    const rusherRating = closestDefender?.defender.passRush ?? 70;
+    const rusherRating = closestRusher?.defender.passRush ?? 70;
 
-    // Higher QB awareness = better chance to avoid sack
-    const escapeChance = 0.3 + (qbRating - rusherRating) / 200;  // 20-50% base
+    const escapeChance = 0.3 + (qbRating - rusherRating) / 200;
 
     if (Math.random() < escapeChance && receiver) {
       // Desperation throw!
@@ -684,7 +694,6 @@ function handleQBThrow(
       qb.hasBall = false;
       state.ballCarrier = null;
 
-      // Less accurate under pressure
       state.ball.targetX = receiver.x + (Math.random() - 0.5) * 10;
       state.ball.targetY = receiver.y - 3;
       state.ball.isInFlight = true;
@@ -693,7 +702,7 @@ function handleQBThrow(
       // Sacked!
       state.playEnded = true;
       state.endReason = 'SACK';
-      state.tackledBy = closestDefender?.defender.positionSlot ?? null;
+      state.tackledBy = closestRusher?.defender.positionSlot ?? null;
     }
   }
 }
