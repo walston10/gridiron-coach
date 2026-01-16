@@ -87,6 +87,7 @@ interface OffensePlayerState {
   role: string;
   hasBall: boolean;
   isBlocked: boolean;
+  blockingTarget: DefensePositionSlot | null;  // Who this lineman is blocking
   speed: number;
 }
 
@@ -183,6 +184,7 @@ function initializeSimulation(
       role: determineRole(assignment),
       hasBall: assignment.positionSlot === 'QB',
       isBlocked: false,
+      blockingTarget: null,
       speed,
     };
   });
@@ -859,8 +861,37 @@ function handleBlocking(state: SimulationState, _play: Play): void {
 
   // Process each lineman
   for (const lineman of oLinemen) {
-    // Skip if already blocking
-    if (lineman.isBlocked) continue;
+    // Check if our current blocking target has shed their block
+    if (lineman.isBlocked && lineman.blockingTarget) {
+      const currentTarget = state.defenders.find(d => d.positionSlot === lineman.blockingTarget);
+      if (currentTarget && !currentTarget.isBlocked) {
+        // Target shed the block - lineman needs to re-engage
+        lineman.isBlocked = false;
+        lineman.blockingTarget = null;
+      }
+    }
+
+    // Skip if already blocking someone
+    if (lineman.isBlocked) {
+      // Move lineman toward their blocked rusher to stay engaged
+      const targetRusher = state.defenders.find(d => d.positionSlot === lineman.blockingTarget);
+      if (targetRusher) {
+        const distance = Math.sqrt(
+          Math.pow(targetRusher.x - lineman.x, 2) +
+          Math.pow(targetRusher.y - lineman.y, 2)
+        );
+        if (distance > 2) {
+          const dx = targetRusher.x - lineman.x;
+          const dy = targetRusher.y - lineman.y;
+          const moveSpeed = Math.min(distance * 0.3, 2.0);
+          lineman.x += (dx / distance) * moveSpeed;
+          if (lineman.y > 45) {
+            lineman.y += (dy / distance) * moveSpeed * 0.5;
+          }
+        }
+      }
+      continue;
+    }
 
     const assignments = blockingAssignments[lineman.positionSlot] || [];
 
@@ -894,17 +925,17 @@ function handleBlocking(state: SimulationState, _play: Play): void {
     }
 
     if (targetRusher) {
-      const distance = Math.sqrt(
-        Math.pow(targetRusher.x - lineman.x, 2) +
-        Math.pow(targetRusher.y - lineman.y, 2)
-      );
-
       // ALWAYS engage block immediately - lineman will move to maintain it
       // This ensures pass rushers are blocked from the start
       targetRusher.isBlocked = true;
       lineman.isBlocked = true;
+      lineman.blockingTarget = targetRusher.positionSlot;
 
       // Move lineman toward their blocked rusher to stay engaged
+      const distance = Math.sqrt(
+        Math.pow(targetRusher.x - lineman.x, 2) +
+        Math.pow(targetRusher.y - lineman.y, 2)
+      );
       if (distance > 2) {
         const dx = targetRusher.x - lineman.x;
         const dy = targetRusher.y - lineman.y;
@@ -934,6 +965,8 @@ function handleBlocking(state: SimulationState, _play: Play): void {
 
       if (Math.random() < Math.max(0.005, Math.min(0.05, shedChance))) {
         defender.isBlocked = false;
+        // Note: We don't clear the lineman's blockingTarget here -
+        // that's done at the start of the next handleBlocking call
       }
     }
   }
