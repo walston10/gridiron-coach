@@ -835,40 +835,51 @@ function checkTackles(
  * Handle OL blocking
  */
 function handleBlocking(state: SimulationState, _play: Play): void {
+  // Proper blocking assignments - tackles block ends, guards block tackles
+  const blockingAssignments: Record<string, DefensePositionSlot[]> = {
+    'LT': ['DE_L', 'OLB_L'],           // Left Tackle blocks Left End
+    'LG': ['DT_L', 'NT'],              // Left Guard blocks Left DT or Nose
+    'C':  ['NT', 'DT_L', 'DT_R'],      // Center blocks Nose or helps
+    'RG': ['DT_R', 'NT'],              // Right Guard blocks Right DT or Nose
+    'RT': ['DE_R', 'OLB_R'],           // Right Tackle blocks Right End
+  };
+
   const oLinemen = state.offensePlayers.filter(p =>
     ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.positionSlot)
   );
 
-  // OL blocking assignments (approximate left-to-right matchups)
-  const blockingMatchups: Record<string, DefensePositionSlot[]> = {
-    'LT': ['DE_L', 'OLB_L'],
-    'LG': ['DT_L', 'DE_L', 'NT'],
-    'C': ['NT', 'DT_L', 'DT_R', 'MIKE'],
-    'RG': ['DT_R', 'DE_R', 'NT'],
-    'RT': ['DE_R', 'OLB_R'],
-  };
-
+  // First pass: assign blocks based on proper matchups
   for (const lineman of oLinemen) {
-    // Find priority target based on position
-    const priorityTargets = blockingMatchups[lineman.positionSlot] || [];
+    // Skip if already blocking
+    if (lineman.isBlocked) continue;
 
-    // First try to find priority target (even if already being blocked by someone else for movement)
-    let targetRusher = state.defenders.find(d =>
-      priorityTargets.includes(d.positionSlot) && isPassRusher(d.positionSlot)
-    );
+    const assignments = blockingAssignments[lineman.positionSlot] || [];
 
-    // If no priority target, find closest pass rusher
+    // Find assigned rusher (first unblocked one in priority order)
+    let targetRusher: DefenderState | null = null;
+    for (const slot of assignments) {
+      const rusher = state.defenders.find(d =>
+        d.positionSlot === slot && !d.isBlocked
+      );
+      if (rusher) {
+        targetRusher = rusher;
+        break;
+      }
+    }
+
+    // If no assigned rusher, help with nearest unblocked pass rusher
     if (!targetRusher) {
-      const closestRusher = state.defenders
-        .filter(d => isPassRusher(d.positionSlot))
-        .map(d => ({
-          defender: d,
-          distance: Math.sqrt(Math.pow(d.x - lineman.x, 2) + Math.pow(d.y - lineman.y, 2)),
-        }))
-        .sort((a, b) => a.distance - b.distance)[0];
-
-      if (closestRusher) {
-        targetRusher = closestRusher.defender;
+      let closestDist = Infinity;
+      for (const defender of state.defenders) {
+        if (!isPassRusher(defender.positionSlot) || defender.isBlocked) continue;
+        const dist = Math.sqrt(
+          Math.pow(defender.x - lineman.x, 2) +
+          Math.pow(defender.y - lineman.y, 2)
+        );
+        if (dist < closestDist) {
+          closestDist = dist;
+          targetRusher = defender;
+        }
       }
     }
 
@@ -878,23 +889,20 @@ function handleBlocking(state: SimulationState, _play: Play): void {
         Math.pow(targetRusher.y - lineman.y, 2)
       );
 
-      // O-Linemen actively step up to meet pass rushers
-      // Move toward rusher aggressively (but not past the LOS too much)
-      if (!lineman.isBlocked && distance > 1.5) {
+      // Move toward rusher
+      if (distance > 2) {
         const dx = targetRusher.x - lineman.x;
         const dy = targetRusher.y - lineman.y;
-
-        // Move faster when rusher is approaching (1.5 units per tick)
-        const moveSpeed = 1.5;
+        const moveSpeed = 1.2;  // Units per tick
         lineman.x += (dx / distance) * moveSpeed;
-        // Only step up slightly (toward lower Y / defensive side)
-        if (lineman.y > 48) {  // Don't go too far past LOS
+        // Step up toward rusher
+        if (lineman.y > 46) {
           lineman.y += (dy / distance) * moveSpeed * 0.5;
         }
       }
 
-      // Engage in block if close enough
-      if (distance < 5 && !targetRusher.isBlocked) {
+      // Engage block when within range
+      if (distance < 8) {
         targetRusher.isBlocked = true;
         lineman.isBlocked = true;
       }
