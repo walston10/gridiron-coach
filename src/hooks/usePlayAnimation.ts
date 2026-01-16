@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { Play } from '../types/Play';
 import type {
   AnimationFrame,
@@ -48,7 +48,11 @@ export function usePlayAnimation(
   const animationRef = useRef<number | null>(null);
   const lastTimestampRef = useRef<number | null>(null);
 
-  const cfg = { ...DEFAULT_EXECUTOR_CONFIG, ...config };
+  // Memoize config to prevent unnecessary re-renders
+  const cfg = useMemo(() => ({
+    ...DEFAULT_EXECUTOR_CONFIG,
+    ...config
+  }), [config.preSnapDuration, config.snapDuration, config.routeSpeedMultiplier, config.dropbackTime, config.showRouteTrails, config.showBlockingEngagements]);
 
   /**
    * Load a play and generate all animation frames
@@ -145,6 +149,16 @@ export function usePlayAnimation(
     }));
   }, [animationResult]);
 
+  // Use ref to track current time to avoid stale closure issues
+  const currentTimeMsRef = useRef(0);
+  const playbackSpeedRef = useRef(1);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    currentTimeMsRef.current = playbackState.currentTimeMs;
+    playbackSpeedRef.current = playbackState.playbackSpeed;
+  }, [playbackState.currentTimeMs, playbackState.playbackSpeed]);
+
   /**
    * Animation loop
    */
@@ -162,52 +176,37 @@ export function usePlayAnimation(
         lastTimestampRef.current = timestamp;
       }
 
-      const deltaMs = (timestamp - lastTimestampRef.current) * playbackState.playbackSpeed;
+      const deltaMs = (timestamp - lastTimestampRef.current) * playbackSpeedRef.current;
       lastTimestampRef.current = timestamp;
 
-      setPlaybackState(prev => {
-        const newTimeMs = prev.currentTimeMs + deltaMs;
+      const newTimeMs = currentTimeMsRef.current + deltaMs;
+      currentTimeMsRef.current = newTimeMs;
 
-        // Find the frame at this time
-        let newIndex = prev.currentFrameIndex;
-        while (
-          newIndex < animationResult.frames.length - 1 &&
-          animationResult.frames[newIndex + 1].timeMs <= newTimeMs
-        ) {
-          newIndex++;
+      // Find the frame at this time
+      let newIndex = 0;
+      for (let i = 0; i < animationResult.frames.length; i++) {
+        if (animationResult.frames[i].timeMs <= newTimeMs) {
+          newIndex = i;
+        } else {
+          break;
         }
+      }
 
-        // Check if animation is complete
-        if (newIndex >= animationResult.frames.length - 1) {
-          return {
-            ...prev,
-            isPlaying: false,
-            isPaused: false,
-            currentTimeMs: animationResult.totalDurationMs,
-            currentFrameIndex: animationResult.frames.length - 1,
-          };
-        }
+      // Check if animation is complete
+      const isComplete = newIndex >= animationResult.frames.length - 1;
 
-        return {
-          ...prev,
-          currentTimeMs: newTimeMs,
-          currentFrameIndex: newIndex,
-        };
-      });
+      setCurrentFrameIndex(newIndex);
+      setPlaybackState(prev => ({
+        ...prev,
+        isPlaying: !isComplete,
+        isPaused: false,
+        currentTimeMs: isComplete ? animationResult.totalDurationMs : newTimeMs,
+        currentFrameIndex: newIndex,
+      }));
 
-      setCurrentFrameIndex(prev => {
-        const newTimeMs = playbackState.currentTimeMs + deltaMs;
-        let newIndex = prev;
-        while (
-          newIndex < animationResult.frames.length - 1 &&
-          animationResult.frames[newIndex + 1].timeMs <= newTimeMs
-        ) {
-          newIndex++;
-        }
-        return newIndex;
-      });
-
-      animationRef.current = requestAnimationFrame(animate);
+      if (!isComplete) {
+        animationRef.current = requestAnimationFrame(animate);
+      }
     };
 
     animationRef.current = requestAnimationFrame(animate);
@@ -217,7 +216,7 @@ export function usePlayAnimation(
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [playbackState.isPlaying, playbackState.playbackSpeed, animationResult]);
+  }, [playbackState.isPlaying, animationResult]);
 
   // Reset timestamp when pausing
   useEffect(() => {
