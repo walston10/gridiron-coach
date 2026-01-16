@@ -11,12 +11,14 @@ interface PlayAnimationCanvasProps {
 }
 
 // Player colors based on role
-const PLAYER_COLORS = {
-  QB: { fill: '#dc2626', stroke: '#7f1d1d', text: '#ffffff' },      // Red
-  OL: { fill: '#4b5563', stroke: '#1f2937', text: '#ffffff' },      // Gray
-  RECEIVER: { fill: '#3b82f6', stroke: '#1e40af', text: '#ffffff' }, // Blue
-  RB: { fill: '#22c55e', stroke: '#166534', text: '#ffffff' },       // Green
-  BLOCKER: { fill: '#8b5cf6', stroke: '#5b21b6', text: '#ffffff' },  // Purple
+const PLAYER_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
+  QB: { fill: '#dc2626', stroke: '#7f1d1d', text: '#ffffff' },        // Red
+  OL: { fill: '#4b5563', stroke: '#1f2937', text: '#ffffff' },        // Gray
+  RECEIVER: { fill: '#3b82f6', stroke: '#1e40af', text: '#ffffff' },  // Blue
+  RB: { fill: '#22c55e', stroke: '#166534', text: '#ffffff' },        // Green
+  BLOCKER: { fill: '#8b5cf6', stroke: '#5b21b6', text: '#ffffff' },   // Purple
+  DEFENDER: { fill: '#ef4444', stroke: '#991b1b', text: '#ffffff' },  // Bright Red
+  BALL_CARRIER: { fill: '#22c55e', stroke: '#166534', text: '#ffffff' }, // Green (same as RB)
 };
 
 // Ball carrier highlight
@@ -187,11 +189,13 @@ function drawPlayer(
   let radius = 14;
   if (player.role === 'OL') radius = 16;
   if (player.role === 'QB') radius = 15;
+  if (player.role === 'DEFENDER') radius = 13;  // Slightly smaller for defenders
 
-  // Get colors
+  // Get colors with fallback
+  const defaultColor = { fill: '#6b7280', stroke: '#374151', text: '#ffffff' };
   const colors = player.hasBall
     ? BALL_CARRIER_COLOR
-    : PLAYER_COLORS[player.role];
+    : (PLAYER_COLORS[player.role] || defaultColor);
 
   // Draw shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';

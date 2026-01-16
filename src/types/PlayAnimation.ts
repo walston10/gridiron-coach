@@ -21,10 +21,14 @@ export type AnimatedPlayerState = {
   isTackled: boolean;
 
   // Role info for coloring
-  role: 'QB' | 'OL' | 'RECEIVER' | 'RB' | 'BLOCKER';
+  role: 'QB' | 'OL' | 'RECEIVER' | 'RB' | 'BLOCKER' | 'DEFENDER' | 'BALL_CARRIER';
 
   // For drawing route trails
   pathHistory: { x: number; y: number }[];
+
+  // Optional - used by simulator
+  routeHistory?: { x: number; y: number }[];
+  isTargetReceiver?: boolean;
 };
 
 /**
@@ -36,6 +40,11 @@ export type AnimatedBallState = {
   isVisible: boolean;
   isInAir: boolean;  // True when ball is being thrown
   carrier: string | null;  // playerId of who has the ball
+
+  // Simulation fields for ball in flight
+  targetX?: number;
+  targetY?: number;
+  isInFlight?: boolean;
 };
 
 /**
@@ -60,6 +69,7 @@ export type AnimationPhase =
   | 'HANDOFF'       // QB handing off
   | 'BALL_IN_AIR'   // Pass in flight
   | 'CATCH'         // Receiver catching
+  | 'AFTER_CATCH'   // After catch, running with ball
   | 'RUN_AFTER_CATCH' // RAC yards
   | 'RUNNING'       // Ball carrier running
   | 'TACKLE'        // Play ending
