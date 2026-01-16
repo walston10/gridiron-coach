@@ -467,6 +467,9 @@ function moveDefenders(
   _defenseRatings: DefenseRatings,
   config: SimulationConfig
 ): void {
+  // FIRST: Check for OL blocking defenders BEFORE they move
+  handleBlocking(state, play);
+
   const isRun = play.playType === 'RUN' || (play.playType === 'PASS' && state.timeMs < config.preSnapDurationMs + 800);
 
   for (const defender of state.defenders) {
@@ -510,9 +513,6 @@ function moveDefenders(
       defender.y += moveY * unitsPerTick;
     }
   }
-
-  // Check for OL blocking defenders
-  handleBlocking(state, play);
 }
 
 /**
@@ -842,34 +842,32 @@ function handleBlocking(state: SimulationState, _play: Play): void {
   // OL blocking assignments (approximate left-to-right matchups)
   const blockingMatchups: Record<string, DefensePositionSlot[]> = {
     'LT': ['DE_L', 'OLB_L'],
-    'LG': ['DT_L', 'DE_L'],
+    'LG': ['DT_L', 'DE_L', 'NT'],
     'C': ['NT', 'DT_L', 'DT_R', 'MIKE'],
-    'RG': ['DT_R', 'DE_R'],
+    'RG': ['DT_R', 'DE_R', 'NT'],
     'RT': ['DE_R', 'OLB_R'],
   };
 
   for (const lineman of oLinemen) {
-    if (lineman.isBlocked) continue;  // Already engaged
-
     // Find priority target based on position
     const priorityTargets = blockingMatchups[lineman.positionSlot] || [];
 
-    // First try to block priority target
+    // First try to find priority target (even if already being blocked by someone else for movement)
     let targetRusher = state.defenders.find(d =>
-      priorityTargets.includes(d.positionSlot) && !d.isBlocked && isPassRusher(d.positionSlot)
+      priorityTargets.includes(d.positionSlot) && isPassRusher(d.positionSlot)
     );
 
-    // If no priority target, block closest unblocked pass rusher
+    // If no priority target, find closest pass rusher
     if (!targetRusher) {
       const closestRusher = state.defenders
-        .filter(d => isPassRusher(d.positionSlot) && !d.isBlocked)
+        .filter(d => isPassRusher(d.positionSlot))
         .map(d => ({
           defender: d,
           distance: Math.sqrt(Math.pow(d.x - lineman.x, 2) + Math.pow(d.y - lineman.y, 2)),
         }))
         .sort((a, b) => a.distance - b.distance)[0];
 
-      if (closestRusher && closestRusher.distance < 8) {
+      if (closestRusher) {
         targetRusher = closestRusher.defender;
       }
     }
@@ -880,18 +878,25 @@ function handleBlocking(state: SimulationState, _play: Play): void {
         Math.pow(targetRusher.y - lineman.y, 2)
       );
 
-      // Engage in block if close enough (increased range)
-      if (distance < 10) {
+      // O-Linemen actively step up to meet pass rushers
+      // Move toward rusher aggressively (but not past the LOS too much)
+      if (!lineman.isBlocked && distance > 1.5) {
+        const dx = targetRusher.x - lineman.x;
+        const dy = targetRusher.y - lineman.y;
+
+        // Move faster when rusher is approaching (1.5 units per tick)
+        const moveSpeed = 1.5;
+        lineman.x += (dx / distance) * moveSpeed;
+        // Only step up slightly (toward lower Y / defensive side)
+        if (lineman.y > 48) {  // Don't go too far past LOS
+          lineman.y += (dy / distance) * moveSpeed * 0.5;
+        }
+      }
+
+      // Engage in block if close enough
+      if (distance < 5 && !targetRusher.isBlocked) {
         targetRusher.isBlocked = true;
         lineman.isBlocked = true;
-
-        // Move lineman toward rusher to maintain block
-        if (distance > 2) {
-          const dx = targetRusher.x - lineman.x;
-          const dy = targetRusher.y - lineman.y;
-          lineman.x += (dx / distance) * 0.3;
-          lineman.y += (dy / distance) * 0.3;
-        }
       }
     }
   }
