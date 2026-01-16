@@ -623,12 +623,12 @@ function handleQBThrow(
   const isPressured = defenderDistance < pressureRange;
 
   // Calculate minimum throw time based on pressure
-  // Normal: 1.0s after snap, Pressured: 0.6s, Heavy pressure: 0.3s
-  let minThrowDelay = 1000;  // Normal timing
+  // Normal: 0.5s after snap, Pressured: 0.3s, Heavy pressure: 0.1s
+  let minThrowDelay = 500;  // Faster normal timing
   if (isHeavyPressure) {
-    minThrowDelay = 300;  // Must throw quickly
+    minThrowDelay = 100;  // Must throw quickly
   } else if (isPressured) {
-    minThrowDelay = 600;  // Throw earlier under pressure
+    minThrowDelay = 300;  // Throw earlier under pressure
   }
 
   const minThrowTime = config.preSnapDurationMs + minThrowDelay;
@@ -645,11 +645,11 @@ function handleQBThrow(
     : null;
   const isOpen = !coveringDefender || coveringDefender.distance > config.coverageRadius;
 
-  // QB decision to throw
-  const shouldThrow = canThrow && (
+  // QB decision to throw - more aggressive
+  const shouldThrow = canThrow && receiver && (
     isOpen ||                                    // Receiver is open
-    isHeavyPressure ||                           // Must throw under heavy pressure
-    state.timeMs > config.preSnapDurationMs + 2500  // Throw after 2.5s no matter what
+    isPressured ||                               // Throw under any pressure
+    state.timeMs > config.preSnapDurationMs + 1500  // Throw after 1.5s no matter what
   );
 
   if (shouldThrow && receiver) {
