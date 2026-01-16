@@ -45,6 +45,8 @@ import { calculateRosterBuffs, applyRosterBuffs, type ModifiedPlay } from '../..
 
 // Lazy load the heavy game components
 import { AnimatedPlayResult } from './AnimatedPlayResult';
+import { SimulatedPlayResult } from './SimulatedPlayResult';
+import type { SimulatedPlayResult as SimResultType } from '../../hooks/useSimulatedPlay';
 import { PregamePresentation } from './PregamePresentation';
 
 // =============================================================================
@@ -1282,6 +1284,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     setFourthDownOffenseChoice,
     setFourthDownDefenseResponse,
     handleExtraPoint,
+    updateFieldPosition,
     // Pregame
     pregameModifiers,
     pregameCards,
@@ -1296,6 +1299,15 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   const { getCurrentUserGame } = useSeasonStore();
 
   const [lastResult, setLastResult] = useState<PlayResult | FourthDownResult | null>(null);
+
+  // Simulation mode - when true, plays are simulated visually instead of calculated
+  const [useSimulation, _setUseSimulation] = useState(true);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [pendingSimulation, setPendingSimulation] = useState<{
+    offenseCard: OffensiveCard;
+    defenseCard: DefensiveCard;
+    target?: TargetPosition;
+  } | null>(null);
 
   // Track if we've started initialization
   const [initStarted, setInitStarted] = useState(false);
@@ -1365,21 +1377,32 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
     // CPU selects a random defense card
     const cpuDefenseCards = opponentDeck?.hand.defensiveCards || [];
+    let selectedDefense: DefensiveCard | null = null;
     if (cpuDefenseCards.length > 0) {
-      const randomDefense = cpuDefenseCards[Math.floor(Math.random() * cpuDefenseCards.length)];
+      selectedDefense = cpuDefenseCards[Math.floor(Math.random() * cpuDefenseCards.length)];
       // CPU randomly picks a shade (who they think offense targets)
       const shades: Array<'WR1' | 'WR2' | 'TE' | 'RB' | 'NONE'> = ['WR1', 'WR2', 'TE', 'RB', 'NONE'];
       const randomShade = shades[Math.floor(Math.random() * shades.length)];
-      selectDefensiveCard(randomDefense, undefined, randomShade);
+      selectDefensiveCard(selectedDefense, undefined, randomShade);
     }
 
-    // Execute the play after both cards are selected
-    const result = executePlay();
-    if (result) {
-      setLastResult(result);
-      setPhase('PLAY_RESULT');
+    // Use simulation or mathematical calculation
+    if (useSimulation && selectedDefense) {
+      setPendingSimulation({
+        offenseCard: card,
+        defenseCard: selectedDefense,
+        target,
+      });
+      setIsSimulating(true);
+    } else {
+      // Fall back to old calculation method
+      const result = executePlay();
+      if (result) {
+        setLastResult(result);
+        setPhase('PLAY_RESULT');
+      }
     }
-  }, [selectOffensiveCard, selectDefensiveCard, opponentDeck, executePlay, setPhase]);
+  }, [selectOffensiveCard, selectDefensiveCard, opponentDeck, executePlay, setPhase, useSimulation]);
 
   // Handle set defense
   const handleSetDefense = useCallback((card: DefensiveCard, prediction?: OffensivePlayType) => {
@@ -1391,8 +1414,10 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
     // CPU selects offense using situational AI
     const cpuOffenseCards = opponentDeck?.hand.offensiveCards || [];
+    let aiSelection: { card: OffensiveCard; target: TargetPosition; modifier: OffensiveModifier } | null = null;
+
     if (cpuOffenseCards.length > 0) {
-      const aiSelection = selectAIOffenseCard(cpuOffenseCards, {
+      aiSelection = selectAIOffenseCard(cpuOffenseCards, {
         down: fieldPosition.down,
         yardsToGo: fieldPosition.yardsToGo,
         yardsToEndzone: fieldPosition.yardsToEndzone,
@@ -1406,13 +1431,23 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
       }
     }
 
-    // Execute the play after both cards are selected
-    const result = executePlay();
-    if (result) {
-      setLastResult(result);
-      setPhase('PLAY_RESULT');
+    // Use simulation or mathematical calculation
+    if (useSimulation && aiSelection) {
+      setPendingSimulation({
+        offenseCard: aiSelection.card,
+        defenseCard: card,
+        target: aiSelection.target,
+      });
+      setIsSimulating(true);
+    } else {
+      // Fall back to old calculation method
+      const result = executePlay();
+      if (result) {
+        setLastResult(result);
+        setPhase('PLAY_RESULT');
+      }
     }
-  }, [selectDefensiveCard, selectOffensiveCard, opponentDeck, executePlay, setPhase]);
+  }, [selectDefensiveCard, selectOffensiveCard, opponentDeck, executePlay, setPhase, useSimulation]);
 
   // Handle timeout
   const handleTimeout = useCallback(() => {
@@ -1492,6 +1527,101 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   const handleXPChoice = useCallback((choice: 'XP' | 'TWO_POINT') => {
     handleExtraPoint(choice);
   }, [handleExtraPoint]);
+
+  // Generate play-by-play text from simulation result
+  const generatePlayByPlay = useCallback((
+    simResult: SimResultType,
+    simulation: typeof pendingSimulation
+  ): string => {
+    if (!simulation) return '';
+
+    const playType = simulation.offenseCard.playType.replace(/_/g, ' ').toLowerCase();
+    const target = simulation.target || 'RB';
+
+    if (simResult.touchdown) {
+      return `TOUCHDOWN! ${playType} to ${target} for ${simResult.yardsGained} yards!`;
+    }
+    if (simResult.turnover) {
+      if (simResult.turnoverType === 'INTERCEPTION') {
+        return `INTERCEPTED! Pass intended for ${target} picked off.`;
+      }
+      if (simResult.turnoverType === 'FUMBLE') {
+        return `FUMBLE! Ball carrier loses the ball. Defense recovers.`;
+      }
+    }
+    if (simResult.sack) {
+      return `SACKED! QB taken down for a loss of ${Math.abs(simResult.yardsGained)} yards.`;
+    }
+    if (simResult.incomplete) {
+      return `Incomplete pass to ${target}.`;
+    }
+    if (simResult.bigPlay) {
+      return `BIG PLAY! ${playType} gains ${simResult.yardsGained} yards!`;
+    }
+    if (simResult.yardsGained > 0) {
+      return `${playType} for a gain of ${simResult.yardsGained} yards${simResult.tackledBy ? ` (tackled by ${simResult.tackledBy})` : ''}.`;
+    }
+    if (simResult.yardsGained < 0) {
+      return `${playType} stopped for a loss of ${Math.abs(simResult.yardsGained)} yards.`;
+    }
+    return `${playType} for no gain.`;
+  }, []);
+
+  // Handle simulation result - convert to PlayResult format and continue game flow
+  const handleSimulationResult = useCallback((simResult: SimResultType) => {
+    setIsSimulating(false);
+    setPendingSimulation(null);
+
+    // Convert simulation result to PlayResult format
+    const playResult: PlayResult = {
+      success: simResult.success,
+      yardsGained: simResult.yardsGained,
+      touchdown: simResult.touchdown,
+      turnover: simResult.turnover,
+      turnoverType: simResult.turnoverType,
+      sack: simResult.sack,
+      sackYards: simResult.sack ? Math.abs(simResult.yardsGained) : 0,
+      safety: simResult.sack && fieldPosition.yardLine <= 2,
+      bigPlay: simResult.bigPlay,
+      playByPlay: generatePlayByPlay(simResult, pendingSimulation),
+      breakdown: {
+        baseSuccessChance: 50,
+        counterModifier: 0,
+        situationModifier: 0,
+        tendencyModifier: 0,
+        synergyModifier: 0,
+        weatherModifier: 0,
+        fatigueModifier: 0,
+        momentumModifier: 0,
+        shadeModifier: 0,
+        staminaModifier: 0,
+        pregameModifier: 0,
+        matchupModifier: 0,
+        modifierBonus: 0,
+        finalSuccessChance: 50,
+        rolls: [{ name: 'Simulation', target: 50, result: simResult.success ? 75 : 25, success: simResult.success }],
+      },
+      momentumShift: simResult.bigPlay ? 15 : simResult.turnover ? -20 : simResult.success ? 5 : -5,
+    };
+
+    // Update field position based on yards gained
+    updateFieldPosition(simResult.yardsGained);
+
+    setLastResult(playResult);
+    setPhase('PLAY_RESULT');
+  }, [setPhase, updateFieldPosition, fieldPosition.yardLine, pendingSimulation, generatePlayByPlay]);
+
+  // Render simulation if in progress
+  if (isSimulating && pendingSimulation) {
+    return (
+      <SimulatedPlayResult
+        offensePlayType={pendingSimulation.offenseCard.playType}
+        targetPosition={pendingSimulation.target}
+        defenseCard={pendingSimulation.defenseCard}
+        onResult={handleSimulationResult}
+      />
+    );
+  }
 
   // Pregame presentation
   if (phase === 'PREGAME' && pregameCards.length > 0 && pregameModifiers) {
