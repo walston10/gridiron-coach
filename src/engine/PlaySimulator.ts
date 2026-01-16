@@ -43,11 +43,11 @@ export interface SimulationConfig {
 const DEFAULT_CONFIG: SimulationConfig = {
   tickIntervalMs: 16,
   maxDurationMs: 8000,
-  tackleRadius: 3,
-  coverageRadius: 5,
+  tackleRadius: 2.5,      // Slightly smaller - need to be closer for tackle
+  coverageRadius: 4,      // Coverage radius for pass breakup
   catchRadius: 4,
   preSnapDurationMs: 800,
-  qbThrowTimeMs: 1500,
+  qbThrowTimeMs: 1000,    // Reduced from 1500 - QB can throw faster
 };
 
 /**
@@ -603,54 +603,98 @@ function getDefenderTarget(
 function handleQBThrow(
   state: SimulationState,
   _play: Play,
-  _offenseRatings: OffenseRatings,
+  offenseRatings: OffenseRatings,
   _defenseRatings: DefenseRatings,
   config: SimulationConfig
 ): void {
-  // Don't throw too early
-  const minThrowTime = config.preSnapDurationMs + config.qbThrowTimeMs;
-  if (state.timeMs < minThrowTime) return;
-
-  // Check if being pressured
   const qb = state.offensePlayers.find(p => p.positionSlot === 'QB');
   if (!qb) return;
 
+  // Check pressure level
   const closestDefender = getClosestDefender(state.defenders, qb.x, qb.y);
-  const isPressured = closestDefender && closestDefender.distance < 6;
+  const defenderDistance = closestDefender?.distance ?? 100;
 
-  // If heavily pressured, must throw now or get sacked
-  if (closestDefender && closestDefender.distance < 3) {
-    // Sack!
-    state.playEnded = true;
-    state.endReason = 'SACK';
-    state.tackledBy = closestDefender.defender.positionSlot;
-    return;
+  // Pressure thresholds (in field units)
+  const heavyPressureRange = 4;   // Defender very close
+  const pressureRange = 8;        // Defender approaching
+  const sackRange = 2;            // Too close to escape
+
+  const isHeavyPressure = defenderDistance < heavyPressureRange;
+  const isPressured = defenderDistance < pressureRange;
+
+  // Calculate minimum throw time based on pressure
+  // Normal: 1.0s after snap, Pressured: 0.6s, Heavy pressure: 0.3s
+  let minThrowDelay = 1000;  // Normal timing
+  if (isHeavyPressure) {
+    minThrowDelay = 300;  // Must throw quickly
+  } else if (isPressured) {
+    minThrowDelay = 600;  // Throw earlier under pressure
   }
 
+  const minThrowTime = config.preSnapDurationMs + minThrowDelay;
+  const canThrow = state.timeMs >= minThrowTime;
+
   // Find target receiver
-  if (!state.targetReceiver) return;
+  const receiver = state.targetReceiver
+    ? state.offensePlayers.find(p => p.positionSlot === state.targetReceiver)
+    : null;
 
-  const receiver = state.offensePlayers.find(p => p.positionSlot === state.targetReceiver);
-  if (!receiver) return;
-
-  // Check if receiver is open (no defender within coverage radius)
-  const coveringDefender = getClosestDefender(state.defenders, receiver.x, receiver.y);
+  // Check if receiver is open
+  const coveringDefender = receiver
+    ? getClosestDefender(state.defenders, receiver.x, receiver.y)
+    : null;
   const isOpen = !coveringDefender || coveringDefender.distance > config.coverageRadius;
 
-  // QB decision: throw if receiver is reasonably open or pressured
-  const shouldThrow = isOpen || isPressured || state.timeMs > minThrowTime + 1500;
+  // QB decision to throw
+  const shouldThrow = canThrow && (
+    isOpen ||                                    // Receiver is open
+    isHeavyPressure ||                           // Must throw under heavy pressure
+    state.timeMs > config.preSnapDurationMs + 2500  // Throw after 2.5s no matter what
+  );
 
-  if (shouldThrow) {
+  if (shouldThrow && receiver) {
     // Throw the ball
     state.ballInAir = true;
     state.ballThrowTime = state.timeMs;
     qb.hasBall = false;
+    state.ballCarrier = null;
 
-    // Set ball target position
+    // Set ball target position - lead the receiver
     state.ball.targetX = receiver.x;
-    state.ball.targetY = receiver.y - 3;  // Lead the receiver
+    state.ball.targetY = receiver.y - 5;  // Lead the receiver downfield
     state.ball.isInFlight = true;
     state.phase = 'THROW';
+    return;
+  }
+
+  // Sack check - only if we didn't throw
+  // Defender must be very close AND QB must have had time to throw
+  if (defenderDistance < sackRange && state.timeMs > config.preSnapDurationMs + 500) {
+    // Give QB one last chance to throw under extreme pressure
+    const qbRating = offenseRatings.qbAccuracy ?? 70;
+    const rusherRating = closestDefender?.defender.passRush ?? 70;
+
+    // Higher QB awareness = better chance to avoid sack
+    const escapeChance = 0.3 + (qbRating - rusherRating) / 200;  // 20-50% base
+
+    if (Math.random() < escapeChance && receiver) {
+      // Desperation throw!
+      state.ballInAir = true;
+      state.ballThrowTime = state.timeMs;
+      qb.hasBall = false;
+      state.ballCarrier = null;
+
+      // Less accurate under pressure
+      state.ball.targetX = receiver.x + (Math.random() - 0.5) * 10;
+      state.ball.targetY = receiver.y - 3;
+      state.ball.isInFlight = true;
+      state.phase = 'THROW';
+    } else {
+      // Sacked!
+      state.playEnded = true;
+      state.endReason = 'SACK';
+      state.tackledBy = closestDefender?.defender.positionSlot ?? null;
+    }
   }
 }
 
@@ -795,29 +839,78 @@ function handleBlocking(state: SimulationState, _play: Play): void {
     ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.positionSlot)
   );
 
-  for (const lineman of oLinemen) {
-    // Find closest unblocked pass rusher
-    const closestRusher = state.defenders
-      .filter(d => isPassRusher(d.positionSlot) && !d.isBlocked)
-      .map(d => ({
-        defender: d,
-        distance: Math.sqrt(Math.pow(d.x - lineman.x, 2) + Math.pow(d.y - lineman.y, 2)),
-      }))
-      .sort((a, b) => a.distance - b.distance)[0];
+  // OL blocking assignments (approximate left-to-right matchups)
+  const blockingMatchups: Record<string, DefensePositionSlot[]> = {
+    'LT': ['DE_L', 'OLB_L'],
+    'LG': ['DT_L', 'DE_L'],
+    'C': ['NT', 'DT_L', 'DT_R', 'MIKE'],
+    'RG': ['DT_R', 'DE_R'],
+    'RT': ['DE_R', 'OLB_R'],
+  };
 
-    if (closestRusher && closestRusher.distance < 5) {
-      // Engage in block
-      closestRusher.defender.isBlocked = true;
-      lineman.isBlocked = true;
+  for (const lineman of oLinemen) {
+    if (lineman.isBlocked) continue;  // Already engaged
+
+    // Find priority target based on position
+    const priorityTargets = blockingMatchups[lineman.positionSlot] || [];
+
+    // First try to block priority target
+    let targetRusher = state.defenders.find(d =>
+      priorityTargets.includes(d.positionSlot) && !d.isBlocked && isPassRusher(d.positionSlot)
+    );
+
+    // If no priority target, block closest unblocked pass rusher
+    if (!targetRusher) {
+      const closestRusher = state.defenders
+        .filter(d => isPassRusher(d.positionSlot) && !d.isBlocked)
+        .map(d => ({
+          defender: d,
+          distance: Math.sqrt(Math.pow(d.x - lineman.x, 2) + Math.pow(d.y - lineman.y, 2)),
+        }))
+        .sort((a, b) => a.distance - b.distance)[0];
+
+      if (closestRusher && closestRusher.distance < 8) {
+        targetRusher = closestRusher.defender;
+      }
+    }
+
+    if (targetRusher) {
+      const distance = Math.sqrt(
+        Math.pow(targetRusher.x - lineman.x, 2) +
+        Math.pow(targetRusher.y - lineman.y, 2)
+      );
+
+      // Engage in block if close enough (increased range)
+      if (distance < 10) {
+        targetRusher.isBlocked = true;
+        lineman.isBlocked = true;
+
+        // Move lineman toward rusher to maintain block
+        if (distance > 2) {
+          const dx = targetRusher.x - lineman.x;
+          const dy = targetRusher.y - lineman.y;
+          lineman.x += (dx / distance) * 0.3;
+          lineman.y += (dy / distance) * 0.3;
+        }
+      }
     }
   }
 
-  // Blocking degrades over time
+  // Blocking degrades over time based on pass rush vs. block ratings
   for (const defender of state.defenders) {
     if (defender.isBlocked) {
-      // Small chance to shed block each tick
-      const shedChance = 0.02 + (defender.passRush / 1000);  // 2-12% per tick
-      if (Math.random() < shedChance) {
+      // Pass rush rating vs. average OL blocking (assume 75)
+      const passRushRating = defender.passRush ?? 70;
+      const olBlockRating = 75;  // TODO: Get actual OL rating
+
+      // Base shed chance: 0.5-3% per tick
+      // Higher pass rush = more likely to shed
+      // Rating difference of +20 doubles shed chance
+      const ratingAdvantage = (passRushRating - olBlockRating) / 40;
+      const baseShedChance = 0.01;  // 1% base per tick (60 ticks/sec = ~1.5s average)
+      const shedChance = baseShedChance * (1 + ratingAdvantage);
+
+      if (Math.random() < Math.max(0.005, Math.min(0.05, shedChance))) {
         defender.isBlocked = false;
       }
     }
