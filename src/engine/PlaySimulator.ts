@@ -188,14 +188,19 @@ function initializeSimulation(
   });
 
   // Initialize defenders
+  // NOTE: Defense formations use Y > 50 for deeper coverage, but canvas renders
+  // Y > 50 as below LOS (offensive side). Flip Y to put defenders above LOS.
   const defenders: DefenderState[] = defenseAssignments.map(assignment => {
     const ratings = getDefenderRatings(assignment.positionSlot, defenseRatings);
+
+    // Flip Y coordinate: y=51 becomes y=49, y=65 becomes y=35
+    const flippedY = 100 - assignment.startY;
 
     return {
       positionSlot: assignment.positionSlot,
       x: assignment.startX,
-      y: assignment.startY,
-      assignment,
+      y: flippedY,
+      assignment: { ...assignment, startY: flippedY },
       isEngaged: false,
       isBlocked: false,
       hasMadeTackle: false,
