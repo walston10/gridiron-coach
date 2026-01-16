@@ -44,7 +44,7 @@ import { UNIVERSAL_OFFENSIVE_PLAYS } from '../../data/universalPlaybook';
 import { calculateRosterBuffs, applyRosterBuffs, type ModifiedPlay } from '../../engine/rosterBuffs';
 
 // Lazy load the heavy game components
-import { PlayResultDisplay } from './PlayResult';
+import { AnimatedPlayResult } from './AnimatedPlayResult';
 import { PregamePresentation } from './PregamePresentation';
 
 // =============================================================================
@@ -1575,7 +1575,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     } : undefined;
 
     return (
-      <PlayResultDisplay
+      <AnimatedPlayResult
         result={lastResult}
         offensePlayType={offenseCard?.playType}
         targetPosition={lastPlayedSelection?.offenseTarget || undefined}
