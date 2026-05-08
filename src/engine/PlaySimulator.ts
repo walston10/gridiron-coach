@@ -53,6 +53,14 @@ export interface SimulationConfig {
    * producing an INCOMPLETE outcome. Used as the Key Frame "bail" branch.
    */
   pinnedThrowAway?: boolean;
+
+  /**
+   * Optional override: replace the RB's generated run path with an explicit
+   * waypoint sequence. Used by the Key Frame branched-precompute system to
+   * simulate a run play with different lane choices (assigned / bounce / cutback).
+   * Each entry is `{ x, y, delay }` where delay is ms after the previous waypoint.
+   */
+  pinnedRunPath?: { x: number; y: number; delay: number }[];
 }
 
 const DEFAULT_CONFIG: SimulationConfig = {
@@ -197,7 +205,7 @@ function initializeSimulation(
 ): SimulationState {
   // Initialize offense players from play assignments
   const offensePlayers: OffensePlayerState[] = play.assignments.map(assignment => {
-    const path = generateOffensePath(play, assignment, config.preSnapDurationMs);
+    const path = generateOffensePath(play, assignment, config.preSnapDurationMs, config.pinnedRunPath);
     const speed = getOffenseSpeed(assignment);
 
     return {
@@ -259,7 +267,8 @@ function initializeSimulation(
 function generateOffensePath(
   play: Play,
   assignment: PlayerAssignment,
-  preSnapDuration: number
+  preSnapDuration: number,
+  pinnedRunPath?: { x: number; y: number; delay: number }[]
 ): Waypoint[] {
   const waypoints: Waypoint[] = [];
   const snapTime = preSnapDuration + 200;
@@ -302,8 +311,9 @@ function generateOffensePath(
       waypoints.push({ x: point.x, y: point.y, arrivalTimeMs: currentTime });
     }
   } else if (assignment.isBallCarrier || assignment.runAssignment) {
-    // Running back
-    const runPath = generateRunPath(assignment, play);
+    // Running back. If a Key Frame branch pinned an explicit lane path, use it;
+    // otherwise generate from the play's runAssignment.
+    const runPath = pinnedRunPath ?? generateRunPath(assignment, play);
     let currentTime = snapTime + 300;
     for (const point of runPath) {
       currentTime += point.delay;
