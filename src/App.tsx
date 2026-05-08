@@ -14,16 +14,22 @@ import { DraftPage } from './components/Draft/DraftPage';
 import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 import { StartScreen, FranchiseIntro, GMNameInput } from './components/intro';
 import { FantasyDraft } from './components/Draft/FantasyDraft';
-import { PlayViewer } from './components/PlayAnimation';
+import { PlayViewer, KeyFramePlaySlice } from './components/PlayAnimation';
 import { DEFAULT_TEAMS } from './data/defaultTeams';
 
-type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency' | 'playviewer';
+type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency' | 'playviewer' | 'keyframe';
 
 function App() {
   const { gamePhase, userTeamId, setPhase, initializeGame, setDraftedRoster } = useGameStore();
   const { season, initializeSeason, getCurrentUserGame } = useSeasonStore();
   const { initializeSeason: initializeLeague } = useLeagueStore();
   const [currentPage, setCurrentPage] = useState<Page>('home');
+
+  // Dev shortcut: visit `#kfslice` to jump straight into the Key Frame slice
+  // without going through the intro/draft flow.
+  if (typeof window !== 'undefined' && window.location.hash === '#kfslice') {
+    return <KeyFramePlaySlice onBack={() => { window.location.hash = ''; window.location.reload(); }} />;
+  }
 
   // Intro flow - render based on gamePhase
   switch (gamePhase) {
@@ -99,6 +105,11 @@ function App() {
   // Play viewer is full-screen like gameday
   if (currentPage === 'playviewer') {
     return <PlayViewer onBack={() => setCurrentPage('home')} />;
+  }
+
+  // Key Frame slice — full-screen vertical-slice for the new in-snap mechanic.
+  if (currentPage === 'keyframe') {
+    return <KeyFramePlaySlice onBack={() => setCurrentPage('home')} />;
   }
 
   const renderPage = () => {
