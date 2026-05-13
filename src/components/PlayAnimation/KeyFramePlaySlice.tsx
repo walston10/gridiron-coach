@@ -139,6 +139,13 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   const prevQuarterRef = useRef<Quarter>(1);
   const prevTwoMinRef = useRef<boolean>(false);
 
+  // Timeouts — 3 per half, reset at halftime and on new game. Spent on the
+  // "Use Timeout" button between plays to refund the most recent play's
+  // clock burn.
+  const [timeoutsRemaining, setTimeoutsRemaining] = useState(3);
+  /** Clock seconds burned by the most recent play. A timeout refunds this. */
+  const lastPlayBurnRef = useRef(0);
+
   // Mute toggle for synthesized audio stingers.
   const [muted, setMutedState] = useState<boolean>(isMuted());
 
@@ -259,7 +266,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       outcome.result !== 'INTERCEPTION' &&
       outcome.result !== 'FUMBLE';
     drive.applyOutcome(outcome);
-    gameClock.burn(clockBurnFor(outcome, gameClock.state));
+    const burn = clockBurnFor(outcome, gameClock.state);
+    lastPlayBurnRef.current = burn;
+    gameClock.burn(burn);
     setPunch({ outcome, isFirstDown });
     // Play the matching stinger. classifyPunch returns null only when there's
     // truly no category; defensively guard.
@@ -268,12 +277,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   }, [phase, chosenOption, drive, gameClock]);
 
   // Reset the per-play guard whenever a new play is loaded (so the next
-  // play's outcome will apply cleanly). Also clear any lingering punch so
-  // a stale banner doesn't carry into the next snap.
+  // play's outcome will apply cleanly). Also clear any lingering punch and
+  // the timeout-refund window — once the next play is in flight, you can't
+  // call a timeout against the previous one.
   useEffect(() => {
     if (phase === 'ready') {
       lastAppliedRef.current = null;
       setPunch(null);
+      lastPlayBurnRef.current = 0;
     }
   }, [phase]);
 
@@ -366,7 +377,12 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       </div>
 
       {/* Drive HUD — both scores, clock, down/distance, field position. Persists across plays. */}
-      <DriveHud state={drive.state} opponentScore={opponentScore} clockState={gameClock.state} />
+      <DriveHud
+        state={drive.state}
+        opponentScore={opponentScore}
+        clockState={gameClock.state}
+        timeoutsRemaining={timeoutsRemaining}
+      />
 
       {/* Halftime card — pauses everything until the user dismisses. */}
       {gameClock.state.isHalftime && !gameClock.state.isGameOver && (
@@ -414,6 +430,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               }
               setTrivia(null);
               gameClock.ackHalftime();
+              setTimeoutsRemaining(3);  // Fresh timeouts for the 2nd half.
               const ballOn = Math.max(5, Math.min(95, 25 + fieldPosBonus));
               drive.newDrive(ballOn);
               if (aiDefenseEnabled) {
@@ -469,8 +486,10 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setTrivia(null);
               setQbAccuracyBonus(0);
               setMacroBanner(null);
+              setTimeoutsRemaining(3);
               prevQuarterRef.current = 1;
               prevTwoMinRef.current = false;
+              lastPlayBurnRef.current = 0;
               if (aiDefenseEnabled) {
                 setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
                   down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0,
@@ -771,42 +790,87 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       {/* Standard controls: Start Play / Next Play. Hidden during pre-snap,
           on 4th down (special row above), and when drive is over or game stopped. */}
       {phase !== 'pre-snap' && !drive.state.driveOver && !isFourthDown && !gameStopped && (
-        <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
-          <button
-            onClick={() => {
-              if (phase === 'done' && selectedPlay) {
-                // Advance to the next play. If AI is calling, it picks a new defense
-                // for the just-updated situation; otherwise reload with current defense.
-                if (aiDefenseEnabled) {
-                  setCurrentDefense(aiPickDefense());
-                  // currentDefense change triggers the load-play effect.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 480 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => {
+                if (phase === 'done' && selectedPlay) {
+                  // Advance to the next play. If AI is calling, it picks a new defense
+                  // for the just-updated situation; otherwise reload with current defense.
+                  if (aiDefenseEnabled) {
+                    setCurrentDefense(aiPickDefense());
+                    // currentDefense change triggers the load-play effect.
+                  } else {
+                    loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
+                  }
                 } else {
+                  play();
+                }
+              }}
+              disabled={phase !== 'ready' && phase !== 'done'}
+              style={primaryBtn(phase === 'ready' || phase === 'done')}
+            >
+              {phase === 'done' ? 'Next Play' : 'Start Play'}
+            </button>
+            <button
+              onClick={() => {
+                drive.newDrive();
+                if (aiDefenseEnabled) {
+                  setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                    down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
+                  }));
+                } else if (selectedPlay) {
                   loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
                 }
-              } else {
-                play();
+              }}
+              style={secondaryBtn}
+            >
+              Reset Drive
+            </button>
+          </div>
+
+          {/* Clock management — timeout (refund last play's burn) + spike
+              (incomplete-style snap that burns just 5s and costs a down). */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => {
+                if (timeoutsRemaining <= 0 || lastPlayBurnRef.current <= 0) return;
+                gameClock.refund(lastPlayBurnRef.current);
+                setTimeoutsRemaining(t => t - 1);
+                lastPlayBurnRef.current = 0;
+                playStinger('TAP');
+              }}
+              disabled={
+                timeoutsRemaining <= 0 ||
+                lastPlayBurnRef.current <= 0 ||
+                phase !== 'done'
               }
-            }}
-            disabled={phase !== 'ready' && phase !== 'done'}
-            style={primaryBtn(phase === 'ready' || phase === 'done')}
-          >
-            {phase === 'done' ? 'Next Play' : 'Start Play'}
-          </button>
-          <button
-            onClick={() => {
-              drive.newDrive();
-              if (aiDefenseEnabled) {
-                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
-                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
-                }));
-              } else if (selectedPlay) {
-                loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
-              }
-            }}
-            style={secondaryBtn}
-          >
-            Reset Drive
-          </button>
+              style={smallBtn(
+                timeoutsRemaining > 0 && lastPlayBurnRef.current > 0 && phase === 'done'
+              )}
+            >
+              Use TO ({timeoutsRemaining})
+            </button>
+            <button
+              onClick={() => {
+                if (phase !== 'ready') return;
+                // Spike = treat as an incomplete pass: 5s burn, 0 yds, advances down.
+                const spike: PlayOutcome = { result: 'INCOMPLETE', yardsGained: 0 };
+                drive.applyOutcome(spike);
+                const burn = clockBurnFor(spike, gameClock.state);
+                lastPlayBurnRef.current = burn;
+                gameClock.burn(burn);
+                playStinger('INCOMPLETE');
+                // Trigger the punch overlay with a "SPIKE" label so it doesn't
+                // read as a regular incompletion. Pull off via setPunch directly.
+                setPunch({ outcome: spike, isFirstDown: false });
+              }}
+              disabled={phase !== 'ready'}
+              style={smallBtn(phase === 'ready')}
+            >
+              Spike
+            </button>
+          </div>
         </div>
       )}
 
@@ -925,5 +989,23 @@ const secondaryBtn: React.CSSProperties = {
   cursor: 'pointer',
   touchAction: 'manipulation',
 };
+
+/** Compact button for clock-management actions (timeouts, spike). */
+function smallBtn(enabled: boolean): React.CSSProperties {
+  return {
+    flex: 1,
+    padding: '8px 10px',
+    backgroundColor: enabled ? '#374151' : '#1f2937',
+    color: enabled ? '#fbbf24' : '#6b7280',
+    border: `1px solid ${enabled ? '#52525b' : '#374151'}`,
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    touchAction: 'manipulation',
+    WebkitTapHighlightColor: 'transparent',
+  };
+}
 
 export default KeyFramePlaySlice;

@@ -122,6 +122,23 @@ export function tickClock(state: GameClockState, seconds: number): GameClockStat
 }
 
 /**
+ * Refund time onto the clock — used by timeouts. Capped at the current
+ * quarter length (can't refund past the start of the quarter). Does not
+ * roll back from one quarter to the previous one; if a play crossed a
+ * quarter boundary, the refund stays in the new quarter.
+ *
+ * Refunding into a game-over state is a no-op (timeout can't un-end a game).
+ */
+export function refundClock(state: GameClockState, seconds: number): GameClockState {
+  if (state.isGameOver) return state;
+  const newRemaining = Math.min(state.quarterLengthSec, state.secondsRemaining + seconds);
+  return {
+    ...state,
+    secondsRemaining: newRemaining,
+  };
+}
+
+/**
  * Clear the halftime flag once the UI has acknowledged it (e.g. user tapped
  * "Start 2nd Half"). The clock keeps its current Q3 / time values.
  */

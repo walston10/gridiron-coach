@@ -20,9 +20,16 @@ interface DriveHudProps {
   opponentScore?: number;
   /** Game clock state — when provided, shown alongside the score. */
   clockState?: GameClockState;
+  /** Timeouts remaining this half (0–3). Shown as dots if provided. */
+  timeoutsRemaining?: number;
 }
 
-export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0, clockState }) => {
+export const DriveHud: React.FC<DriveHudProps> = ({
+  state,
+  opponentScore = 0,
+  clockState,
+  timeoutsRemaining,
+}) => {
   const twoMin = clockState ? isTwoMinuteDrill(clockState) : false;
   // Progress bar — what fraction of the field has the offense covered?
   // 0 = own goal, 100 = scored.
@@ -90,8 +97,27 @@ export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0, cl
             </>
           )}
         </div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb', textAlign: 'right', flex: 1 }}>
-          {formatDownDistance(state)}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb' }}>
+            {formatDownDistance(state)}
+          </div>
+          {typeof timeoutsRemaining === 'number' && (
+            <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+              <span style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 1, fontWeight: 700 }}>TO</span>
+              {[0, 1, 2].map(i => (
+                <span
+                  key={i}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: i < timeoutsRemaining ? '#fbbf24' : '#374151',
+                    border: i < timeoutsRemaining ? '1px solid #fbbf24' : '1px solid #4b5563',
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import { useCallback, useState } from 'react';
 import {
   startGameClock,
   tickClock,
+  refundClock,
   clearHalftime,
   type GameClockState,
 } from '../engine/gameClock';
@@ -17,6 +18,8 @@ export interface UseGameClockReturn {
   state: GameClockState;
   /** Advance the clock by N seconds; handles quarter / halftime / game-over rollover. */
   burn: (seconds: number) => void;
+  /** Add seconds back to the clock — used by timeouts. Capped at quarter length. */
+  refund: (seconds: number) => void;
   /** Caller acknowledges halftime (e.g. user dismissed the halftime card). */
   ackHalftime: () => void;
   /** Reset to a fresh game. */
@@ -30,6 +33,10 @@ export function useGameClock(quarterLengthSec?: number): UseGameClockReturn {
     setState(prev => tickClock(prev, seconds));
   }, []);
 
+  const refund = useCallback((seconds: number) => {
+    setState(prev => refundClock(prev, seconds));
+  }, []);
+
   const ackHalftime = useCallback(() => {
     setState(prev => clearHalftime(prev));
   }, []);
@@ -38,5 +45,5 @@ export function useGameClock(quarterLengthSec?: number): UseGameClockReturn {
     setState(startGameClock(qLen ?? quarterLengthSec));
   }, [quarterLengthSec]);
 
-  return { state, burn, ackHalftime, newGame };
+  return { state, burn, refund, ackHalftime, newGame };
 }
