@@ -337,28 +337,47 @@ function makeRunPath(
   dir: -1 | 1,
   variant: 'ASSIGNED' | 'BOUNCE' | 'CUTBACK'
 ): { x: number; y: number; delay: number }[] {
-  // Shared approach — RB has the ball, near LOS, hasn't committed to a gap yet.
-  const shared = { x: startX, y: startY - 5, delay: 250 };
+  // Phase 1: extended shared phase so the RB takes the handoff, approaches
+  // the LOS, and reaches a "read point" by ~ms 2000 (KF tick). All branches
+  // share this approach so frames are identical pre-decision. After the
+  // shared phase, branches diverge sharply — that's the cut.
+  const sharedHandoff = { x: startX, y: startY - 1, delay: 200 };  // out of backfield (~1500ms)
+  const sharedRead    = { x: startX, y: startY - 4, delay: 500 };  // approaching line (~2000ms — KF tick)
+
+  const extend = (path: { x: number; y: number; delay: number }[]) => {
+    const last = path[path.length - 1];
+    const prev = path[path.length - 2];
+    const dx = last.x - prev.x;
+    const dy = last.y - prev.y;
+    return [...path, {
+      x: clampX(last.x + dx * 3),
+      y: Math.max(0, last.y + dy * 3),
+      delay: 1500,
+    }];
+  };
 
   switch (variant) {
     case 'ASSIGNED':
-      return [
-        shared,
-        { x: startX, y: startY - 15, delay: 400 },
+      // Designed gap — straight ahead through the line.
+      return extend([
+        sharedHandoff, sharedRead,
+        { x: startX, y: startY - 14, delay: 350 },
         { x: startX, y: startY - 30, delay: 600 },
-      ];
+      ]);
     case 'BOUNCE':
-      return [
-        shared,
-        { x: clampX(startX + 18 * dir), y: startY - 12, delay: 450 },
-        { x: clampX(startX + 25 * dir), y: startY - 28, delay: 700 },
-      ];
+      // Cut outside hard — sharp lateral movement.
+      return extend([
+        sharedHandoff, sharedRead,
+        { x: clampX(startX + 22 * dir), y: startY - 10, delay: 400 },
+        { x: clampX(startX + 32 * dir), y: startY - 24, delay: 650 },
+      ]);
     case 'CUTBACK':
-      return [
-        shared,
-        { x: clampX(startX - 10 * dir), y: startY - 10, delay: 400 },
-        { x: clampX(startX - 18 * dir), y: startY - 25, delay: 700 },
-      ];
+      // Cut to the weak side — opposite of designed direction.
+      return extend([
+        sharedHandoff, sharedRead,
+        { x: clampX(startX - 14 * dir), y: startY - 9, delay: 400 },
+        { x: clampX(startX - 24 * dir), y: startY - 22, delay: 650 },
+      ]);
   }
 }
 
@@ -433,10 +452,13 @@ export function buildKeyFramedRunPlay(
     }),
   }));
 
-  // Key Frame tick — when the RB reaches the shared approach waypoint.
-  // generateOffensePath schedules the first run-path waypoint at
-  // snapTime + 300 + delay = (preSnap + 200) + 300 + 250 = preSnap + 750.
-  const keyFrameTickMs = preSnapDurationMs + 750;
+  // Key Frame tick — when the RB reaches the LOS approach (sharedRead
+  // waypoint). All branches are identical up to this tick; after the tap,
+  // the chosen branch's frames take over and the RB cuts to that gap.
+  // sharedHandoff arrives at snapTime+300+200 = preSnap+700; sharedRead
+  // arrives at snapTime+300+200+500 = preSnap+1200. The tick fires just
+  // before sharedRead so the player commits AT the read moment.
+  const keyFrameTickMs = preSnapDurationMs + 1200;
 
   // ---- Build options with diegetic positions ----
   // Tap target sits at each lane's commit point (the 2nd waypoint), so the
