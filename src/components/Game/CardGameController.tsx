@@ -1285,6 +1285,9 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     setFourthDownDefenseResponse,
     handleExtraPoint,
     updateFieldPosition,
+    switchPossession,
+    addScore,
+    applyMomentumEvent,
     // Pregame
     pregameModifiers,
     pregameCards,
@@ -1607,9 +1610,41 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     // Update field position based on yards gained
     updateFieldPosition(simResult.yardsGained);
 
+    // CRITICAL: the sim path was previously skipping the store mutations
+    // that executePlay() does in the non-sim flow. Without these, an
+    // interception would not flip possession, a touchdown would not score,
+    // and momentum events would not fire. Mirror the relevant tail of
+    // executePlay here.
+    const isPlayerOffense = isPlayerOnOffense();
+
+    if (simResult.touchdown) {
+      addScore(isPlayerOffense ? 'player' : 'opponent', 6);
+      switchPossession('TOUCHDOWN');
+      applyMomentumEvent('TOUCHDOWN', isPlayerOffense);
+    } else if (simResult.turnover) {
+      const turnoverType = simResult.turnoverType === 'INTERCEPTION' ? 'INTERCEPTION' : 'FUMBLE';
+      switchPossession(turnoverType);
+      applyMomentumEvent('TURNOVER_LOST', isPlayerOffense);
+      applyMomentumEvent('TURNOVER_GAINED', !isPlayerOffense);
+    } else if (playResult.safety) {
+      addScore(isPlayerOffense ? 'opponent' : 'player', 2);
+      switchPossession('SAFETY');
+    } else if (simResult.bigPlay) {
+      applyMomentumEvent('BIG_PLAY', isPlayerOffense);
+    } else if (simResult.sack) {
+      applyMomentumEvent('SACK_TAKEN', isPlayerOffense);
+      applyMomentumEvent('SACK', !isPlayerOffense);
+    } else if (simResult.yardsGained >= fieldPosition.yardsToGo) {
+      applyMomentumEvent('FIRST_DOWN', isPlayerOffense);
+    }
+
     setLastResult(playResult);
     setPhase('PLAY_RESULT');
-  }, [setPhase, updateFieldPosition, fieldPosition.yardLine, pendingSimulation, generatePlayByPlay]);
+  }, [
+    setPhase, updateFieldPosition, fieldPosition.yardLine, fieldPosition.yardsToGo,
+    pendingSimulation, generatePlayByPlay,
+    isPlayerOnOffense, switchPossession, addScore, applyMomentumEvent,
+  ]);
 
   // Render simulation if in progress
   if (isSimulating && pendingSimulation) {
