@@ -5,3 +5,4 @@ export { KeyFrameOverlay } from './KeyFrameOverlay';
 export { AudibleBar } from './AudibleBar';
 export { DefensePicker } from './DefensePicker';
 export { ScoutTellsOverlay } from './ScoutTellsOverlay';
+export { DriveHud } from './DriveHud';

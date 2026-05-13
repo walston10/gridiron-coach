@@ -6,13 +6,15 @@
  * playable demonstration of the new gameplay loop.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
 import { AudibleBar } from './AudibleBar';
 import { DefensePicker } from './DefensePicker';
 import { ScoutTellsOverlay } from './ScoutTellsOverlay';
+import { DriveHud } from './DriveHud';
 import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
+import { useDriveState } from '../../hooks/useDriveState';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
 import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
@@ -95,14 +97,38 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       .slice(0, 2);
   }, [activePlay, playablePlays]);
 
+  // Drive state — persists across snaps until the drive ends.
+  const drive = useDriveState();
+
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
     loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
   }, [selectedPlay, selectedDefense, loadPlay]);
 
+  // Once-per-play guard so we only apply the outcome to drive state a single
+  // time when the phase transitions to 'done'.
+  const lastAppliedRef = useRef<string | null>(null);
+
+  // Pump the play outcome into the drive state when a play resolves.
+  useEffect(() => {
+    if (phase !== 'done' || !chosenOption) return;
+    // chosenOption is replaced each play; guard against re-applying the same one.
+    const key = `${chosenOption.id}|${chosenOption.branch.totalDurationMs}|${drive.state.playsRun}`;
+    if (lastAppliedRef.current === key) return;
+    lastAppliedRef.current = key;
+    drive.applyOutcome(chosenOption.branch.outcome);
+  }, [phase, chosenOption, drive]);
+
+  // Reset the per-play guard whenever a new play is loaded (so the next
+  // play's outcome will apply cleanly).
+  useEffect(() => {
+    if (phase === 'ready') lastAppliedRef.current = null;
+  }, [phase]);
+
   const showOverlay = phase === 'awaiting-decision';
   const finalOutcome = phase === 'done' && chosenOption?.branch.outcome;
+  const isFourthDown = drive.state.down === 4 && !drive.state.driveOver && phase === 'ready';
 
   return (
     <div
@@ -139,6 +165,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Key Frame Slice</h1>
         <div style={{ width: 60 }} />
       </div>
+
+      {/* Drive HUD — score, down/distance, field position. Persists across plays. */}
+      <DriveHud state={drive.state} />
 
       {/* Play selector */}
       <select
@@ -290,23 +319,75 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         />
       )}
 
-      {/* Start / Reset controls (hidden while in pre-snap, audible bar takes over) */}
-      {phase !== 'pre-snap' && (
+      {/* End-of-drive controls: show summary + New Drive button. */}
+      {drive.state.driveOver && (
+        <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div
+            style={{
+              padding: 12,
+              backgroundColor: driveResultBg(drive.state.driveOverReason),
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 700,
+              textAlign: 'center',
+            }}
+          >
+            {driveResultLabel(drive.state.driveOverReason)} · {drive.state.playsRun} plays · {drive.state.score} pts total
+          </div>
+          <button
+            onClick={() => {
+              drive.newDrive();
+              if (selectedPlay) loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+            }}
+            style={primaryBtn(true)}
+          >
+            New Drive
+          </button>
+        </div>
+      )}
+
+      {/* 4th-down decision row: only on 4th down before snap, drive still live. */}
+      {isFourthDown && !drive.state.driveOver && (
+        <div style={{ width: '100%', maxWidth: 480, display: 'flex', gap: 6 }}>
+          <button onClick={play} style={{ ...primaryBtn(true), flex: 2 }}>
+            Go For It
+          </button>
+          <button onClick={drive.kickFieldGoal} style={{ ...secondaryBtn, flex: 1, padding: 14 }}>
+            FG
+          </button>
+          <button onClick={drive.punt} style={{ ...secondaryBtn, flex: 1, padding: 14 }}>
+            Punt
+          </button>
+        </div>
+      )}
+
+      {/* Standard controls: Start Play / Next Play. Hidden during pre-snap,
+          on 4th down (special row above), and when drive is over. */}
+      {phase !== 'pre-snap' && !drive.state.driveOver && !isFourthDown && (
         <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
           <button
-            onClick={play}
-            disabled={phase !== 'ready'}
-            style={primaryBtn(phase === 'ready')}
+            onClick={() => {
+              // If we're on 'done', we need to re-prime the hook for the next snap.
+              if (phase === 'done' && selectedPlay) {
+                loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                // Once 'ready', the user taps Start Play again. Simpler than chaining.
+              } else {
+                play();
+              }
+            }}
+            disabled={phase !== 'ready' && phase !== 'done'}
+            style={primaryBtn(phase === 'ready' || phase === 'done')}
           >
-            Start Play
+            {phase === 'done' ? 'Next Play' : 'Start Play'}
           </button>
           <button
             onClick={() => {
+              drive.newDrive();
               if (selectedPlay) loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
             }}
             style={secondaryBtn}
           >
-            Reset
+            Reset Drive
           </button>
         </div>
       )}
@@ -320,6 +401,30 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     </div>
   );
 };
+
+function driveResultBg(reason: string | null): string {
+  switch (reason) {
+    case 'TOUCHDOWN':         return '#065f46';
+    case 'FIELD_GOAL':        return '#1e3a8a';
+    case 'PUNT':              return '#374151';
+    case 'TURNOVER':
+    case 'TURNOVER_ON_DOWNS':
+    case 'SAFETY':            return '#7f1d1d';
+    default:                  return '#374151';
+  }
+}
+
+function driveResultLabel(reason: string | null): string {
+  switch (reason) {
+    case 'TOUCHDOWN':         return 'TOUCHDOWN';
+    case 'FIELD_GOAL':        return 'Field goal attempt';
+    case 'PUNT':              return 'Punted';
+    case 'TURNOVER':          return 'Turnover';
+    case 'TURNOVER_ON_DOWNS': return 'Turnover on downs';
+    case 'SAFETY':            return 'Safety';
+    default:                  return 'Drive over';
+  }
+}
 
 function outcomeBg(result: string): string {
   switch (result) {
