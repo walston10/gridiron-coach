@@ -10,9 +10,11 @@ import { formatDownDistance, type DriveState } from '../../engine/driveState';
 
 interface DriveHudProps {
   state: DriveState;
+  /** Opponent's cumulative score, displayed alongside the player's. */
+  opponentScore?: number;
 }
 
-export const DriveHud: React.FC<DriveHudProps> = ({ state }) => {
+export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0 }) => {
   // Progress bar — what fraction of the field has the offense covered?
   // 0 = own goal, 100 = scored.
   const progress = Math.max(0, Math.min(100, state.ballOn));
@@ -42,11 +44,20 @@ export const DriveHud: React.FC<DriveHudProps> = ({ state }) => {
           gap: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span style={{ fontSize: 10, color: '#9ca3af', letterSpacing: 1, fontWeight: 600 }}>SCORE</span>
-          <span style={{ fontSize: 22, color: '#fbbf24', fontWeight: 800, lineHeight: 1 }}>
-            {state.score}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <span style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 1, fontWeight: 700 }}>YOU</span>
+            <span style={{ fontSize: 22, color: '#fbbf24', fontWeight: 800, lineHeight: 1 }}>
+              {state.score}
+            </span>
+          </div>
+          <span style={{ fontSize: 14, color: '#6b7280', fontWeight: 600 }}>—</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            <span style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 1, fontWeight: 700 }}>OPP</span>
+            <span style={{ fontSize: 22, color: '#f87171', fontWeight: 800, lineHeight: 1 }}>
+              {opponentScore}
+            </span>
+          </div>
         </div>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb', textAlign: 'right', flex: 1 }}>
           {formatDownDistance(state)}

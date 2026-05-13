@@ -19,6 +19,8 @@ import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
 import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
 import { chooseDefense } from '../../engine/aiDefenseCaller';
+import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/aiOffense';
+import { OpponentDriveFeed } from './OpponentDriveFeed';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
@@ -111,6 +113,32 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // Drive state — persists across snaps until the drive ends.
   const drive = useDriveState();
 
+  // Cumulative opponent score across simulated opponent drives.
+  const [opponentScore, setOpponentScore] = useState(0);
+
+  // Opponent drive interstitial state machine:
+  //   'none'           = player's turn
+  //   'pending'        = player drive just ended, button shown to kick off opponent
+  //   'streaming'      = opponent play-by-play is revealing
+  //   'awaiting_user'  = feed done, button shown to take the ball back
+  type Interstitial =
+    | { kind: 'none' }
+    | { kind: 'pending' }
+    | { kind: 'streaming'; result: OpponentDriveResult }
+    | { kind: 'awaiting_user'; result: OpponentDriveResult };
+  const [interstitial, setInterstitial] = useState<Interstitial>({ kind: 'none' });
+
+  // When the player's drive ends, transition into the opponent-pending state
+  // (unless we're already in the opponent flow). The transition only fires
+  // when driveOver becomes true so we don't loop.
+  const driveOverPrevRef = useRef(false);
+  useEffect(() => {
+    if (drive.state.driveOver && !driveOverPrevRef.current && interstitial.kind === 'none') {
+      setInterstitial({ kind: 'pending' });
+    }
+    driveOverPrevRef.current = drive.state.driveOver;
+  }, [drive.state.driveOver, interstitial.kind]);
+
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
@@ -163,6 +191,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   const showOverlay = phase === 'awaiting-decision';
   const finalOutcome = phase === 'done' && chosenOption?.branch.outcome;
   const isFourthDown = drive.state.down === 4 && !drive.state.driveOver && phase === 'ready';
+  // While the opponent is on the field, hide the player's canvas / pickers /
+  // controls so the feed has the screen.
+  const playerTurnActive = interstitial.kind === 'none';
 
   return (
     <div
@@ -200,8 +231,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         <div style={{ width: 60 }} />
       </div>
 
-      {/* Drive HUD — score, down/distance, field position. Persists across plays. */}
-      <DriveHud state={drive.state} />
+      {/* Drive HUD — both scores, down/distance, field position. Persists across plays. */}
+      <DriveHud state={drive.state} opponentScore={opponentScore} />
 
       {/* Play selector */}
       <select
@@ -293,7 +324,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         </div>
       </div>
 
-      {/* Canvas + overlay */}
+      {/* Canvas + overlay — only while it's the player's turn. */}
+      {playerTurnActive && (
       <div style={{ position: 'relative', width: canvasSize.width, height: canvasSize.height }}>
         <PlayAnimationCanvas
           frame={currentFrame}
@@ -343,6 +375,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           />
         )}
       </div>
+      )}
 
       {/* Status / outcome */}
       <div style={{ width: '100%', maxWidth: 480, minHeight: 60, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -382,8 +415,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         />
       )}
 
-      {/* End-of-drive controls: show summary + New Drive button. */}
-      {drive.state.driveOver && (
+      {/* End-of-drive: show summary + "Opponent's Turn" trigger. */}
+      {drive.state.driveOver && interstitial.kind === 'pending' && (
         <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div
             style={{
@@ -395,26 +428,54 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               textAlign: 'center',
             }}
           >
-            {driveResultLabel(drive.state.driveOverReason)} · {drive.state.playsRun} plays · {drive.state.score} pts total
+            Your drive: {driveResultLabel(drive.state.driveOverReason)} · {drive.state.playsRun} plays · {drive.state.score} pts
           </div>
           <button
             onClick={() => {
-              drive.newDrive();
-              // On a new drive, AI picks a fresh defense for 1st & 10 at own 25.
-              if (aiDefenseEnabled) {
-                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
-                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
-                }));
-                // currentDefense change will trigger the load-play effect.
-              } else if (selectedPlay) {
-                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
-              }
+              // Compute where the opponent gets the ball.
+              const oppStartsAt = opponentStartingYardline(drive.state);
+              const result = simulateOpponentDrive(oppStartsAt);
+              setInterstitial({ kind: 'streaming', result });
             }}
             style={primaryBtn(true)}
           >
-            New Drive
+            Opponent's Turn ▶
           </button>
         </div>
+      )}
+
+      {/* Opponent drive play-by-play feed. Hides the canvas/controls below. */}
+      {(interstitial.kind === 'streaming' || interstitial.kind === 'awaiting_user') && (
+        <OpponentDriveFeed
+          result={interstitial.result}
+          onDone={() => {
+            setInterstitial(prev =>
+              prev.kind === 'streaming' ? { kind: 'awaiting_user', result: prev.result } : prev
+            );
+          }}
+        />
+      )}
+
+      {/* After the feed finishes: apply opponent points and hand the ball back. */}
+      {interstitial.kind === 'awaiting_user' && (
+        <button
+          onClick={() => {
+            const result = interstitial.result;
+            setOpponentScore(s => s + result.pointsScored);
+            drive.newDrive(result.playerStartsAt);
+            if (aiDefenseEnabled) {
+              setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                down: 1, yardsToGo: 10, ballOn: result.playerStartsAt, scoreDiff: drive.state.score - (opponentScore + result.pointsScored),
+              }));
+            } else if (selectedPlay) {
+              loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+            }
+            setInterstitial({ kind: 'none' });
+          }}
+          style={{ ...primaryBtn(true), width: '100%', maxWidth: 480 }}
+        >
+          Your Turn ▶
+        </button>
       )}
 
       {/* 4th-down decision row: only on 4th down before snap, drive still live. */}
@@ -483,6 +544,34 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     </div>
   );
 };
+
+/**
+ * Translate the player's drive-end state into the opponent's starting yardline
+ * (from the opponent's perspective: own goal = 0, opponent's goal = 100).
+ * Crude approximation; we'll thread real punt distances later.
+ */
+function opponentStartingYardline(playerDrive: { ballOn: number; driveOverReason: string | null }): number {
+  switch (playerDrive.driveOverReason) {
+    case 'TOUCHDOWN':
+    case 'FIELD_GOAL':
+      return 25;  // Kickoff → opponent's own 25
+    case 'PUNT': {
+      // Punt distance 35..50, opponent gets ball at (100 - playerBallOn - puntDistance)
+      // expressed in opponent's perspective.
+      const puntDistance = 38 + Math.round(Math.random() * 12);
+      const opponentBallOn = Math.max(5, 100 - playerDrive.ballOn - puntDistance);
+      return opponentBallOn;
+    }
+    case 'TURNOVER':
+    case 'TURNOVER_ON_DOWNS':
+      // Opponent gets ball at the spot (in their perspective, mirrored).
+      return Math.max(1, 100 - playerDrive.ballOn);
+    case 'SAFETY':
+      return 35;  // Free kick after safety
+    default:
+      return 25;
+  }
+}
 
 function driveResultBg(reason: string | null): string {
   switch (reason) {
