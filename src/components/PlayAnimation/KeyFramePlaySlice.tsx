@@ -208,8 +208,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     if (drive.state.driveOver && !driveOverPrevRef.current && interstitial.kind === 'none') {
       setInterstitial({ kind: 'pending' });
       setActiveDriveQbBonus(0);
-      // Roll for a between-drives personality moment (~25% chance).
-      const moment = rollPersonalityMoment();
+      // Roll for a between-drives personality moment (~30% chance), filtered
+      // by the current situation so context-specific beats can trigger.
+      const moment = rollPersonalityMoment({
+        driveEnd: drive.state.driveOverReason,
+        scoreDiff: drive.state.score - opponentScore,
+        quarter: gameClock.state.quarter,
+        secondsRemaining: gameClock.state.secondsRemaining,
+      });
       if (moment) setActiveMoment({ moment, selectedIndex: null });
     }
     driveOverPrevRef.current = drive.state.driveOver;
