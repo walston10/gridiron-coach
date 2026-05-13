@@ -11,3 +11,4 @@ export { HalftimeTrivia } from './HalftimeTrivia';
 export { OutcomePunch } from './OutcomePunch';
 export { MacroClockBanner } from './MacroClockBanner';
 export { PersonalityMoment } from './PersonalityMoment';
+export { PlaybookCardStack } from './PlaybookCardStack';

@@ -11,10 +11,12 @@ import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
 import { AudibleBar } from './AudibleBar';
 import { ScoutTellsOverlay } from './ScoutTellsOverlay';
+import { PlaybookCardStack } from './PlaybookCardStack';
+import { approachFor, type OffensiveApproach } from '../../data/playApproach';
+import { dealDriveHand, type PlayHand } from '../../engine/playHand';
 import { DriveHud } from './DriveHud';
 import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
 import { useDriveState } from '../../hooks/useDriveState';
-import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
 import { tellsFor, type ScoutGrade } from '../../engine/tells';
 import { chooseDefense } from '../../engine/aiDefenseCaller';
@@ -30,6 +32,7 @@ import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/ha
 import { rollPersonalityMoment, type PersonalityMoment as Moment } from '../../data/personalityMoments';
 import { playStinger, setMuted, isMuted, type StingerKind } from '../../utils/audio';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
+import type { Play } from '../../types/Play';
 import type { PlayOutcome } from '../../types/PlayAnimation';
 
 interface KeyFramePlaySliceProps {
@@ -54,15 +57,22 @@ function pickCanvasSize() {
 }
 
 export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) => {
-  // Pass + run plays (anything with a Key Frame mechanic).
-  const playablePlays = useMemo(
-    () => DEFAULT_PLAYS.filter(p => p.playType === 'PASS' || p.playType === 'RUN'),
-    []
-  );
-  const [selectedPlayId, setSelectedPlayId] = useState<string>(
-    playablePlays.find(p => p.id === 'default-post-corner')?.id ?? playablePlays[0]?.id ?? ''
-  );
-  const selectedPlay = playablePlays.find(p => p.id === selectedPlayId) ?? playablePlays[0];
+  // Drive hand: 3 safety plays (always available) + 5 rotating per drive.
+  // Refreshed on every new drive so each possession has its own mix.
+  const [driveHand, setDriveHand] = useState<PlayHand>(() => dealDriveHand());
+
+  // 3-tier card selection: approach → play → modifiers.
+  const [currentApproach, setCurrentApproach] = useState<OffensiveApproach | null>(null);
+  const [currentPlay, setCurrentPlay] = useState<Play | null>(null);
+  const [selectedModifiers] = useState<string[]>([]);  // Phase 2 will populate.
+
+  // Momentum + heat — visible meters only in Phase 1. Phase 2 wires modifier
+  // costs and consequences.
+  const [momentum, setMomentum] = useState(5);
+  const [heat, setHeat] = useState(0);
+
+  // Selected play drives loadPlay below; null until the user picks one.
+  const selectedPlay = currentPlay;
 
   // Defense the offense is currently facing. Always AI-called from the
   // current drive situation — the player is the offensive coach, the
@@ -104,17 +114,11 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     snap,
     audible,
     decide,
-    reset,
   } = useKeyFramedPlay();
 
-  // Pick 2 alternates of the same play type as the active play (for the
-  // audible bar). Exclude the active one. First two found in DEFAULT_PLAYS order.
-  const alternates = useMemo(() => {
-    if (!activePlay) return [];
-    return playablePlays
-      .filter(p => p.id !== activePlay.id && p.playType === activePlay.playType)
-      .slice(0, 2);
-  }, [activePlay, playablePlays]);
+  // AudibleBar is replaced by the 3-tier PlaybookCardStack in the hybrid UI.
+  // Alternates aren't used while the card stack is the selection surface.
+  const alternates: Play[] = [];
 
   // Drive state — persists across snaps until the drive ends.
   const drive = useDriveState();
@@ -314,6 +318,15 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // play's outcome will apply cleanly). Also clear any lingering punch and
   // the timeout-refund window — once the next play is in flight, you can't
   // call a timeout against the previous one.
+  // After a play resolves, clear the picked play so the user has to re-pick
+  // from the card stack for the next snap. Approach persists (your coaching
+  // tendency) but the specific play does not.
+  useEffect(() => {
+    if (phase === 'done') {
+      setCurrentPlay(null);
+    }
+  }, [phase]);
+
   useEffect(() => {
     if (phase === 'ready') {
       lastAppliedRef.current = null;
@@ -487,6 +500,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setActiveDriveQbBonus(0);
               const ballOn = Math.max(5, Math.min(95, 25 + fieldPosBonus));
               drive.newDrive(ballOn);
+              setDriveHand(dealDriveHand());
+              setCurrentApproach(null);
+              setCurrentPlay(null);
               setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
                 down: 1, yardsToGo: 10, ballOn, scoreDiff: drive.state.score - opponentScore,
               }));
@@ -541,6 +557,12 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setActiveMoment(null);
               setPendingMods({ fieldPosBonus: 0, qbDriveBonus: 0 });
               setActiveDriveQbBonus(0);
+              // Reset play-call state to a fresh hand.
+              setDriveHand(dealDriveHand());
+              setCurrentApproach(null);
+              setCurrentPlay(null);
+              setMomentum(5);
+              setHeat(0);
               prevQuarterRef.current = 1;
               prevTwoMinRef.current = false;
               lastPlayBurnRef.current = 0;
@@ -555,27 +577,38 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         </div>
       )}
 
-      {/* Play selector */}
-      <select
-        value={selectedPlayId}
-        onChange={e => { setSelectedPlayId(e.target.value); reset(); }}
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          padding: '10px 12px',
-          backgroundColor: '#1f2937',
-          color: '#e5e7eb',
-          border: '1px solid #374151',
-          borderRadius: 6,
-          fontSize: 14,
-        }}
-      >
-        {playablePlays.map(p => (
-          <option key={p.id} value={p.id}>
-            {p.playType === 'RUN' ? '🏃 ' : '🎯 '}{p.name}
-          </option>
-        ))}
-      </select>
+      {/* 3-tier play call surface (Phase 1 of the hybrid card UI).
+          Visible while it's the player's turn and we're between snaps —
+          before they pick (idle), after they pick but haven't snapped
+          (ready), or after a play resolved and they need to pick the
+          next call (done). Hidden during snap-to-resolution states. */}
+      {playerTurnActive && (phase === 'idle' || phase === 'ready' || phase === 'done') && (
+        <PlaybookCardStack
+          hand={driveHand}
+          selectedApproach={currentApproach}
+          selectedPlay={currentPlay}
+          selectedModifiers={selectedModifiers}
+          momentum={momentum}
+          heat={heat}
+          onPickApproach={(a) => {
+            setCurrentApproach(a);
+            // Reset play selection when approach changes, since tier 2 filters.
+            if (currentPlay && approachFor(currentPlay) !== a) setCurrentPlay(null);
+          }}
+          onPickPlay={(p) => {
+            setCurrentPlay(p);
+            // Each play call also pulls a fresh AI defense for the current
+            // situation — defense reacts to your call, not just down/distance.
+            setCurrentDefense(aiPickDefense());
+          }}
+          onSnap={() => {
+            // currentPlay drives loadPlay via the useEffect below; then play().
+            // The hook flow auto-runs loadPlay when currentPlay changes; we
+            // just need to advance phase 'ready' -> 'pre-snap' via play().
+            play();
+          }}
+        />
+      )}
 
       {/* Canvas + overlay — only while it's the player's turn. */}
       {playerTurnActive && (
@@ -827,6 +860,10 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
             drive.newDrive(ballOn);
             setActiveDriveQbBonus(pendingMods.qbDriveBonus);
             setPendingMods({ fieldPosBonus: 0, qbDriveBonus: 0 });
+            // Fresh play hand for the new possession + clear last selection.
+            setDriveHand(dealDriveHand());
+            setCurrentApproach(null);
+            setCurrentPlay(null);
             setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
               down: 1, yardsToGo: 10, ballOn, scoreDiff: drive.state.score - (opponentScore + result.pointsScored),
             }));
@@ -853,35 +890,22 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         </div>
       )}
 
-      {/* Standard controls: Start Play / Next Play. Hidden during pre-snap,
-          on 4th down (special row above), and when drive is over or game stopped. */}
+      {/* Clock-management controls. The card stack handles play selection
+          and SNAP — this row is just timeouts / spike / reset drive. */}
       {phase !== 'pre-snap' && !drive.state.driveOver && !isFourthDown && !gameStopped && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 480 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={() => {
-                if (phase === 'done' && selectedPlay) {
-                  // Advance to the next play. AI re-picks a defense for the
-                  // just-updated situation; the loadPlay effect re-runs on the
-                  // new defense.
-                  setCurrentDefense(aiPickDefense());
-                } else {
-                  play();
-                }
-              }}
-              disabled={phase !== 'ready' && phase !== 'done'}
-              style={primaryBtn(phase === 'ready' || phase === 'done')}
-            >
-              {phase === 'done' ? 'Next Play' : 'Start Play'}
-            </button>
-            <button
-              onClick={() => {
                 drive.newDrive();
+                setCurrentApproach(null);
+                setCurrentPlay(null);
+                setDriveHand(dealDriveHand());
                 setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
                   down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
                 }));
               }}
-              style={secondaryBtn}
+              style={{ ...secondaryBtn, flex: 1 }}
             >
               Reset Drive
             </button>
