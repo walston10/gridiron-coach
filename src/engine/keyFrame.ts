@@ -87,8 +87,10 @@ function findKeyFrameTick(
 ): number {
   // Higher awareness QBs see the read sooner — they hit the KF a touch earlier
   // and get a wider window. Default rating 70 → +0ms; rating 90 → -100ms.
+  // Base target pushed to preSnap + 900ms so routes have time to develop and
+  // the player can actually see the play unfold before the freeze fires.
   const awarenessOffset = (70 - awarenessRating) * 5;
-  const target = preSnapDurationMs + 500 + awarenessOffset;
+  const target = preSnapDurationMs + 900 + awarenessOffset;
 
   for (const f of frames) {
     if (f.phase === 'DEVELOPING' && f.timeMs >= target) {
@@ -105,9 +107,11 @@ function findKeyFrameTick(
  * 70 awareness → 500ms. 90 awareness → 700ms. 50 awareness → 300ms.
  */
 function windowMsForAwareness(awareness: number): number {
-  const base = 500;
+  // Bumped baseline up — the previous 500ms felt like panic-tap territory.
+  // 70 awareness → 800ms, 90 → 1000ms, 50 → 600ms.
+  const base = 800;
   const bonus = (awareness - 70) * 10;
-  return Math.max(250, Math.min(900, base + bonus));
+  return Math.max(500, Math.min(1200, base + bonus));
 }
 
 /**

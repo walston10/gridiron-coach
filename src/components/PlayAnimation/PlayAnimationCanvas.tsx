@@ -185,11 +185,12 @@ function drawPlayer(
   const x = toCanvasX(player.x);
   const y = toCanvasY(player.y);
 
-  // Size varies by role
-  let radius = 14;
-  if (player.role === 'OL') radius = 16;
-  if (player.role === 'QB') radius = 15;
-  if (player.role === 'DEFENDER') radius = 13;  // Slightly smaller for defenders
+  // Size varies by role. Tuned smaller than before so 22 players fit a
+  // mobile canvas without clustering.
+  let radius = 10;
+  if (player.role === 'OL') radius = 11;
+  if (player.role === 'QB') radius = 11;
+  if (player.role === 'DEFENDER') radius = 9;
 
   // Get colors with fallback
   const defaultColor = { fill: '#6b7280', stroke: '#374151', text: '#ffffff' };
@@ -249,13 +250,16 @@ function drawPlayer(
     ctx.stroke();
   }
 
-  // Label
+  // Label — smaller text below the player, not over it, so circles read clean.
   if (showLabels) {
     ctx.fillStyle = colors.text;
-    ctx.font = 'bold 10px Arial';
+    ctx.font = 'bold 8px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(player.label, x, y);
+    // OL labels would clutter — skip them; their square shape is recognizable.
+    if (player.role !== 'OL') {
+      ctx.fillText(player.label, x, y + radius + 7);
+    }
   }
 }
 
