@@ -472,10 +472,13 @@ function tickSimulation(
   moveOffensePlayers(state, config);
 
   // Override OL positions with tick-based tracking toward their target
-  // defender. This makes blocks visibly develop instead of OL standing
-  // still after their initial 2-yard step (Phase 2a). tickSimulation
-  // early-returns during PRE_SNAP so this only fires post-snap.
-  moveOffensiveLine(state);
+  // defender. Now scheme-aware (Phase 3.1): on POWER / COUNTER, the
+  // backside guard pulls to the playside LB instead of base-blocking.
+  moveOffensiveLine(state, play);
+
+  // Drive blocked defenders backward slightly each tick — Phase 3.1
+  // sustained-block effect. Visually OL is "pushing" the defender.
+  applyDriveBlocks(state);
 
   // Handle handoff for run plays (not during SNAP phase)
   if (play.playType === 'RUN' && state.phase !== 'SNAP') {
@@ -1009,11 +1012,66 @@ const OL_BLOCK_ASSIGNMENTS: Record<string, DefensePositionSlot[]> = {
 const BLOCK_ENGAGE_RADIUS = 3.0;
 
 /**
- * OL travel speed per simulation tick. Tuned to ~12 field units/sec, which
- * is roughly real-football OL fire-out speed (~6 yards/sec) at our
- * YARDS_TO_UNITS = 2 ratio.
+ * OL travel speed per simulation tick. ~24 field units/sec — faster than
+ * real-football fire-out (~6 yards/sec) but tuned for visual clarity at
+ * mobile zoom and 0.6× playback speed.
  */
-const OL_SPEED_PER_TICK = 0.2;
+const OL_SPEED_PER_TICK = 0.4;
+
+/** Speed multiplier when an OL is pulling — pullers are skill-fast. */
+const OL_PULL_SPEED_MULT = 1.5;
+
+/** Phase 3.1: drive-block parameters. */
+const DRIVE_PUSH_PER_TICK = 0.06;  // ~3.6 units/sec, gentle but visible
+const DRIVE_MAX_DRIFT     = 2.5;   // cap on how far a blocked defender can be driven
+
+/** Per-OL behavior for a specific play. */
+type OLRole = 'BASE' | 'PULL_LEFT' | 'PULL_RIGHT';
+
+/**
+ * Determine an OL's role for the current play. Phase 3.1 implements PULL
+ * for POWER and COUNTER schemes (backside guard pulls to the playside).
+ * Everyone else stays BASE (the Phase 2 track-to-target behavior).
+ *
+ * Phase 4 will add: reach blocks (OZ/sweep), pulling tackle on COUNTER,
+ * combo/double blocks (DUO), trap blocks.
+ */
+function getOLRole(
+  positionSlot: string,
+  scheme: string | undefined,
+  runGap: string | undefined
+): OLRole {
+  if (!scheme || !runGap) return 'BASE';
+  const goesLeft = runGap.includes('LEFT');
+
+  switch (scheme) {
+    case 'POWER':
+    case 'COUNTER':
+      // Backside guard pulls to the playside.
+      if (goesLeft && positionSlot === 'RG') return 'PULL_LEFT';
+      if (!goesLeft && positionSlot === 'LG') return 'PULL_RIGHT';
+      return 'BASE';
+    default:
+      return 'BASE';
+  }
+}
+
+/**
+ * Find a target defender for a pulling lineman. Picks the first unblocked
+ * second-level defender (LB / OLB) on the playside relative to the pull
+ * direction. Falls back to any unblocked LB if none match.
+ */
+function findPullTarget(
+  role: 'PULL_LEFT' | 'PULL_RIGHT',
+  defenders: DefenderState[]
+): DefenderState | null {
+  const playside = role === 'PULL_RIGHT' ? 1 : -1;
+  const lbSlots = ['WILL', 'MIKE', 'SAM', 'OLB_L', 'OLB_R'];
+  const lbs = defenders.filter(d => lbSlots.includes(d.positionSlot) && !d.isBlocked);
+  if (lbs.length === 0) return null;
+  const playsideLBs = lbs.filter(d => playside > 0 ? d.x >= 45 : d.x <= 55);
+  return playsideLBs[0] ?? lbs[0];
+}
 
 /**
  * Find the first unblocked defender from a lineman's assignment priority.
@@ -1038,12 +1096,42 @@ function findOLTarget(
  * "move forward 2 yards and freeze" behavior. Lineman stops when in
  * BLOCK_ENGAGE_RADIUS — handleBlocking takes over from there.
  */
-function moveOffensiveLine(state: SimulationState): void {
+/**
+ * Phase 3.1 drive blocking: blocked defenders drift slowly toward the
+ * defense's end zone (y decreasing) over the course of the play — the
+ * OL is "driving" them backward. Capped at DRIVE_MAX_DRIFT units from
+ * the defender's original spawn so a hot block doesn't ride the rusher
+ * out of the play entirely.
+ */
+function applyDriveBlocks(state: SimulationState): void {
+  for (const defender of state.defenders) {
+    if (!defender.isBlocked) continue;
+    const initialY = defender.assignment.startY;  // already flipped in initializeSimulation
+    const drift = initialY - defender.y;
+    if (drift >= DRIVE_MAX_DRIFT) continue;
+    defender.y -= DRIVE_PUSH_PER_TICK;
+  }
+}
+
+function moveOffensiveLine(state: SimulationState, play: Play): void {
+  // Read the play's scheme + direction once per tick. Run plays declare
+  // their blocking scheme; the RB's runGap tells us which way the play
+  // is going so we can identify the backside (pulling) lineman.
+  const scheme = play.runBlockingScheme;
+  const rbAssignment = play.assignments.find(a => a.isBallCarrier || a.runAssignment);
+  const runGap = rbAssignment?.runGap;
+
   for (const lineman of state.offensePlayers) {
     if (!(OL_SLOTS as readonly string[]).includes(lineman.positionSlot)) continue;
     if (lineman.isBlocked) continue;  // engaged, hold position
 
-    const target = findOLTarget(lineman, state.defenders);
+    const role = getOLRole(lineman.positionSlot, scheme, runGap);
+
+    // Pullers ignore their priority defender and head for the playside LB.
+    // Base linemen track their assigned man as before.
+    const target = role === 'BASE'
+      ? findOLTarget(lineman, state.defenders)
+      : findPullTarget(role, state.defenders);
     if (!target) continue;
 
     const dx = target.x - lineman.x;
@@ -1051,7 +1139,8 @@ function moveOffensiveLine(state: SimulationState): void {
     const dist = Math.hypot(dx, dy);
     if (dist <= BLOCK_ENGAGE_RADIUS) continue;  // close enough; let handleBlocking fire
 
-    const step = Math.min(OL_SPEED_PER_TICK, dist - BLOCK_ENGAGE_RADIUS);
+    const baseSpeed = role === 'BASE' ? OL_SPEED_PER_TICK : OL_SPEED_PER_TICK * OL_PULL_SPEED_MULT;
+    const step = Math.min(baseSpeed, dist - BLOCK_ENGAGE_RADIUS);
     lineman.x += (dx / dist) * step;
     lineman.y += (dy / dist) * step;
   }
