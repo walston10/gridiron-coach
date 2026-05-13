@@ -21,6 +21,8 @@ import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
 import { chooseDefense } from '../../engine/aiDefenseCaller';
 import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/aiOffense';
 import { OpponentDriveFeed } from './OpponentDriveFeed';
+import { useGameClock } from '../../hooks/useGameClock';
+import { clockBurnFor, estimateOpponentBurn } from '../../engine/gameClock';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
@@ -116,6 +118,10 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // Cumulative opponent score across simulated opponent drives.
   const [opponentScore, setOpponentScore] = useState(0);
 
+  // Game clock — 4 × 5:00 quarters by default. Burns after each player play
+  // and across each opponent drive.
+  const gameClock = useGameClock();
+
   // Opponent drive interstitial state machine:
   //   'none'           = player's turn
   //   'pending'        = player drive just ended, button shown to kick off opponent
@@ -139,6 +145,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     driveOverPrevRef.current = drive.state.driveOver;
   }, [drive.state.driveOver, interstitial.kind]);
 
+  // When halftime fires or the game ends, abort any in-flight opponent drive
+  // (real football: clock at 0:00 ends the drive without scoring).
+  useEffect(() => {
+    if ((gameClock.state.isHalftime || gameClock.state.isGameOver) && interstitial.kind !== 'none') {
+      setInterstitial({ kind: 'none' });
+    }
+  }, [gameClock.state.isHalftime, gameClock.state.isGameOver, interstitial.kind]);
+
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
@@ -149,7 +163,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // time when the phase transitions to 'done'.
   const lastAppliedRef = useRef<string | null>(null);
 
-  // Pump the play outcome into the drive state when a play resolves.
+  // Pump the play outcome into the drive state when a play resolves, and
+  // burn the game clock by the play's clock cost.
   useEffect(() => {
     if (phase !== 'done' || !chosenOption) return;
     // chosenOption is replaced each play; guard against re-applying the same one.
@@ -157,7 +172,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     if (lastAppliedRef.current === key) return;
     lastAppliedRef.current = key;
     drive.applyOutcome(chosenOption.branch.outcome);
-  }, [phase, chosenOption, drive]);
+    gameClock.burn(clockBurnFor(chosenOption.branch.outcome, gameClock.state));
+  }, [phase, chosenOption, drive, gameClock]);
 
   // Reset the per-play guard whenever a new play is loaded (so the next
   // play's outcome will apply cleanly).
@@ -191,9 +207,11 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   const showOverlay = phase === 'awaiting-decision';
   const finalOutcome = phase === 'done' && chosenOption?.branch.outcome;
   const isFourthDown = drive.state.down === 4 && !drive.state.driveOver && phase === 'ready';
-  // While the opponent is on the field, hide the player's canvas / pickers /
-  // controls so the feed has the screen.
-  const playerTurnActive = interstitial.kind === 'none';
+  // Block all play action when halftime is pending or the game has ended.
+  const gameStopped = gameClock.state.isHalftime || gameClock.state.isGameOver;
+  // While the opponent is on the field (or game is stopped), hide the player's
+  // canvas / pickers / controls so the relevant card has the screen.
+  const playerTurnActive = interstitial.kind === 'none' && !gameStopped;
 
   return (
     <div
@@ -231,8 +249,97 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         <div style={{ width: 60 }} />
       </div>
 
-      {/* Drive HUD — both scores, down/distance, field position. Persists across plays. */}
-      <DriveHud state={drive.state} opponentScore={opponentScore} />
+      {/* Drive HUD — both scores, clock, down/distance, field position. Persists across plays. */}
+      <DriveHud state={drive.state} opponentScore={opponentScore} clockState={gameClock.state} />
+
+      {/* Halftime card — pauses everything until the user dismisses. */}
+      {gameClock.state.isHalftime && !gameClock.state.isGameOver && (
+        <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div
+            style={{
+              padding: 16,
+              backgroundColor: '#1e3a8a',
+              borderRadius: 8,
+              textAlign: 'center',
+              border: '2px solid #3b82f6',
+            }}
+          >
+            <div style={{ fontSize: 11, color: '#bfdbfe', letterSpacing: 2, fontWeight: 700 }}>HALFTIME</div>
+            <div style={{ fontSize: 28, color: '#ffffff', fontWeight: 900, marginTop: 4 }}>
+              {drive.state.score} — {opponentScore}
+            </div>
+            <div style={{ fontSize: 11, color: '#bfdbfe', marginTop: 6 }}>
+              {scoreMessage(drive.state.score, opponentScore)}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              gameClock.ackHalftime();
+              // Fresh drive to open the 2nd half.
+              drive.newDrive(25);
+              if (aiDefenseEnabled) {
+                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score - opponentScore,
+                }));
+              } else if (selectedPlay) {
+                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              }
+            }}
+            style={primaryBtn(true)}
+          >
+            Start 2nd Half ▶
+          </button>
+        </div>
+      )}
+
+      {/* Game-over card — final score + new-game button. */}
+      {gameClock.state.isGameOver && (
+        <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div
+            style={{
+              padding: 20,
+              backgroundColor: drive.state.score > opponentScore ? '#065f46'
+                : drive.state.score < opponentScore ? '#7f1d1d'
+                : '#374151',
+              borderRadius: 8,
+              textAlign: 'center',
+              border: `2px solid ${drive.state.score > opponentScore ? '#22c55e'
+                : drive.state.score < opponentScore ? '#ef4444'
+                : '#6b7280'}`,
+            }}
+          >
+            <div style={{ fontSize: 11, color: '#d1d5db', letterSpacing: 2, fontWeight: 700 }}>
+              FINAL
+            </div>
+            <div style={{ fontSize: 32, color: '#ffffff', fontWeight: 900, marginTop: 4 }}>
+              {drive.state.score} — {opponentScore}
+            </div>
+            <div style={{ fontSize: 13, color: '#e5e7eb', marginTop: 8, fontWeight: 700 }}>
+              {drive.state.score > opponentScore ? 'YOU WIN'
+                : drive.state.score < opponentScore ? 'YOU LOSE'
+                : 'TIE'}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              gameClock.newGame();
+              drive.newDrive(25);
+              setOpponentScore(0);
+              setInterstitial({ kind: 'none' });
+              if (aiDefenseEnabled) {
+                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0,
+                }));
+              } else if (selectedPlay) {
+                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              }
+            }}
+            style={primaryBtn(true)}
+          >
+            New Game
+          </button>
+        </div>
+      )}
 
       {/* Play selector */}
       <select
@@ -404,7 +511,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       </div>
 
       {/* Pre-snap audible bar (replaces Start button while in pre-snap phase) */}
-      {phase === 'pre-snap' && activePlay && (
+      {phase === 'pre-snap' && activePlay && !gameStopped && (
         <AudibleBar
           active={activePlay}
           alternates={alternates}
@@ -416,7 +523,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       )}
 
       {/* End-of-drive: show summary + "Opponent's Turn" trigger. */}
-      {drive.state.driveOver && interstitial.kind === 'pending' && (
+      {drive.state.driveOver && interstitial.kind === 'pending' && !gameStopped && (
         <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div
             style={{
@@ -435,6 +542,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               // Compute where the opponent gets the ball.
               const oppStartsAt = opponentStartingYardline(drive.state);
               const result = simulateOpponentDrive(oppStartsAt);
+              // Burn game clock for the whole opponent drive up front so the
+              // HUD's clock update is visible as the feed plays.
+              gameClock.burn(estimateOpponentBurn(result.plays, gameClock.state));
               setInterstitial({ kind: 'streaming', result });
             }}
             style={primaryBtn(true)}
@@ -479,7 +589,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       )}
 
       {/* 4th-down decision row: only on 4th down before snap, drive still live. */}
-      {isFourthDown && !drive.state.driveOver && (
+      {isFourthDown && !drive.state.driveOver && !gameStopped && (
         <div style={{ width: '100%', maxWidth: 480, display: 'flex', gap: 6 }}>
           <button onClick={play} style={{ ...primaryBtn(true), flex: 2 }}>
             Go For It
@@ -494,8 +604,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       )}
 
       {/* Standard controls: Start Play / Next Play. Hidden during pre-snap,
-          on 4th down (special row above), and when drive is over. */}
-      {phase !== 'pre-snap' && !drive.state.driveOver && !isFourthDown && (
+          on 4th down (special row above), and when drive is over or game stopped. */}
+      {phase !== 'pre-snap' && !drive.state.driveOver && !isFourthDown && !gameStopped && (
         <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
           <button
             onClick={() => {
@@ -571,6 +681,16 @@ function opponentStartingYardline(playerDrive: { ballOn: number; driveOverReason
     default:
       return 25;
   }
+}
+
+/** Halftime score message — short, dramatic. */
+function scoreMessage(you: number, opp: number): string {
+  if (you === opp) return 'Tied at the half — anyone\'s game.';
+  const diff = Math.abs(you - opp);
+  if (you > opp && diff >= 14) return 'Big lead. Don\'t get comfortable.';
+  if (you > opp) return 'You\'re ahead. One more push.';
+  if (diff >= 14) return 'You\'re in trouble. Time to mount a comeback.';
+  return 'You\'re behind. Plenty of time left.';
 }
 
 function driveResultBg(reason: string | null): string {

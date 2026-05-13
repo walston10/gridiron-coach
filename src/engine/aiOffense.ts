@@ -21,6 +21,8 @@ export interface OpponentPlay {
   description: string;
   /** Net yards gained (negative for losses). */
   yardsGained: number;
+  /** Play result type (mirrors PlayOutcome.result). Drives clock-burn math. */
+  result: PlayOutcome['result'];
   /** The drive state AFTER this play, for the UI. */
   stateAfter: DriveState;
 }
@@ -220,6 +222,7 @@ export function simulateOpponentDrive(
           prelude: before,
           description: state.lastPlaySummary!,
           yardsGained: 0,
+          result: 'INCOMPLETE',  // FG attempts have no clock-burn impact (drive over)
           stateAfter: state,
         });
         break;
@@ -236,6 +239,7 @@ export function simulateOpponentDrive(
           prelude: before,
           description: 'Punt — ball flips to you',
           yardsGained: 0,
+          result: 'INCOMPLETE',
           stateAfter: state,
         });
         break;
@@ -251,6 +255,7 @@ export function simulateOpponentDrive(
       prelude: before,
       description: describeKind(kind, outcome),
       yardsGained: outcome.yardsGained,
+      result: outcome.result,
       stateAfter: afterApply,
     });
     state = afterApply;

@@ -7,14 +7,23 @@
 
 import React from 'react';
 import { formatDownDistance, type DriveState } from '../../engine/driveState';
+import {
+  formatClock,
+  formatQuarter,
+  isTwoMinuteDrill,
+  type GameClockState,
+} from '../../engine/gameClock';
 
 interface DriveHudProps {
   state: DriveState;
   /** Opponent's cumulative score, displayed alongside the player's. */
   opponentScore?: number;
+  /** Game clock state — when provided, shown alongside the score. */
+  clockState?: GameClockState;
 }
 
-export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0 }) => {
+export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0, clockState }) => {
+  const twoMin = clockState ? isTwoMinuteDrill(clockState) : false;
   // Progress bar — what fraction of the field has the offense covered?
   // 0 = own goal, 100 = scored.
   const progress = Math.max(0, Math.min(100, state.ballOn));
@@ -58,6 +67,28 @@ export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0 }) 
               {opponentScore}
             </span>
           </div>
+          {clockState && (
+            <>
+              <span style={{ fontSize: 14, color: '#6b7280', fontWeight: 600, marginLeft: 6 }}>·</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                <span style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 1, fontWeight: 700 }}>
+                  {formatQuarter(clockState.quarter)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 18,
+                    color: twoMin ? '#fbbf24' : '#e5e7eb',
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+                    animation: twoMin ? 'clock-pulse 1s ease-in-out infinite' : undefined,
+                  }}
+                >
+                  {formatClock(clockState.secondsRemaining)}
+                </span>
+              </div>
+            </>
+          )}
         </div>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#e5e7eb', textAlign: 'right', flex: 1 }}>
           {formatDownDistance(state)}
@@ -129,6 +160,13 @@ export const DriveHud: React.FC<DriveHudProps> = ({ state, opponentScore = 0 }) 
           {state.lastPlaySummary}
         </div>
       )}
+
+      <style>{`
+        @keyframes clock-pulse {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.55; }
+        }
+      `}</style>
     </div>
   );
 };
