@@ -471,6 +471,12 @@ function tickSimulation(
   // Move offense players along their paths
   moveOffensePlayers(state, config);
 
+  // Override OL positions with tick-based tracking toward their target
+  // defender. This makes blocks visibly develop instead of OL standing
+  // still after their initial 2-yard step (Phase 2a). tickSimulation
+  // early-returns during PRE_SNAP so this only fires post-snap.
+  moveOffensiveLine(state);
+
   // Handle handoff for run plays (not during SNAP phase)
   if (play.playType === 'RUN' && state.phase !== 'SNAP') {
     handleHandoff(state, play, config);
@@ -979,82 +985,121 @@ function checkTackles(
   }
 }
 
+/** Position slots for offensive linemen. */
+const OL_SLOTS = ['LT', 'LG', 'C', 'RG', 'RT'] as const;
+
 /**
- * Handle OL blocking
+ * Blocking assignment priority per OL slot: each lineman tries the first
+ * unblocked defender in this list. Tackles block ends, guards block tackles,
+ * center blocks nose or Mike LB. Generic across schemes for Phase 2; Phase 3
+ * adds scheme-specific overrides (pulls, doubles, traps).
+ */
+const OL_BLOCK_ASSIGNMENTS: Record<string, DefensePositionSlot[]> = {
+  LT: ['DE_L', 'OLB_L'],
+  LG: ['DT_L', 'NT'],
+  C:  ['NT', 'MIKE'],
+  RG: ['DT_R', 'NT'],
+  RT: ['DE_R', 'OLB_R'],
+};
+
+/**
+ * Distance (field units) at which an OL is "in contact" with their target
+ * defender. Below this, handleBlocking engages the block.
+ */
+const BLOCK_ENGAGE_RADIUS = 3.0;
+
+/**
+ * OL travel speed per simulation tick. Tuned to ~12 field units/sec, which
+ * is roughly real-football OL fire-out speed (~6 yards/sec) at our
+ * YARDS_TO_UNITS = 2 ratio.
+ */
+const OL_SPEED_PER_TICK = 0.2;
+
+/**
+ * Find the first unblocked defender from a lineman's assignment priority.
+ * Returns null if every assigned target is already engaged.
+ */
+function findOLTarget(
+  lineman: { positionSlot: string },
+  defenders: DefenderState[]
+): DefenderState | null {
+  const assignments = OL_BLOCK_ASSIGNMENTS[lineman.positionSlot];
+  if (!assignments) return null;
+  for (const slot of assignments) {
+    const d = defenders.find(def => def.positionSlot === slot && !def.isBlocked);
+    if (d) return d;
+  }
+  return null;
+}
+
+/**
+ * Phase 2a: tick-based OL movement. Each unblocked lineman tracks toward
+ * their target defender's current position, overriding the static waypoint
+ * "move forward 2 yards and freeze" behavior. Lineman stops when in
+ * BLOCK_ENGAGE_RADIUS — handleBlocking takes over from there.
+ */
+function moveOffensiveLine(state: SimulationState): void {
+  for (const lineman of state.offensePlayers) {
+    if (!(OL_SLOTS as readonly string[]).includes(lineman.positionSlot)) continue;
+    if (lineman.isBlocked) continue;  // engaged, hold position
+
+    const target = findOLTarget(lineman, state.defenders);
+    if (!target) continue;
+
+    const dx = target.x - lineman.x;
+    const dy = target.y - lineman.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= BLOCK_ENGAGE_RADIUS) continue;  // close enough; let handleBlocking fire
+
+    const step = Math.min(OL_SPEED_PER_TICK, dist - BLOCK_ENGAGE_RADIUS);
+    lineman.x += (dx / dist) * step;
+    lineman.y += (dy / dist) * step;
+  }
+}
+
+/**
+ * Handle OL blocking — proximity-gated engagement.
+ *
+ * Previously this fired immediately on assignment match, which meant
+ * blocks "teleported" the moment the sim started. Now an OL has to
+ * actually be within BLOCK_ENGAGE_RADIUS of their target before
+ * isBlocked flips. Pairs with moveOffensiveLine: OL tracks to defender,
+ * gets close, engages.
  */
 function handleBlocking(state: SimulationState, _play: Play): void {
-  // Proper blocking assignments - tackles block ends, guards block tackles
-  const blockingAssignments: Record<string, DefensePositionSlot[]> = {
-    'LT': ['DE_L', 'OLB_L'],           // Left Tackle blocks Left End
-    'LG': ['DT_L', 'NT'],              // Left Guard blocks Left DT or Nose
-    'C':  ['NT', 'MIKE'],              // Center blocks Nose or Mike LB
-    'RG': ['DT_R', 'NT'],              // Right Guard blocks Right DT or Nose
-    'RT': ['DE_R', 'OLB_R'],           // Right Tackle blocks Right End
-  };
-
   const oLinemen = state.offensePlayers.filter(p =>
-    ['LT', 'LG', 'C', 'RG', 'RT'].includes(p.positionSlot)
+    (OL_SLOTS as readonly string[]).includes(p.positionSlot)
   );
 
-  // Process each lineman
+  // Process each lineman. Engagement is proximity-gated: only set isBlocked
+  // when the lineman is actually in contact with their target. Track-to-
+  // target movement happens in moveOffensiveLine each tick before this runs.
   for (const lineman of oLinemen) {
-    // Skip if already blocking
     if (lineman.isBlocked) continue;
 
-    const assignments = blockingAssignments[lineman.positionSlot] || [];
-
-    // Find assigned rusher (first unblocked one in priority order)
-    let targetRusher: DefenderState | null = null;
-    for (const slot of assignments) {
-      const rusher = state.defenders.find(d =>
-        d.positionSlot === slot && !d.isBlocked
-      );
-      if (rusher) {
-        targetRusher = rusher;
-        break;
-      }
-    }
-
-    // If no assigned rusher found, find nearest unblocked pass rusher
-    if (!targetRusher) {
+    // Find a target — first unblocked in priority list, else nearest unblocked
+    // pass rusher (fallback for unusual fronts / blitz packages).
+    let target = findOLTarget(lineman, state.defenders);
+    if (!target) {
       let closestDist = Infinity;
       for (const defender of state.defenders) {
         if (!isPassRusher(defender.positionSlot)) continue;
         if (defender.isBlocked) continue;
-        const dist = Math.sqrt(
-          Math.pow(defender.x - lineman.x, 2) +
-          Math.pow(defender.y - lineman.y, 2)
-        );
+        const dist = Math.hypot(defender.x - lineman.x, defender.y - lineman.y);
         if (dist < closestDist) {
           closestDist = dist;
-          targetRusher = defender;
+          target = defender;
         }
       }
     }
+    if (!target) continue;
 
-    if (targetRusher) {
-      const distance = Math.sqrt(
-        Math.pow(targetRusher.x - lineman.x, 2) +
-        Math.pow(targetRusher.y - lineman.y, 2)
-      );
+    // Proximity gate — only engage on actual contact.
+    const distance = Math.hypot(target.x - lineman.x, target.y - lineman.y);
+    if (distance > BLOCK_ENGAGE_RADIUS) continue;
 
-      // ALWAYS engage block immediately - lineman will move to maintain it
-      // This ensures pass rushers are blocked from the start
-      targetRusher.isBlocked = true;
-      lineman.isBlocked = true;
-
-      // Move lineman toward their blocked rusher to stay engaged
-      if (distance > 2) {
-        const dx = targetRusher.x - lineman.x;
-        const dy = targetRusher.y - lineman.y;
-        // Move quickly to catch up
-        const moveSpeed = Math.min(distance * 0.3, 2.0);
-        lineman.x += (dx / distance) * moveSpeed;
-        if (lineman.y > 45) {
-          lineman.y += (dy / distance) * moveSpeed * 0.5;
-        }
-      }
-    }
+    target.isBlocked = true;
+    lineman.isBlocked = true;
   }
 
   // Blocking degrades over time based on pass rush vs. block ratings
@@ -1073,6 +1118,14 @@ function handleBlocking(state: SimulationState, _play: Play): void {
 
       if (Math.random() < Math.max(0.005, Math.min(0.05, shedChance))) {
         defender.isBlocked = false;
+        // The lineman blocking this defender is also free now — let them
+        // re-acquire a target (likely the same one, but the tracking
+        // function will re-engage on proximity).
+        const blocker = state.offensePlayers.find(p =>
+          p.isBlocked &&
+          OL_BLOCK_ASSIGNMENTS[p.positionSlot]?.includes(defender.positionSlot)
+        );
+        if (blocker) blocker.isBlocked = false;
       }
     }
   }
