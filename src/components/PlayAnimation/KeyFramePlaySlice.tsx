@@ -6,7 +6,7 @@
  * playable demonstration of the new gameplay loop.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
 import { AudibleBar } from './AudibleBar';
@@ -18,6 +18,7 @@ import { useDriveState } from '../../hooks/useDriveState';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
 import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
+import { chooseDefense } from '../../engine/aiDefenseCaller';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
@@ -50,8 +51,18 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   );
   const selectedPlay = playablePlays.find(p => p.id === selectedPlayId) ?? playablePlays[0];
 
-  const [selectedDefenseId, setSelectedDefenseId] = useState<string>(SAMPLE_DEFENSES[0].id);
-  const selectedDefense = SAMPLE_DEFENSES.find(d => d.id === selectedDefenseId) ?? SAMPLE_DEFENSES[0];
+  // AI defense caller — when on, AI picks the defense based on situation
+  // (down/distance/field position). Player can flip off to drive the picker manually.
+  const [aiDefenseEnabled, setAiDefenseEnabled] = useState<boolean>(true);
+
+  // The defense the offense is currently facing. Driven by AI when enabled,
+  // or by the manual picker when not. Initial value is an AI pick for the
+  // starting situation if AI is on, otherwise the first sample defense.
+  const [currentDefense, setCurrentDefense] = useState(() =>
+    aiDefenseEnabled
+      ? chooseDefense(SAMPLE_DEFENSES, { down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0 })
+      : SAMPLE_DEFENSES[0]
+  );
 
   // Scout grade gates which pre-snap tells are visible. Defaults to B
   // ("good scout") which reveals blitz / deep / spy but not man-coverage shape.
@@ -59,8 +70,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
   // Tells re-derive whenever defense or scout grade changes.
   const tells = useMemo(
-    () => tellsFor(selectedDefense, scoutGrade),
-    [selectedDefense, scoutGrade]
+    () => tellsFor(currentDefense, scoutGrade),
+    [currentDefense, scoutGrade]
   );
 
   const [canvasSize, setCanvasSize] = useState(pickCanvasSize);
@@ -103,8 +114,8 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
-    loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
-  }, [selectedPlay, selectedDefense, loadPlay]);
+    loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+  }, [selectedPlay, currentDefense, loadPlay]);
 
   // Once-per-play guard so we only apply the outcome to drive state a single
   // time when the phase transitions to 'done'.
@@ -125,6 +136,29 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   useEffect(() => {
     if (phase === 'ready') lastAppliedRef.current = null;
   }, [phase]);
+
+  /**
+   * Compute the AI's defense pick for the current drive situation.
+   * Returns the chosen card; caller seats it into state.
+   */
+  const aiPickDefense = useCallback(() => {
+    return chooseDefense(SAMPLE_DEFENSES, {
+      down: drive.state.down,
+      yardsToGo: drive.state.yardsToGo,
+      ballOn: drive.state.ballOn,
+      scoreDiff: drive.state.score,  // No opponent score yet; treat own score as differential.
+    });
+  }, [drive.state]);
+
+  // When AI toggle flips on, pick a fresh defense for the current situation.
+  // (Flipping off leaves the existing defense in place until manually changed.)
+  useEffect(() => {
+    if (!aiDefenseEnabled) return;
+    setCurrentDefense(aiPickDefense());
+    // We intentionally only re-pick on toggle flip, not on every drive state change —
+    // mid-play state shifts are noise; the explicit "Next Play" handler is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiDefenseEnabled]);
 
   const showOverlay = phase === 'awaiting-decision';
   const finalOutcome = phase === 'done' && chosenOption?.branch.outcome;
@@ -191,12 +225,41 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         ))}
       </select>
 
+      {/* AI defense toggle — when on, defense is called by the AI based on
+          down/distance/spot; the picker below becomes a read-only display.
+          When off, you drive the picker manually for testing. */}
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, letterSpacing: 1 }}>
+          DEFENSE CALLED BY
+        </span>
+        <button
+          onClick={() => setAiDefenseEnabled(v => !v)}
+          style={{
+            flex: 1,
+            padding: '6px 12px',
+            backgroundColor: aiDefenseEnabled ? '#7c2d12' : '#1f2937',
+            color: aiDefenseEnabled ? '#fed7aa' : '#d1d5db',
+            border: `2px solid ${aiDefenseEnabled ? '#f97316' : '#374151'}`,
+            borderRadius: 6,
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+            touchAction: 'manipulation',
+          }}
+        >
+          {aiDefenseEnabled ? 'AI (tap to override)' : 'YOU (manual)'}
+        </button>
+      </div>
+
       {/* Defense picker — cycle through schemes to feel how the same play
           plays out against different looks. */}
       <DefensePicker
         defenses={SAMPLE_DEFENSES}
-        activeId={selectedDefenseId}
-        onPick={d => { setSelectedDefenseId(d.id); }}
+        activeId={currentDefense.id}
+        onPick={d => {
+          if (aiDefenseEnabled) return;  // Locked while AI is calling
+          setCurrentDefense(d);
+        }}
       />
 
       {/* Scout-grade picker — controls how much the defense reveals pre-snap. */}
@@ -257,7 +320,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               pointerEvents: 'none',
             }}
           >
-            DEF: {selectedDefense.name.toUpperCase()} · SCOUT {scoutGrade}
+            DEF: {currentDefense.name.toUpperCase()} · SCOUT {scoutGrade}
           </div>
         )}
         {/* Scout-tell badges over each tagged defender — only during pre-snap. */}
@@ -337,7 +400,15 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           <button
             onClick={() => {
               drive.newDrive();
-              if (selectedPlay) loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              // On a new drive, AI picks a fresh defense for 1st & 10 at own 25.
+              if (aiDefenseEnabled) {
+                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
+                }));
+                // currentDefense change will trigger the load-play effect.
+              } else if (selectedPlay) {
+                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              }
             }}
             style={primaryBtn(true)}
           >
@@ -367,10 +438,15 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
           <button
             onClick={() => {
-              // If we're on 'done', we need to re-prime the hook for the next snap.
               if (phase === 'done' && selectedPlay) {
-                loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
-                // Once 'ready', the user taps Start Play again. Simpler than chaining.
+                // Advance to the next play. If AI is calling, it picks a new defense
+                // for the just-updated situation; otherwise reload with current defense.
+                if (aiDefenseEnabled) {
+                  setCurrentDefense(aiPickDefense());
+                  // currentDefense change triggers the load-play effect.
+                } else {
+                  loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                }
               } else {
                 play();
               }
@@ -383,7 +459,13 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           <button
             onClick={() => {
               drive.newDrive();
-              if (selectedPlay) loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              if (aiDefenseEnabled) {
+                setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
+                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
+                }));
+              } else if (selectedPlay) {
+                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              }
             }}
             style={secondaryBtn}
           >
