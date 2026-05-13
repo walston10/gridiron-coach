@@ -23,8 +23,9 @@ import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/ai
 import { OpponentDriveFeed } from './OpponentDriveFeed';
 import { HalftimeTrivia } from './HalftimeTrivia';
 import { OutcomePunch, classifyPunch } from './OutcomePunch';
+import { MacroClockBanner, type MacroBannerKind } from './MacroClockBanner';
 import { useGameClock } from '../../hooks/useGameClock';
-import { clockBurnFor, estimateOpponentBurn } from '../../engine/gameClock';
+import { clockBurnFor, estimateOpponentBurn, isTwoMinuteDrill, type Quarter } from '../../engine/gameClock';
 import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/halftimeTrivia';
 import { playStinger, setMuted, isMuted, type StingerKind } from '../../utils/audio';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
@@ -132,6 +133,12 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   type Punch = { outcome: PlayOutcome; isFirstDown: boolean };
   const [punch, setPunch] = useState<Punch | null>(null);
 
+  // Macro clock banners — quarter end + two-minute warning. Distinct from the
+  // halftime card and the final-score card, which handle Q2→Q3 and Q4-done.
+  const [macroBanner, setMacroBanner] = useState<MacroBannerKind | null>(null);
+  const prevQuarterRef = useRef<Quarter>(1);
+  const prevTwoMinRef = useRef<boolean>(false);
+
   // Mute toggle for synthesized audio stingers.
   const [muted, setMutedState] = useState<boolean>(isMuted());
 
@@ -190,6 +197,40 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       setTrivia({ ...drawTrivia(), selectedIndex: null });
     }
   }, [gameClock.state.isHalftime, trivia]);
+
+  // Detect macro clock transitions (quarter end, two-minute warning).
+  // Halftime (Q2→Q3) and game-over (Q4→done) are handled by their own cards.
+  useEffect(() => {
+    const q = gameClock.state.quarter;
+    const inTwoMin = isTwoMinuteDrill(gameClock.state);
+
+    // Quarter end transitions. Reset 2-min flag whenever the quarter changes.
+    if (q !== prevQuarterRef.current) {
+      const prev = prevQuarterRef.current;
+      if (prev === 1 && q === 2) {
+        setMacroBanner('END_Q1');
+        playStinger('QUARTER_END');
+      } else if (prev === 3 && q === 4) {
+        setMacroBanner('END_Q3');
+        playStinger('QUARTER_END');
+      }
+      prevQuarterRef.current = q;
+      prevTwoMinRef.current = false;
+    }
+
+    // Two-minute warning — fires once per half (Q2 or Q4) when the clock
+    // first crosses 2:00.
+    if (inTwoMin && !prevTwoMinRef.current && (q === 2 || q === 4)) {
+      setMacroBanner('TWO_MINUTE');
+      playStinger('TWO_MINUTE');
+      prevTwoMinRef.current = true;
+    }
+
+    // If we left the 2-min window (e.g. via a new game), allow it to re-fire.
+    if (!inTwoMin && prevTwoMinRef.current) {
+      prevTwoMinRef.current = false;
+    }
+  }, [gameClock.state]);
 
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
@@ -427,6 +468,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setInterstitial({ kind: 'none' });
               setTrivia(null);
               setQbAccuracyBonus(0);
+              setMacroBanner(null);
+              prevQuarterRef.current = 1;
+              prevTwoMinRef.current = false;
               if (aiDefenseEnabled) {
                 setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
                   down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0,
@@ -772,6 +816,12 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         During pre-snap you can audible to an alternate or commit with <strong>SNAP</strong>.
         At the slo-mo moment, tap a colored target — green = safe, yellow = standard, red = risky.
       </div>
+
+      {/* Macro clock banner — quarter end / two-minute warning. Sits above
+          everything via fixed positioning + high z-index. */}
+      {macroBanner && (
+        <MacroClockBanner kind={macroBanner} onDismiss={() => setMacroBanner(null)} />
+      )}
     </div>
   );
 };

@@ -16,6 +16,8 @@ export type StingerKind =
   | 'BIG_PLAY'
   | 'FIRST_DOWN'
   | 'INCOMPLETE'
+  | 'TWO_MINUTE'
+  | 'QUARTER_END'
   | 'TAP';
 
 let ctx: AudioContext | null = null;
@@ -92,6 +94,19 @@ export function playStinger(kind: StingerKind): void {
     case 'INCOMPLETE':
       // Quick noise burst — incomplete pass / OOB feel.
       noise(audio, now, 0.10, 0.08);
+      break;
+
+    case 'TWO_MINUTE':
+      // Old-school PA-style three-beep tone — tense.
+      blip(audio, now, 880, 0.18, 'square', 0.12);
+      blip(audio, now + 0.22, 880, 0.18, 'square', 0.12);
+      blip(audio, now + 0.44, 880, 0.30, 'square', 0.14);
+      break;
+
+    case 'QUARTER_END':
+      // Brief horn — descending pair.
+      blip(audio, now, 392, 0.30, 'sawtooth', 0.14);     // G4
+      blip(audio, now + 0.08, 311.13, 0.36, 'sawtooth', 0.12); // Eb4
       break;
 
     case 'TAP':

@@ -9,3 +9,4 @@ export { DriveHud } from './DriveHud';
 export { OpponentDriveFeed } from './OpponentDriveFeed';
 export { HalftimeTrivia } from './HalftimeTrivia';
 export { OutcomePunch } from './OutcomePunch';
+export { MacroClockBanner } from './MacroClockBanner';
