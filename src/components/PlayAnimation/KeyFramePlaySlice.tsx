@@ -11,9 +11,11 @@ import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
 import { AudibleBar } from './AudibleBar';
 import { DefensePicker } from './DefensePicker';
+import { ScoutTellsOverlay } from './ScoutTellsOverlay';
 import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
+import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
@@ -48,6 +50,16 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
   const [selectedDefenseId, setSelectedDefenseId] = useState<string>(SAMPLE_DEFENSES[0].id);
   const selectedDefense = SAMPLE_DEFENSES.find(d => d.id === selectedDefenseId) ?? SAMPLE_DEFENSES[0];
+
+  // Scout grade gates which pre-snap tells are visible. Defaults to B
+  // ("good scout") which reveals blitz / deep / spy but not man-coverage shape.
+  const [scoutGrade, setScoutGrade] = useState<ScoutGrade>('B');
+
+  // Tells re-derive whenever defense or scout grade changes.
+  const tells = useMemo(
+    () => tellsFor(selectedDefense, scoutGrade),
+    [selectedDefense, scoutGrade]
+  );
 
   const [canvasSize, setCanvasSize] = useState(pickCanvasSize);
   useEffect(() => {
@@ -158,6 +170,37 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         onPick={d => { setSelectedDefenseId(d.id); }}
       />
 
+      {/* Scout-grade picker — controls how much the defense reveals pre-snap. */}
+      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, letterSpacing: 1 }}>
+          SCOUT REPORT — {gradeLabel(scoutGrade)}
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {(['A', 'B', 'C', 'D'] as ScoutGrade[]).map(g => (
+            <button
+              key={g}
+              onClick={() => setScoutGrade(g)}
+              style={{
+                flex: 1,
+                minHeight: 36,
+                padding: '6px',
+                backgroundColor: scoutGrade === g ? '#d4a056' : '#1f2937',
+                color: scoutGrade === g ? '#1c1917' : '#d1d5db',
+                border: `2px solid ${scoutGrade === g ? '#fbbf24' : '#374151'}`,
+                borderRadius: 6,
+                fontSize: 14,
+                fontWeight: 800,
+                cursor: 'pointer',
+                touchAction: 'manipulation',
+                WebkitTapHighlightColor: 'transparent',
+              }}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Canvas + overlay */}
       <div style={{ position: 'relative', width: canvasSize.width, height: canvasSize.height }}>
         <PlayAnimationCanvas
@@ -185,8 +228,17 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               pointerEvents: 'none',
             }}
           >
-            DEF: {selectedDefense.name.toUpperCase()}
+            DEF: {selectedDefense.name.toUpperCase()} · SCOUT {scoutGrade}
           </div>
+        )}
+        {/* Scout-tell badges over each tagged defender — only during pre-snap. */}
+        {phase === 'pre-snap' && (
+          <ScoutTellsOverlay
+            tells={tells}
+            frame={currentFrame}
+            canvasWidth={canvasSize.width}
+            canvasHeight={canvasSize.height}
+          />
         )}
         {showOverlay && keyFramedPlay && (
           <KeyFrameOverlay

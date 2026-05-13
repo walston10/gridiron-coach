@@ -4,3 +4,4 @@ export { KeyFramePlaySlice } from './KeyFramePlaySlice';
 export { KeyFrameOverlay } from './KeyFrameOverlay';
 export { AudibleBar } from './AudibleBar';
 export { DefensePicker } from './DefensePicker';
+export { ScoutTellsOverlay } from './ScoutTellsOverlay';
