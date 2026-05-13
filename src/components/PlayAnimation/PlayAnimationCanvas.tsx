@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import type { AnimationFrame, AnimatedPlayerState } from '../../types/PlayAnimation';
+import type { AnimationFrame, AnimatedBallState, AnimatedPlayerState } from '../../types/PlayAnimation';
 
 interface PlayAnimationCanvasProps {
   frame: AnimationFrame | null;
@@ -113,6 +113,7 @@ export const PlayAnimationCanvas: React.FC<PlayAnimationCanvasProps> = ({
 
     // Draw ball if in air
     if (frame.ball.isInAir && frame.ball.isVisible) {
+      drawBallTrail(ctx, frame.ball, toCanvasX, toCanvasY);
       drawBall(ctx, toCanvasX(frame.ball.x), toCanvasY(frame.ball.y), true);
     }
 
@@ -264,7 +265,9 @@ function drawPlayer(
 }
 
 /**
- * Draw the football
+ * Draw the football. When in air, render larger with a bright outline and
+ * an amber glow halo so the throw is visible against the green field at
+ * mobile zoom.
  */
 function drawBall(
   ctx: CanvasRenderingContext2D,
@@ -272,36 +275,96 @@ function drawBall(
   y: number,
   inAir: boolean
 ): void {
-  const ballWidth = inAir ? 14 : 10;
-  const ballHeight = inAir ? 8 : 6;
+  const ballWidth = inAir ? 22 : 10;
+  const ballHeight = inAir ? 13 : 6;
+  const rotation = inAir ? Math.PI / 6 : 0;
 
-  // Shadow when in air
   if (inAir) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    // Outer glow halo
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.22)';
     ctx.beginPath();
-    ctx.ellipse(x, y + 20, ballWidth * 0.8, ballHeight * 0.5, Math.PI / 6, 0, Math.PI * 2);
+    ctx.ellipse(x, y, ballWidth * 1.8, ballHeight * 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner glow
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.40)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, ballWidth * 1.3, ballHeight * 1.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Drop shadow on the field
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 22, ballWidth * 0.85, ballHeight * 0.4, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 
   // Ball
-  ctx.fillStyle = '#8B4513'; // Brown
+  ctx.fillStyle = '#8B4513';
   ctx.beginPath();
-  ctx.ellipse(x, y, ballWidth, ballHeight, inAir ? Math.PI / 6 : 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y, ballWidth, ballHeight, rotation, 0, Math.PI * 2);
   ctx.fill();
+
+  // Bright outline when in air so it pops
+  if (inAir) {
+    ctx.strokeStyle = '#fef3c7';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y, ballWidth, ballHeight, rotation, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 
   // Laces
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = inAir ? 2 : 1.5;
+  const laceSpan = inAir ? 5 : 3;
   ctx.beginPath();
-  ctx.moveTo(x - 3, y);
-  ctx.lineTo(x + 3, y);
+  ctx.moveTo(x - laceSpan, y);
+  ctx.lineTo(x + laceSpan, y);
   ctx.stroke();
-  // Lace lines
+  const tickRange = inAir ? 4 : 2;
+  const tickSpacing = inAir ? 2 : 1.5;
   for (let i = -2; i <= 2; i++) {
     ctx.beginPath();
-    ctx.moveTo(x + i * 1.5, y - 2);
-    ctx.lineTo(x + i * 1.5, y + 2);
+    ctx.moveTo(x + i * tickSpacing, y - tickRange);
+    ctx.lineTo(x + i * tickSpacing, y + tickRange);
     ctx.stroke();
+  }
+}
+
+/**
+ * Draw a comet-like trail behind an in-flight ball, fading toward where
+ * the QB threw from. Direction is computed from current → target so the
+ * trail always streams behind the ball regardless of throw direction.
+ */
+function drawBallTrail(
+  ctx: CanvasRenderingContext2D,
+  ball: AnimatedBallState,
+  toCanvasX: (x: number) => number,
+  toCanvasY: (y: number) => number
+): void {
+  if (ball.targetX === undefined || ball.targetY === undefined) return;
+  const ballPx = toCanvasX(ball.x);
+  const ballPy = toCanvasY(ball.y);
+  const targetPx = toCanvasX(ball.targetX);
+  const targetPy = toCanvasY(ball.targetY);
+  const dx = targetPx - ballPx;
+  const dy = targetPy - ballPy;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return;
+  // Trail direction: opposite of motion (away from target).
+  const ux = -dx / len;
+  const uy = -dy / len;
+
+  // 6 fading segments — each smaller and more transparent.
+  for (let i = 1; i <= 6; i++) {
+    const t = i / 6;
+    const trailX = ballPx + ux * (i * 8);
+    const trailY = ballPy + uy * (i * 8);
+    const radius = 14 * (1 - t);
+    const alpha = 0.45 * (1 - t);
+    ctx.fillStyle = `rgba(251, 191, 36, ${alpha.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.ellipse(trailX, trailY, radius, radius * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
