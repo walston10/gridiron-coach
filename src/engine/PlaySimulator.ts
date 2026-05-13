@@ -565,12 +565,19 @@ function handleHandoff(state: SimulationState, play: Play, config: SimulationCon
   const rb = state.offensePlayers.find(p => p.positionSlot === rbAssignment.positionSlot);
 
   if (qb && rb) {
+    // Designed handoffs fire at a fixed time post-snap. The old 6-unit
+    // distance gate was too tight — in I-Formation the RB is 8 yards
+    // (16 units) deep, so the RB and QB never close to 6 units before
+    // the play resolves. Widened to 20 units so any reasonable backfield
+    // (I, single-back, pistol) clears it.
     const distance = Math.sqrt(Math.pow(qb.x - rb.x, 2) + Math.pow(qb.y - rb.y, 2));
-    if (distance < 6) {
-      // Handoff complete
+    if (distance < 20) {
+      // Handoff complete — flip both the state-level carrier flag AND the
+      // ball state's carrier so the canvas renders the ball on the RB now.
       qb.hasBall = false;
       rb.hasBall = true;
       state.ballCarrier = rb.positionSlot;
+      state.ball.carrier = rb.positionSlot;
       state.ball.x = rb.x;
       state.ball.y = rb.y;
     }
