@@ -38,6 +38,29 @@ export interface SimulationConfig {
   catchRadius: number;         // Distance receiver needs to be "open"
   preSnapDurationMs: number;   // Time before snap
   qbThrowTimeMs: number;       // Min time before QB throws
+
+  /**
+   * Optional override: force the QB to target this position slot (e.g. 'WR1', 'TE', 'RB').
+   * When set, replaces the internal AI receiver selection. Used by the Key Frame
+   * branched-precompute system to simulate one play multiple times with different
+   * pinned reads, then let the player pick which branch is canon mid-snap.
+   */
+  pinnedTargetReceiver?: string;
+
+  /**
+   * Optional override: force a throw-away (incomplete sideline pass).
+   * When true, QB throws to a sideline-out point with no receiver target,
+   * producing an INCOMPLETE outcome. Used as the Key Frame "bail" branch.
+   */
+  pinnedThrowAway?: boolean;
+
+  /**
+   * Optional override: replace the RB's generated run path with an explicit
+   * waypoint sequence. Used by the Key Frame branched-precompute system to
+   * simulate a run play with different lane choices (assigned / bounce / cutback).
+   * Each entry is `{ x, y, delay }` where delay is ms after the previous waypoint.
+   */
+  pinnedRunPath?: { x: number; y: number; delay: number }[];
 }
 
 const DEFAULT_CONFIG: SimulationConfig = {
@@ -76,6 +99,9 @@ interface SimulationState {
   endReason: 'TACKLE' | 'OUT_OF_BOUNDS' | 'TOUCHDOWN' | 'INCOMPLETE' | 'INTERCEPTION' | 'SACK' | 'FUMBLE' | null;
   yardsGained: number;
   tackledBy: DefensePositionSlot | null;
+
+  // Key Frame branch flags
+  throwAway: boolean;  // QB will bail to sideline (incomplete by design)
 }
 
 interface OffensePlayerState {
@@ -121,9 +147,17 @@ export function simulatePlay(
   // Initialize simulation state
   const state = initializeSimulation(play, defenseAssignments, defenseRatings, cfg);
 
-  // Determine target receiver for pass plays
+  // Determine target receiver for pass plays.
+  // If the caller pinned a target (Key Frame branch), use it; otherwise fall back to AI selection.
   if (play.playType === 'PASS') {
-    state.targetReceiver = selectTargetReceiver(play, state.defenders);
+    if (cfg.pinnedThrowAway) {
+      // Throw-away branch has no receiver target; handleQBThrow will detect this.
+      state.targetReceiver = null;
+    } else if (cfg.pinnedTargetReceiver) {
+      state.targetReceiver = cfg.pinnedTargetReceiver;
+    } else {
+      state.targetReceiver = selectTargetReceiver(play, state.defenders);
+    }
   }
 
   // Run simulation
@@ -171,7 +205,7 @@ function initializeSimulation(
 ): SimulationState {
   // Initialize offense players from play assignments
   const offensePlayers: OffensePlayerState[] = play.assignments.map(assignment => {
-    const path = generateOffensePath(play, assignment, config.preSnapDurationMs);
+    const path = generateOffensePath(play, assignment, config.preSnapDurationMs, config.pinnedRunPath);
     const speed = getOffenseSpeed(assignment);
 
     return {
@@ -223,6 +257,7 @@ function initializeSimulation(
     endReason: null,
     yardsGained: 0,
     tackledBy: null,
+    throwAway: config.pinnedThrowAway ?? false,
   };
 }
 
@@ -232,7 +267,8 @@ function initializeSimulation(
 function generateOffensePath(
   play: Play,
   assignment: PlayerAssignment,
-  preSnapDuration: number
+  preSnapDuration: number,
+  pinnedRunPath?: { x: number; y: number; delay: number }[]
 ): Waypoint[] {
   const waypoints: Waypoint[] = [];
   const snapTime = preSnapDuration + 200;
@@ -275,8 +311,9 @@ function generateOffensePath(
       waypoints.push({ x: point.x, y: point.y, arrivalTimeMs: currentTime });
     }
   } else if (assignment.isBallCarrier || assignment.runAssignment) {
-    // Running back
-    const runPath = generateRunPath(assignment, play);
+    // Running back. If a Key Frame branch pinned an explicit lane path, use it;
+    // otherwise generate from the play's runAssignment.
+    const runPath = pinnedRunPath ?? generateRunPath(assignment, play);
     let currentTime = snapTime + 300;
     for (const point of runPath) {
       currentTime += point.delay;
@@ -634,6 +671,22 @@ function handleQBThrow(
   const minThrowTime = config.preSnapDurationMs + minThrowDelay;
   const canThrow = state.timeMs >= minThrowTime;
 
+  // Throw-away branch (Key Frame "bail" intent): QB heaves it toward the sideline,
+  // no receiver target, ball lands incomplete by design. Resolves the same on every roll.
+  if (state.throwAway && canThrow) {
+    // Pick the nearer sideline relative to QB's current x (field is 0..100 wide)
+    const sidelineX = qb.x < 50 ? 5 : 95;
+    state.ballInAir = true;
+    state.ballThrowTime = state.timeMs;
+    qb.hasBall = false;
+    state.ballCarrier = null;
+    state.ball.targetX = sidelineX;
+    state.ball.targetY = qb.y - 4;  // Just past LOS
+    state.ball.isInFlight = true;
+    state.phase = 'THROW';
+    return;
+  }
+
   // Find target receiver
   const receiver = state.targetReceiver
     ? state.offensePlayers.find(p => p.positionSlot === state.targetReceiver)
@@ -744,6 +797,12 @@ function moveBall(state: SimulationState, config: SimulationConfig): void {
         state.endReason = 'INCOMPLETE';
         state.ballInAir = false;
       }
+    } else {
+      // No targeted receiver (throw-away or stray ball) → land incomplete.
+      state.playEnded = true;
+      state.endReason = 'INCOMPLETE';
+      state.ballInAir = false;
+      state.ball.isInFlight = false;
     }
   }
 }

@@ -1,2 +1,13 @@
 export { PlayAnimationCanvas } from './PlayAnimationCanvas';
 export { PlayViewer } from './PlayViewer';
+export { KeyFramePlaySlice } from './KeyFramePlaySlice';
+export { KeyFrameOverlay } from './KeyFrameOverlay';
+export { AudibleBar } from './AudibleBar';
+export { DefensePicker } from './DefensePicker';
+export { ScoutTellsOverlay } from './ScoutTellsOverlay';
+export { DriveHud } from './DriveHud';
+export { OpponentDriveFeed } from './OpponentDriveFeed';
+export { HalftimeTrivia } from './HalftimeTrivia';
+export { OutcomePunch } from './OutcomePunch';
+export { MacroClockBanner } from './MacroClockBanner';
+export { PersonalityMoment } from './PersonalityMoment';
