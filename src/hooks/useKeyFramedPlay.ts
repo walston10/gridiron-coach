@@ -68,10 +68,11 @@ export interface UseKeyFramedPlayReturn {
   reset: () => void;
 }
 
-// Tuned for "I can see what's happening" rather than "moves at game speed."
-// Slower playback gives the player time to read the formation move and the
-// throw develop before the Key Frame freezes for their tap.
-const DEFAULT_PLAYBACK_SPEED = 1.0;
+// Tuned for "I can dissect this" pacing. Playback runs at 0.6× so routes /
+// blocks / cuts have time to land visually before the Key Frame fires.
+// Plays end up taking ~8-10s wall time, which is enough to see what's
+// actually happening on the field.
+const DEFAULT_PLAYBACK_SPEED = 0.6;
 const PRE_SNAP_WINDOW_MS = 3500;
 
 export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
