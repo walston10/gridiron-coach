@@ -34,6 +34,13 @@ interface KeyFramedPlayResultProps {
   defenseCard: DefensiveCard;
   offenseRatings?: OffenseRatings;
   defenseRatings?: DefenseRatings;
+  /**
+   * True when the human player called the offense on this snap. When false
+   * (opponent on offense, player on defense), the Key Frame slo-mo decision
+   * auto-resolves to the AI's default branch — the player watches without
+   * the tap overlay since the offensive read isn't theirs to make.
+   */
+  isPlayerOffense?: boolean;
   onResult: (result: SimResult) => void;
 }
 
@@ -81,6 +88,7 @@ export const KeyFramedPlayResult: React.FC<KeyFramedPlayResultProps> = ({
   defenseCard,
   offenseRatings = {},
   defenseRatings = {},
+  isPlayerOffense = true,
   onResult,
 }) => {
   const [canvasSize, setCanvasSize] = useState(pickCanvasSize);
@@ -155,6 +163,14 @@ export const KeyFramedPlayResult: React.FC<KeyFramedPlayResultProps> = ({
     }
   }, [phase, play]);
 
+  // When opponent is on offense, auto-resolve the Key Frame to the AI's
+  // default branch. The player doesn't make the offensive read on this snap.
+  useEffect(() => {
+    if (phase === 'awaiting-decision' && !isPlayerOffense && keyFramedPlay) {
+      decide(keyFramedPlay.defaultOptionId);
+    }
+  }, [phase, isPlayerOffense, keyFramedPlay, decide]);
+
   // When the play resolves (phase='done'), convert the branch outcome and
   // hand it back to CardGameController.
   const handedOffRef = React.useRef(false);
@@ -228,7 +244,7 @@ export const KeyFramedPlayResult: React.FC<KeyFramedPlayResultProps> = ({
             showRouteTrails={true}
             showLabels={true}
           />
-          {showOverlay && keyFramedPlay && (
+          {showOverlay && keyFramedPlay && isPlayerOffense && (
             <KeyFrameOverlay
               options={options}
               canvasWidth={canvasSize.width}
@@ -254,8 +270,10 @@ export const KeyFramedPlayResult: React.FC<KeyFramedPlayResultProps> = ({
           own result screen takes over after onResult fires. */}
       <div className="bg-gray-900 border-t border-gray-800 p-3 text-center">
         <span className="text-xs text-gray-500 tracking-widest">
-          {phase === 'awaiting-decision'
+          {phase === 'awaiting-decision' && isPlayerOffense
             ? 'TAP A TARGET'
+            : phase === 'awaiting-decision' && !isPlayerOffense
+            ? 'OPPONENT IS READING…'
             : phase === 'pre-kf' || phase === 'pre-snap'
             ? 'PLAY DEVELOPING…'
             : phase === 'done'

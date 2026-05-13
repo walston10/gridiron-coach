@@ -107,12 +107,13 @@ function findKeyFrameTick(
  * 70 awareness → 500ms. 90 awareness → 700ms. 50 awareness → 300ms.
  */
 function windowMsForAwareness(awareness: number): number {
-  // Tuned again — even 800ms felt rushed in practice. Now 70 awareness gets
-  // 1200ms, 90 awareness gets 1400ms, 50 awareness gets 1000ms. Mobile taps
-  // need extra time vs. desktop clicks.
-  const base = 1200;
+  // Phase 0: pacing reset. Even 1200ms felt rushed during pass reads.
+  // 70 awareness = 2200ms, 90 = 2400ms, 50 = 2000ms. Generous on purpose —
+  // we want the player to actually READ the field, not panic-tap. Tune
+  // tighter once the sim animations are clear enough that 2s feels long.
+  const base = 2200;
   const bonus = (awareness - 70) * 10;
-  return Math.max(900, Math.min(1700, base + bonus));
+  return Math.max(1800, Math.min(2800, base + bonus));
 }
 
 /**
