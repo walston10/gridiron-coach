@@ -107,11 +107,12 @@ function findKeyFrameTick(
  * 70 awareness → 500ms. 90 awareness → 700ms. 50 awareness → 300ms.
  */
 function windowMsForAwareness(awareness: number): number {
-  // Bumped baseline up — the previous 500ms felt like panic-tap territory.
-  // 70 awareness → 800ms, 90 → 1000ms, 50 → 600ms.
-  const base = 800;
+  // Tuned again — even 800ms felt rushed in practice. Now 70 awareness gets
+  // 1200ms, 90 awareness gets 1400ms, 50 awareness gets 1000ms. Mobile taps
+  // need extra time vs. desktop clicks.
+  const base = 1200;
   const bonus = (awareness - 70) * 10;
-  return Math.max(500, Math.min(1200, base + bonus));
+  return Math.max(900, Math.min(1700, base + bonus));
 }
 
 /**

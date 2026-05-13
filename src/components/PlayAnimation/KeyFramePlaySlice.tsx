@@ -16,7 +16,7 @@ import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
 import { useDriveState } from '../../hooks/useDriveState';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
-import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
+import { tellsFor, type ScoutGrade } from '../../engine/tells';
 import { chooseDefense } from '../../engine/aiDefenseCaller';
 import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/aiOffense';
 import { OpponentDriveFeed } from './OpponentDriveFeed';
@@ -71,9 +71,10 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     chooseDefense(SAMPLE_DEFENSES, { down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0 })
   );
 
-  // Scout grade gates which pre-snap tells are visible. Defaults to B
-  // ("good scout") which reveals blitz / deep / spy but not man-coverage shape.
-  const [scoutGrade, setScoutGrade] = useState<ScoutGrade>('B');
+  // Scout grade — comes from your scouting staff, not a player toggle.
+  // Hardcoded 'B' (good scout) for the slice; later this'd come from the
+  // team's scouting department rating.
+  const scoutGrade: ScoutGrade = 'B';
 
   // Tells re-derive whenever defense or scout grade changes.
   const tells = useMemo(
@@ -575,37 +576,6 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           </option>
         ))}
       </select>
-
-      {/* Scout-grade picker — controls how much the defense reveals pre-snap. */}
-      <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, letterSpacing: 1 }}>
-          SCOUT REPORT — {gradeLabel(scoutGrade)}
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['A', 'B', 'C', 'D'] as ScoutGrade[]).map(g => (
-            <button
-              key={g}
-              onClick={() => setScoutGrade(g)}
-              style={{
-                flex: 1,
-                minHeight: 36,
-                padding: '6px',
-                backgroundColor: scoutGrade === g ? '#d4a056' : '#1f2937',
-                color: scoutGrade === g ? '#1c1917' : '#d1d5db',
-                border: `2px solid ${scoutGrade === g ? '#fbbf24' : '#374151'}`,
-                borderRadius: 6,
-                fontSize: 14,
-                fontWeight: 800,
-                cursor: 'pointer',
-                touchAction: 'manipulation',
-                WebkitTapHighlightColor: 'transparent',
-              }}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Canvas + overlay — only while it's the player's turn. */}
       {playerTurnActive && (

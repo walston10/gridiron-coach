@@ -610,10 +610,31 @@ function getDefenderTarget(
     }
   }
 
-  // Run fit - go to gap assignment then pursue ball
+  // Run fit - go to gap assignment then pursue ball.
   if (isRun || state.phase === 'AFTER_CATCH') {
     const ballCarrier = state.offensePlayers.find(p => p.positionSlot === state.ballCarrier);
     if (ballCarrier) {
+      // CBs hold contain — they don't crash inside on run plays. They sit on
+      // their side of the field at the LOS until the ball carrier breaks
+      // toward their boundary. Prevents the "CB slices through the line"
+      // bug where unblocked CBs blow up inside runs.
+      const isCB = defender.positionSlot.startsWith('CB');
+      if (isCB) {
+        const onLeft = defender.positionSlot === 'CB_L';
+        const containX = onLeft ? 8 : 92;       // Sit on the boundary
+        const containY = 50;                    // At the LOS
+        // Only crash toward the ball carrier if they've gotten past the LOS
+        // AND headed to this CB's side.
+        const ballPastLOS = ballCarrier.y < 50;
+        const ballOnMySide = onLeft ? ballCarrier.x < 40 : ballCarrier.x > 60;
+        if (ballPastLOS && ballOnMySide) {
+          return {
+            x: ballCarrier.x, y: ballCarrier.y,
+            predictedX: ballCarrier.x, predictedY: ballCarrier.y - 3,
+          };
+        }
+        return { x: containX, y: containY };
+      }
       return {
         x: ballCarrier.x,
         y: ballCarrier.y,
