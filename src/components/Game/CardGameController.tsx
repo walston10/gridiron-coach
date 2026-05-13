@@ -45,7 +45,7 @@ import { calculateRosterBuffs, applyRosterBuffs, type ModifiedPlay } from '../..
 
 // Lazy load the heavy game components
 import { AnimatedPlayResult } from './AnimatedPlayResult';
-import { SimulatedPlayResult } from './SimulatedPlayResult';
+import { KeyFramedPlayResult } from './KeyFramedPlayResult';
 import type { SimulatedPlayResult as SimResultType } from '../../hooks/useSimulatedPlay';
 import { PregamePresentation } from './PregamePresentation';
 
@@ -1613,8 +1613,12 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
 
   // Render simulation if in progress
   if (isSimulating && pendingSimulation) {
+    // KeyFramedPlayResult is the new in-play layer: same props as the legacy
+    // SimulatedPlayResult, but routes through useKeyFramedPlay so the player
+    // gets a slo-mo decision tap mid-snap instead of pure watch-and-wait.
+    // SimulatedPlayResult is kept imported for fallback / debugging.
     return (
-      <SimulatedPlayResult
+      <KeyFramedPlayResult
         offensePlayType={pendingSimulation.offenseCard.playType}
         targetPosition={pendingSimulation.target}
         defenseCard={pendingSimulation.defenseCard}
