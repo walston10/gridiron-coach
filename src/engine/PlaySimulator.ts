@@ -558,10 +558,13 @@ function handleHandoff(state: SimulationState, play: Play, config: SimulationCon
   if (qb && rb) {
     const distance = Math.sqrt(Math.pow(qb.x - rb.x, 2) + Math.pow(qb.y - rb.y, 2));
     if (distance < 6) {
-      // Handoff complete
+      // Handoff complete — flip BOTH the state-level carrier flag AND the
+      // ball state's carrier so the canvas renders the ball on the RB now
+      // (it reads ball.carrier when drawing the resting ball indicator).
       qb.hasBall = false;
       rb.hasBall = true;
       state.ballCarrier = rb.positionSlot;
+      state.ball.carrier = rb.positionSlot;
       state.ball.x = rb.x;
       state.ball.y = rb.y;
     }
@@ -1009,11 +1012,13 @@ const OL_BLOCK_ASSIGNMENTS: Record<string, DefensePositionSlot[]> = {
 const BLOCK_ENGAGE_RADIUS = 3.0;
 
 /**
- * OL travel speed per simulation tick. Tuned to ~12 field units/sec, which
- * is roughly real-football OL fire-out speed (~6 yards/sec) at our
- * YARDS_TO_UNITS = 2 ratio.
+ * OL travel speed per simulation tick. ~24 field units/sec — faster than
+ * real-football fire-out (~6 yards/sec) but tuned for visual clarity at
+ * mobile zoom + the 0.6× playback speed. Without this much travel speed,
+ * the OL barely moves during the 1–2s before the play resolves and the
+ * blocking looks like nothing is happening.
  */
-const OL_SPEED_PER_TICK = 0.2;
+const OL_SPEED_PER_TICK = 0.4;
 
 /**
  * Find the first unblocked defender from a lineman's assignment priority.
