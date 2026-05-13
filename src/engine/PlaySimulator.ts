@@ -174,6 +174,53 @@ export function simulatePlay(
     state.timeMs += cfg.tickIntervalMs;
   }
 
+  // If the loop exited because of maxDuration (not a real tackle / TD /
+  // turnover / boundary), the play has no visible cause for ending — the
+  // RB just runs forever in the abstract. Force the nearest defender into
+  // tackler position so the result and the icons agree. Without this, the
+  // user sees "tackled for X yards" but no defender anywhere near the RB.
+  if (!state.playEnded && state.ballCarrier) {
+    const carrier = state.offensePlayers.find(p => p.positionSlot === state.ballCarrier);
+    if (carrier) {
+      let nearest: DefenderState | null = null;
+      let nearestDist = Infinity;
+      for (const d of state.defenders) {
+        if (d.hasMadeTackle) continue;
+        const dist = Math.hypot(d.x - carrier.x, d.y - carrier.y);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = d;
+        }
+      }
+      if (nearest) {
+        // Drag the defender into contact over a few frames so it doesn't
+        // look like a teleport. Target position is just inside tackleRadius
+        // of the ball carrier, on the line between them.
+        const dx = carrier.x - nearest.x;
+        const dy = carrier.y - nearest.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const targetX = carrier.x - ux * 1.5;  // 1.5 units short of contact
+        const targetY = carrier.y - uy * 1.5;
+        // 8 frames of drag-in interpolation (~128ms at 60fps).
+        const startX = nearest.x;
+        const startY = nearest.y;
+        for (let i = 1; i <= 8; i++) {
+          const t = i / 8;
+          nearest.x = startX + (targetX - startX) * t;
+          nearest.y = startY + (targetY - startY) * t;
+          state.timeMs += cfg.tickIntervalMs;
+          frames.push(generateSimulationFrame(state, play, defenseCard));
+        }
+        nearest.hasMadeTackle = true;
+        state.playEnded = true;
+        state.endReason = 'TACKLE';
+        state.tackledBy = nearest.positionSlot;
+      }
+    }
+  }
+
   // Calculate yards gained based on where ball carrier ended up
   const yardsGained = calculateYardsFromPosition(state, play);
 
@@ -334,6 +381,26 @@ function generateOffensePath(
 /**
  * Generate run path for RB
  */
+/**
+ * Append a far-downfield extension waypoint so the ball carrier keeps
+ * running past the last designed waypoint instead of stopping (which used
+ * to look like a phantom tackle with no defender nearby). Extrapolates
+ * direction from the last two waypoints.
+ */
+function withExtension(
+  path: { x: number; y: number; delay: number }[]
+): { x: number; y: number; delay: number }[] {
+  if (path.length < 2) return path;
+  const last = path[path.length - 1];
+  const prev = path[path.length - 2];
+  const dx = last.x - prev.x;
+  const dy = last.y - prev.y;
+  // Scale to a 3× last segment; clamp to field bounds.
+  const extX = Math.max(2, Math.min(98, last.x + dx * 3));
+  const extY = Math.max(0, last.y + dy * 3);
+  return [...path, { x: extX, y: extY, delay: 1500 }];
+}
+
 function generateRunPath(
   assignment: PlayerAssignment,
   _play: Play
@@ -344,34 +411,35 @@ function generateRunPath(
   switch (assignment.runAssignment) {
     case 'DIVE':
     case 'INSIDE_ZONE':
-      return [
+      return withExtension([
         { x: startX, y: startY - 5, delay: 200 },
         { x: startX, y: startY - 15, delay: 400 },
         { x: startX, y: startY - 30, delay: 600 },
-      ];
+      ]);
 
     case 'POWER':
-      return [
+      return withExtension([
         { x: startX, y: startY - 3, delay: 300 },
         { x: startX + 8, y: startY - 12, delay: 500 },
         { x: startX + 10, y: startY - 28, delay: 700 },
-      ];
+      ]);
 
     case 'SWEEP':
     case 'OUTSIDE_ZONE':
-    case 'TOSS':
+    case 'TOSS': {
       const dir = assignment.runGap?.includes('LEFT') ? -1 : 1;
-      return [
+      return withExtension([
         { x: startX + (12 * dir), y: startY, delay: 250 },
         { x: startX + (25 * dir), y: startY - 8, delay: 500 },
         { x: startX + (30 * dir), y: startY - 20, delay: 700 },
-      ];
+      ]);
+    }
 
     default:
-      return [
+      return withExtension([
         { x: startX, y: startY - 10, delay: 400 },
         { x: startX, y: startY - 25, delay: 700 },
-      ];
+      ]);
   }
 }
 

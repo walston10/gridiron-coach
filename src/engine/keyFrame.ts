@@ -340,25 +340,40 @@ function makeRunPath(
   // Shared approach — RB has the ball, near LOS, hasn't committed to a gap yet.
   const shared = { x: startX, y: startY - 5, delay: 250 };
 
+  // Build path then append a far-downfield extension so the RB keeps running
+  // past the last designed waypoint instead of freezing in place (which would
+  // look like a phantom tackle).
+  const extend = (path: { x: number; y: number; delay: number }[]) => {
+    const last = path[path.length - 1];
+    const prev = path[path.length - 2];
+    const dx = last.x - prev.x;
+    const dy = last.y - prev.y;
+    return [...path, {
+      x: clampX(last.x + dx * 3),
+      y: Math.max(0, last.y + dy * 3),
+      delay: 1500,
+    }];
+  };
+
   switch (variant) {
     case 'ASSIGNED':
-      return [
+      return extend([
         shared,
         { x: startX, y: startY - 15, delay: 400 },
         { x: startX, y: startY - 30, delay: 600 },
-      ];
+      ]);
     case 'BOUNCE':
-      return [
+      return extend([
         shared,
         { x: clampX(startX + 18 * dir), y: startY - 12, delay: 450 },
         { x: clampX(startX + 25 * dir), y: startY - 28, delay: 700 },
-      ];
+      ]);
     case 'CUTBACK':
-      return [
+      return extend([
         shared,
         { x: clampX(startX - 10 * dir), y: startY - 10, delay: 400 },
         { x: clampX(startX - 18 * dir), y: startY - 25, delay: 700 },
-      ];
+      ]);
   }
 }
 
