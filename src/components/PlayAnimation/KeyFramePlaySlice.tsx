@@ -10,33 +10,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
 import { AudibleBar } from './AudibleBar';
+import { DefensePicker } from './DefensePicker';
 import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
-import type { DefensiveCard } from '../../types/card.types';
+import { SAMPLE_DEFENSES } from '../../data/sampleDefenses';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
   onBack?: () => void;
 }
-
-/** A simple defensive card used by the slice — zone coverage shell. */
-const SAMPLE_DEFENSE: DefensiveCard = {
-  id: 'slice-zone',
-  category: 'DEFENSIVE',
-  name: 'Zone Coverage',
-  description: 'Read-and-react zone shell.',
-  playType: 'ZONE_COVERAGE',
-  rarity: 'COMMON',
-  runStopRating: 65,
-  passDefenseRating: 78,
-  pressureRating: 25,
-  bigPlayAllowed: 15,
-  situationBonuses: [],
-  predictionBonus: 15,
-  strongAgainst: ['DEEP_PASS'],
-  weakAgainst: ['SHORT_PASS'],
-  generatedBy: 'slice',
-};
 
 /** Sample QB ratings — used to drive the Key Frame window size. */
 const SAMPLE_OFFENSE: OffenseRatings = {
@@ -63,6 +45,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     playablePlays.find(p => p.id === 'default-post-corner')?.id ?? playablePlays[0]?.id ?? ''
   );
   const selectedPlay = playablePlays.find(p => p.id === selectedPlayId) ?? playablePlays[0];
+
+  const [selectedDefenseId, setSelectedDefenseId] = useState<string>(SAMPLE_DEFENSES[0].id);
+  const selectedDefense = SAMPLE_DEFENSES.find(d => d.id === selectedDefenseId) ?? SAMPLE_DEFENSES[0];
 
   const [canvasSize, setCanvasSize] = useState(pickCanvasSize);
   useEffect(() => {
@@ -98,11 +83,11 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       .slice(0, 2);
   }, [activePlay, playablePlays]);
 
-  // (Re)load whenever the chosen play changes.
+  // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
-    loadPlay(selectedPlay, SAMPLE_DEFENSE, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
-  }, [selectedPlay, loadPlay]);
+    loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+  }, [selectedPlay, selectedDefense, loadPlay]);
 
   const showOverlay = phase === 'awaiting-decision';
   const finalOutcome = phase === 'done' && chosenOption?.branch.outcome;
@@ -165,6 +150,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         ))}
       </select>
 
+      {/* Defense picker — cycle through schemes to feel how the same play
+          plays out against different looks. */}
+      <DefensePicker
+        defenses={SAMPLE_DEFENSES}
+        activeId={selectedDefenseId}
+        onPick={d => { setSelectedDefenseId(d.id); }}
+      />
+
       {/* Canvas + overlay */}
       <div style={{ position: 'relative', width: canvasSize.width, height: canvasSize.height }}>
         <PlayAnimationCanvas
@@ -174,6 +167,27 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           showRouteTrails={true}
           showLabels={true}
         />
+        {/* Active-defense banner during pre-snap so the player has a clear
+            read on what they're audibling against. */}
+        {phase === 'pre-snap' && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              padding: '4px 8px',
+              backgroundColor: 'rgba(0,0,0,0.7)',
+              color: '#fbbf24',
+              fontSize: 11,
+              fontWeight: 700,
+              borderRadius: 4,
+              letterSpacing: 1,
+              pointerEvents: 'none',
+            }}
+          >
+            DEF: {selectedDefense.name.toUpperCase()}
+          </div>
+        )}
         {showOverlay && keyFramedPlay && (
           <KeyFrameOverlay
             options={options}
@@ -236,7 +250,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           </button>
           <button
             onClick={() => {
-              if (selectedPlay) loadPlay(selectedPlay, SAMPLE_DEFENSE, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              if (selectedPlay) loadPlay(selectedPlay, selectedDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
             }}
             style={secondaryBtn}
           >
@@ -247,11 +261,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
       {/* Help text */}
       <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 480, textAlign: 'center', marginTop: 4 }}>
-        Tap <strong>Start Play</strong> to break the huddle. You'll get a few seconds to
-        read the defense — audible to an alternate or hit <strong>SNAP</strong> to commit.
-        <br />
-        When the slo-mo decision moment fires, tap a colored target.
-        Green = safe, yellow = standard, red = risky.
+        Pick a <strong>play</strong> and a <strong>defense</strong>, then tap <strong>Start Play</strong>.
+        During pre-snap you can audible to an alternate or commit with <strong>SNAP</strong>.
+        At the slo-mo moment, tap a colored target — green = safe, yellow = standard, red = risky.
       </div>
     </div>
   );

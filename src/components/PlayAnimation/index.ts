@@ -3,3 +3,4 @@ export { PlayViewer } from './PlayViewer';
 export { KeyFramePlaySlice } from './KeyFramePlaySlice';
 export { KeyFrameOverlay } from './KeyFrameOverlay';
 export { AudibleBar } from './AudibleBar';
+export { DefensePicker } from './DefensePicker';
