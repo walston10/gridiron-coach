@@ -1657,6 +1657,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
         offensePlayType={pendingSimulation.offenseCard.playType}
         targetPosition={pendingSimulation.target}
         defenseCard={pendingSimulation.defenseCard}
+        isPlayerOffense={isPlayerOnOffense()}
         onResult={handleSimulationResult}
       />
     );
