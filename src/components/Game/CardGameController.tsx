@@ -46,6 +46,7 @@ import { calculateRosterBuffs, applyRosterBuffs, type ModifiedPlay } from '../..
 // Lazy load the heavy game components
 import { AnimatedPlayResult } from './AnimatedPlayResult';
 import { KeyFramedPlayResult } from './KeyFramedPlayResult';
+import { BoxScore } from './BoxScore';
 import type { SimulatedPlayResult as SimResultType } from '../../hooks/useSimulatedPlay';
 import { PregamePresentation } from './PregamePresentation';
 
@@ -425,7 +426,8 @@ const OffensivePlayUI: React.FC<{
   onSnapBall: (card: OffensiveCard, target: TargetPosition, modifier: OffensiveModifier) => void;
   onTimeout: () => void;
   onFourthDownChoice: (choice: FourthDownCategory | 'FAKE_FG' | 'FAKE_PUNT') => void;
-}> = ({ onSnapBall, onTimeout, onFourthDownChoice }) => {
+  onOpenBoxScore: () => void;
+}> = ({ onSnapBall, onTimeout, onFourthDownChoice, onOpenBoxScore }) => {
   const {
     phase,
     fieldPosition,
@@ -615,14 +617,22 @@ const OffensivePlayUI: React.FC<{
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Scoreboard */}
-      <div className="bg-gray-900 border-b border-gray-800 p-3">
+      {/* Scoreboard — tap to open the BoxScore overlay (handled by parent). */}
+      <button
+        onClick={onOpenBoxScore}
+        className="bg-gray-900 border-b border-gray-800 p-3 w-full text-left hover:bg-gray-800 transition-colors"
+        style={{ cursor: 'pointer' }}
+        aria-label="Open box score"
+      >
         <div className="flex justify-between items-center">
           <div className="text-white font-bold">YOU: {playerState.score}</div>
-          <div className="text-gray-400">Q{clock.quarter} {clock.minutes}:{clock.seconds.toString().padStart(2, '0')}</div>
+          <div className="text-gray-400">
+            Q{clock.quarter} {clock.minutes}:{clock.seconds.toString().padStart(2, '0')}
+            <span className="ml-2 text-xs text-amber-500">📊</span>
+          </div>
           <div className="text-white font-bold">OPP: {opponentState.score}</div>
         </div>
-      </div>
+      </button>
 
       {/* Field Position */}
       <div className="bg-green-900/30 border-b border-green-800/50 p-3 text-center">
@@ -882,7 +892,8 @@ const DefensivePlayUI: React.FC<{
   onSetDefense: (card: DefensiveCard, prediction?: OffensivePlayType) => void;
   onTimeout: () => void;
   onFourthDownResponse: (response: FourthDownDefenseResponse) => void;
-}> = ({ onSetDefense, onTimeout, onFourthDownResponse }) => {
+  onOpenBoxScore: () => void;
+}> = ({ onSetDefense, onTimeout, onFourthDownResponse, onOpenBoxScore }) => {
   const {
     phase,
     fieldPosition,
@@ -1004,14 +1015,22 @@ const DefensivePlayUI: React.FC<{
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Scoreboard */}
-      <div className="bg-gray-900 border-b border-gray-800 p-3">
+      {/* Scoreboard — tap to open the BoxScore overlay (handled by parent). */}
+      <button
+        onClick={onOpenBoxScore}
+        className="bg-gray-900 border-b border-gray-800 p-3 w-full text-left hover:bg-gray-800 transition-colors"
+        style={{ cursor: 'pointer' }}
+        aria-label="Open box score"
+      >
         <div className="flex justify-between items-center">
           <div className="text-white font-bold">YOU: {playerState.score}</div>
-          <div className="text-gray-400">Q{clock.quarter} {clock.minutes}:{clock.seconds.toString().padStart(2, '0')}</div>
+          <div className="text-gray-400">
+            Q{clock.quarter} {clock.minutes}:{clock.seconds.toString().padStart(2, '0')}
+            <span className="ml-2 text-xs text-amber-500">📊</span>
+          </div>
           <div className="text-white font-bold">OPP: {opponentState.score}</div>
         </div>
-      </div>
+      </button>
 
       {/* Field Position */}
       <div className="bg-red-900/30 border-b border-red-800/50 p-4 text-center">
@@ -1302,6 +1321,9 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
   const { getCurrentUserGame } = useSeasonStore();
 
   const [lastResult, setLastResult] = useState<PlayResult | FourthDownResult | null>(null);
+  // Box-score overlay state — opened by tapping the scoreboard at the top
+  // of the play-call screens. Read-only view of player/opponent stats.
+  const [showBoxScore, setShowBoxScore] = useState(false);
 
   // Simulation mode - when true, plays are simulated visually instead of calculated
   const [useSimulation, _setUseSimulation] = useState(true);
@@ -1531,43 +1553,66 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     handleExtraPoint(choice);
   }, [handleExtraPoint]);
 
-  // Generate play-by-play text from simulation result
+  // Generate play-by-play text from simulation result. Richer than before:
+  // names the tackler, mentions the defense scheme it beat (or was beaten
+  // by), distinguishes run vs pass phrasing, calls out big plays / loss /
+  // first down specifically.
   const generatePlayByPlay = useCallback((
     simResult: SimResultType,
     simulation: typeof pendingSimulation
   ): string => {
     if (!simulation) return '';
 
-    const playType = simulation.offenseCard.playType.replace(/_/g, ' ').toLowerCase();
-    const target = simulation.target || 'RB';
+    const offType = simulation.offenseCard.playType;
+    const isPass = ['SHORT_PASS', 'MEDIUM_PASS', 'DEEP_PASS', 'SCREEN', 'PLAY_ACTION'].includes(offType);
+    const playTypeText = offType.replace(/_/g, ' ').toLowerCase();
+    const target = simulation.target || (isPass ? 'WR' : 'RB');
+    const def = simulation.defenseCard.playType.replace(/_/g, ' ').toLowerCase();
+    const tackler = simResult.tackledBy ? simResult.tackledBy.replace(/_/g, ' ') : null;
 
+    // Drive-ending results come first so they take priority over yardage descriptors.
     if (simResult.touchdown) {
-      return `TOUCHDOWN! ${playType} to ${target} for ${simResult.yardsGained} yards!`;
+      if (isPass) return `TOUCHDOWN! ${target} hauls in the ${playTypeText} for ${simResult.yardsGained} yards. ${def.toUpperCase()} beaten over the top.`;
+      return `TOUCHDOWN! ${target} ${simResult.yardsGained}-yard ${playTypeText} into the end zone.`;
     }
     if (simResult.turnover) {
       if (simResult.turnoverType === 'INTERCEPTION') {
-        return `INTERCEPTED! Pass intended for ${target} picked off.`;
+        return tackler
+          ? `INTERCEPTED by ${tackler}! Pass for ${target} jumped.`
+          : `INTERCEPTED! Pass for ${target} picked off vs ${def}.`;
       }
       if (simResult.turnoverType === 'FUMBLE') {
-        return `FUMBLE! Ball carrier loses the ball. Defense recovers.`;
+        return `FUMBLE! Ball carrier coughs it up — defense recovers.`;
       }
     }
     if (simResult.sack) {
-      return `SACKED! QB taken down for a loss of ${Math.abs(simResult.yardsGained)} yards.`;
+      const yds = Math.abs(simResult.yardsGained);
+      return tackler
+        ? `SACKED by ${tackler} for a ${yds}-yard loss. ${def.toUpperCase()} got home.`
+        : `SACKED for a ${yds}-yard loss vs ${def}.`;
     }
     if (simResult.incomplete) {
-      return `Incomplete pass to ${target}.`;
+      return `Incomplete to ${target}. ${def.toUpperCase()} held up in coverage.`;
     }
     if (simResult.bigPlay) {
-      return `BIG PLAY! ${playType} gains ${simResult.yardsGained} yards!`;
+      const verb = isPass ? `${target} gets free` : `${target} bursts through`;
+      return tackler
+        ? `BIG PLAY! ${verb} for ${simResult.yardsGained} yards, finally hauled down by ${tackler}.`
+        : `BIG PLAY! ${verb} for ${simResult.yardsGained} yards.`;
     }
     if (simResult.yardsGained > 0) {
-      return `${playType} for a gain of ${simResult.yardsGained} yards${simResult.tackledBy ? ` (tackled by ${simResult.tackledBy})` : ''}.`;
+      const action = isPass
+        ? `${target} catches the ${playTypeText} for +${simResult.yardsGained}`
+        : `${target} rushes ${playTypeText} for +${simResult.yardsGained}`;
+      return tackler ? `${action}, tackled by ${tackler}.` : `${action}.`;
     }
     if (simResult.yardsGained < 0) {
-      return `${playType} stopped for a loss of ${Math.abs(simResult.yardsGained)} yards.`;
+      const loss = Math.abs(simResult.yardsGained);
+      return tackler
+        ? `Stopped behind the line for a loss of ${loss} — ${tackler} in the backfield.`
+        : `Tackled for a ${loss}-yard loss vs ${def}.`;
     }
-    return `${playType} for no gain.`;
+    return `${playTypeText.charAt(0).toUpperCase() + playTypeText.slice(1)} for no gain${tackler ? ` (${tackler} on the stop)` : ''}.`;
   }, []);
 
   // Handle simulation result - convert to PlayResult format and continue game flow
@@ -1759,23 +1804,46 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     );
   }
 
+  // Box-score overlay — rendered at the controller level so both the
+  // offense and defense play UIs can open it via a callback. Persists
+  // across phase switches when open.
+  const boxScoreOverlay = showBoxScore && (
+    <BoxScore
+      playerScore={playerState.score}
+      opponentScore={opponentState.score}
+      playerStats={playerState.stats}
+      opponentStats={opponentState.stats}
+      quarterLabel={`Q${clock.quarter}`}
+      clockLabel={`${clock.minutes}:${clock.seconds.toString().padStart(2, '0')}`}
+      onClose={() => setShowBoxScore(false)}
+    />
+  );
+
   // Main game screens based on possession
   if (isPlayerOnOffense()) {
     return (
-      <OffensivePlayUI
-        onSnapBall={handleSnapBall}
-        onTimeout={handleTimeout}
-        onFourthDownChoice={handleFourthDownChoice}
-      />
+      <>
+        <OffensivePlayUI
+          onSnapBall={handleSnapBall}
+          onTimeout={handleTimeout}
+          onFourthDownChoice={handleFourthDownChoice}
+          onOpenBoxScore={() => setShowBoxScore(true)}
+        />
+        {boxScoreOverlay}
+      </>
     );
   }
 
   return (
-    <DefensivePlayUI
-      onSetDefense={handleSetDefense}
-      onTimeout={handleTimeout}
-      onFourthDownResponse={handleFourthDownResponse}
-    />
+    <>
+      <DefensivePlayUI
+        onSetDefense={handleSetDefense}
+        onTimeout={handleTimeout}
+        onFourthDownResponse={handleFourthDownResponse}
+        onOpenBoxScore={() => setShowBoxScore(true)}
+      />
+      {boxScoreOverlay}
+    </>
   );
 };
 
