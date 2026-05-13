@@ -30,10 +30,10 @@ const FORMATION_4_3: DefenseFormation = {
     { positionSlot: 'MIKE', startX: 50, startY: 55, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_MIDDLE' },
     { positionSlot: 'SAM', startX: 68, startY: 55, isBlitzing: false, runAssignment: 'RUN_FIT_B_R', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_HOOK_R' },
     // Secondary
-    { positionSlot: 'CB_L', startX: 12, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
-    { positionSlot: 'CB_R', startX: 88, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
-    { positionSlot: 'FS', startX: 50, startY: 65, isBlitzing: false, runAssignment: 'RUN_FIT_A_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
-    { positionSlot: 'SS', startX: 65, startY: 58, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'BALANCED', coverageAssignment: 'MAN_TE' },
+    { positionSlot: 'CB_L', startX: 12, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
+    { positionSlot: 'CB_R', startX: 88, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
+    { positionSlot: 'FS', startX: 50, startY: 70, isBlitzing: false, runAssignment: 'RUN_FIT_A_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
+    { positionSlot: 'SS', startX: 65, startY: 64, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'BALANCED', coverageAssignment: 'MAN_TE' },
   ],
 };
 
@@ -54,10 +54,10 @@ const FORMATION_3_4: DefenseFormation = {
     { positionSlot: 'MIKE', startX: 60, startY: 55, isBlitzing: false, runAssignment: 'RUN_FIT_A_R', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_HOOK_R' },
     { positionSlot: 'OLB_R', startX: 75, startY: 52, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_FLAT_R' },
     // Secondary
-    { positionSlot: 'CB_L', startX: 10, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
-    { positionSlot: 'CB_R', startX: 90, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
-    { positionSlot: 'FS', startX: 50, startY: 65, isBlitzing: false, runAssignment: 'RUN_FIT_B_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
-    { positionSlot: 'SS', startX: 60, startY: 58, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'BALANCED', coverageAssignment: 'MAN_TE' },
+    { positionSlot: 'CB_L', startX: 10, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
+    { positionSlot: 'CB_R', startX: 90, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
+    { positionSlot: 'FS', startX: 50, startY: 70, isBlitzing: false, runAssignment: 'RUN_FIT_B_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
+    { positionSlot: 'SS', startX: 60, startY: 64, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'BALANCED', coverageAssignment: 'MAN_TE' },
   ],
 };
 
@@ -77,11 +77,11 @@ const FORMATION_NICKEL: DefenseFormation = {
     { positionSlot: 'WILL', startX: 38, startY: 55, isBlitzing: false, runAssignment: 'RUN_FIT_B_L', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_HOOK_L' },
     { positionSlot: 'MIKE', startX: 62, startY: 55, isBlitzing: false, runAssignment: 'RUN_FIT_B_R', readBehavior: 'BALANCED', coverageAssignment: 'ZONE_HOOK_R' },
     // Secondary (5 DBs)
-    { positionSlot: 'CB_L', startX: 8, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
-    { positionSlot: 'CB_R', startX: 92, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
-    { positionSlot: 'CB_S', startX: 35, startY: 54, isBlitzing: false, runAssignment: 'RUN_FIT_C_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_SLOT' },
-    { positionSlot: 'FS', startX: 50, startY: 68, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
-    { positionSlot: 'SS', startX: 65, startY: 58, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_TE' },
+    { positionSlot: 'CB_L', startX: 8, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR1' },
+    { positionSlot: 'CB_R', startX: 92, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_WR2' },
+    { positionSlot: 'CB_S', startX: 35, startY: 60, isBlitzing: false, runAssignment: 'RUN_FIT_C_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_SLOT' },
+    { positionSlot: 'FS', startX: 50, startY: 72, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'PASS_FIRST', coverageAssignment: 'ZONE_DEEP_THIRD_M' },
+    { positionSlot: 'SS', startX: 65, startY: 64, isBlitzing: false, runAssignment: 'RUN_FIT_C_R', readBehavior: 'PASS_FIRST', coverageAssignment: 'MAN_TE' },
   ],
 };
 
@@ -116,20 +116,20 @@ const FORMATION_DIME: DefenseFormation = {
 const FORMATION_GOAL_LINE: DefenseFormation = {
   name: 'GOAL_LINE',
   assignments: [
-    // Defensive Line (5)
+    // Defensive Line (5) — at the LOS
     { positionSlot: 'DE_L', startX: 25, startY: 51, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'RUN_FIRST' },
     { positionSlot: 'DT_L', startX: 38, startY: 51, isBlitzing: false, runAssignment: 'RUN_FIT_B_L', readBehavior: 'RUN_FIRST' },
     { positionSlot: 'NT', startX: 50, startY: 51, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'RUN_FIRST' },
     { positionSlot: 'DT_R', startX: 62, startY: 51, isBlitzing: false, runAssignment: 'RUN_FIT_B_R', readBehavior: 'RUN_FIRST' },
     { positionSlot: 'DE_R', startX: 75, startY: 51, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'RUN_FIRST' },
-    // Linebackers (4)
-    { positionSlot: 'OLB_L', startX: 20, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_FLAT_L' },
-    { positionSlot: 'WILL', startX: 40, startY: 53, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_HOOK_L' },
-    { positionSlot: 'MIKE', startX: 60, startY: 53, isBlitzing: false, runAssignment: 'RUN_FIT_A_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_HOOK_R' },
-    { positionSlot: 'OLB_R', startX: 80, startY: 53, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_FLAT_R' },
-    // Secondary (only 2)
-    { positionSlot: 'CB_L', startX: 10, startY: 52, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'MAN_WR1' },
-    { positionSlot: 'SS', startX: 90, startY: 52, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'MAN_WR2' },
+    // Linebackers (4) — 4–5 yards back, stacked tight
+    { positionSlot: 'OLB_L', startX: 20, startY: 56, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_FLAT_L' },
+    { positionSlot: 'WILL', startX: 40, startY: 56, isBlitzing: false, runAssignment: 'RUN_FIT_A_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_HOOK_L' },
+    { positionSlot: 'MIKE', startX: 60, startY: 56, isBlitzing: false, runAssignment: 'RUN_FIT_A_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_HOOK_R' },
+    { positionSlot: 'OLB_R', startX: 80, startY: 56, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'ZONE_FLAT_R' },
+    // Secondary (only 2) — wide and a little deeper
+    { positionSlot: 'CB_L', startX: 10, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_L', readBehavior: 'RUN_FIRST', coverageAssignment: 'MAN_WR1' },
+    { positionSlot: 'SS', startX: 90, startY: 58, isBlitzing: false, runAssignment: 'CONTAIN_R', readBehavior: 'RUN_FIRST', coverageAssignment: 'MAN_WR2' },
   ],
 };
 

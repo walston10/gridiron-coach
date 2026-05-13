@@ -68,7 +68,10 @@ export interface UseKeyFramedPlayReturn {
   reset: () => void;
 }
 
-const DEFAULT_PLAYBACK_SPEED = 1.5;
+// Tuned for "I can see what's happening" rather than "moves at game speed."
+// Slower playback gives the player time to read the formation move and the
+// throw develop before the Key Frame freezes for their tap.
+const DEFAULT_PLAYBACK_SPEED = 1.0;
 const PRE_SNAP_WINDOW_MS = 3500;
 
 export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
