@@ -519,6 +519,12 @@ function tickSimulation(
 function moveOffensePlayers(state: SimulationState, _config: SimulationConfig): void {
   for (const player of state.offensePlayers) {
     if (player.path.length === 0) continue;
+    // OL movement is fully owned by moveOffensiveLine (Phase 2+). Without
+    // this skip, the waypoint interpolation here resets the OL's position
+    // every tick AFTER moveOffensiveLine has already pulled them — net
+    // movement near zero. moveOffensiveLine handles their pre-snap hold
+    // and post-snap tracking from scratch.
+    if ((OL_SLOTS as readonly string[]).includes(player.positionSlot)) continue;
 
     // Find current target waypoint
     let targetWaypoint = player.path[player.currentWaypointIndex];
@@ -1155,19 +1161,41 @@ function moveOffensiveLine(state: SimulationState, play: Play): void {
  * isBlocked flips. Pairs with moveOffensiveLine: OL tracks to defender,
  * gets close, engages.
  */
-function handleBlocking(state: SimulationState, _play: Play): void {
+function handleBlocking(state: SimulationState, play: Play): void {
   const oLinemen = state.offensePlayers.filter(p =>
     (OL_SLOTS as readonly string[]).includes(p.positionSlot)
   );
+
+  // Same scheme + direction lookup that moveOffensiveLine uses, so we can
+  // skip engagement entirely for pulling linemen — they're not blocking
+  // their priority defender, they're routing across the line to the LB.
+  // Without this check, pullers got proximity-engaged with DT/DE the
+  // moment the sim started and never actually pulled.
+  const scheme = play.runBlockingScheme;
+  const rbAssignment = play.assignments.find(a => a.isBallCarrier || a.runAssignment);
+  const runGap = rbAssignment?.runGap;
 
   // Process each lineman. Engagement is proximity-gated: only set isBlocked
   // when the lineman is actually in contact with their target. Track-to-
   // target movement happens in moveOffensiveLine each tick before this runs.
   for (const lineman of oLinemen) {
     if (lineman.isBlocked) continue;
+    const role = getOLRole(lineman.positionSlot, scheme, runGap);
 
-    // Find a target — first unblocked in priority list, else nearest unblocked
-    // pass rusher (fallback for unusual fronts / blitz packages).
+    if (role === 'PULL_LEFT' || role === 'PULL_RIGHT') {
+      // Pulling lineman: engagement happens against the playside LB they're
+      // tracking in moveOffensiveLine, not against the priority defender.
+      const target = findPullTarget(role, state.defenders);
+      if (!target) continue;
+      const distance = Math.hypot(target.x - lineman.x, target.y - lineman.y);
+      if (distance > BLOCK_ENGAGE_RADIUS) continue;
+      target.isBlocked = true;
+      lineman.isBlocked = true;
+      continue;
+    }
+
+    // BASE: find a target — first unblocked in priority list, else nearest
+    // unblocked pass rusher (fallback for unusual fronts / blitz packages).
     let target = findOLTarget(lineman, state.defenders);
     if (!target) {
       let closestDist = Infinity;
