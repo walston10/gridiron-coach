@@ -24,9 +24,11 @@ import { OpponentDriveFeed } from './OpponentDriveFeed';
 import { HalftimeTrivia } from './HalftimeTrivia';
 import { OutcomePunch, classifyPunch } from './OutcomePunch';
 import { MacroClockBanner, type MacroBannerKind } from './MacroClockBanner';
+import { PersonalityMoment } from './PersonalityMoment';
 import { useGameClock } from '../../hooks/useGameClock';
 import { clockBurnFor, estimateOpponentBurn, isTwoMinuteDrill, type Quarter } from '../../engine/gameClock';
 import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/halftimeTrivia';
+import { rollPersonalityMoment, type PersonalityMoment as Moment } from '../../data/personalityMoments';
 import { playStinger, setMuted, isMuted, type StingerKind } from '../../utils/audio';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 import type { PlayOutcome } from '../../types/PlayAnimation';
@@ -168,10 +170,22 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // Modifier to QB accuracy from a halftime trivia QB_BOOST stake. Carries
   // through the rest of the game. Cleared on New Game.
   const [qbAccuracyBonus, setQbAccuracyBonus] = useState(0);
+
+  // Personality-moment state. When a moment fires after a drive, the player
+  // picks an option; effects flow into pendingMods (applied at next drive
+  // start) or directly into timeouts / rest-of-game QB bonus.
+  const [activeMoment, setActiveMoment] = useState<{ moment: Moment; selectedIndex: number | null } | null>(null);
+  const [pendingMods, setPendingMods] = useState<{ fieldPosBonus: number; qbDriveBonus: number }>({
+    fieldPosBonus: 0,
+    qbDriveBonus: 0,
+  });
+  /** QB accuracy bonus applied for the duration of the player's CURRENT drive only. */
+  const [activeDriveQbBonus, setActiveDriveQbBonus] = useState(0);
+
   const effectiveOffense = useMemo<OffenseRatings>(() => ({
     ...SAMPLE_OFFENSE,
-    qbAccuracy: (SAMPLE_OFFENSE.qbAccuracy ?? 70) + qbAccuracyBonus,
-  }), [qbAccuracyBonus]);
+    qbAccuracy: (SAMPLE_OFFENSE.qbAccuracy ?? 70) + qbAccuracyBonus + activeDriveQbBonus,
+  }), [qbAccuracyBonus, activeDriveQbBonus]);
 
   // Opponent drive interstitial state machine:
   //   'none'           = player's turn
@@ -186,12 +200,17 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   const [interstitial, setInterstitial] = useState<Interstitial>({ kind: 'none' });
 
   // When the player's drive ends, transition into the opponent-pending state
-  // (unless we're already in the opponent flow). The transition only fires
-  // when driveOver becomes true so we don't loop.
+  // (unless we're already in the opponent flow). Also clear the active drive
+  // QB bonus (it doesn't carry past the current drive) and roll for a
+  // personality moment to surface in the 'pending' interstitial.
   const driveOverPrevRef = useRef(false);
   useEffect(() => {
     if (drive.state.driveOver && !driveOverPrevRef.current && interstitial.kind === 'none') {
       setInterstitial({ kind: 'pending' });
+      setActiveDriveQbBonus(0);
+      // Roll for a between-drives personality moment (~25% chance).
+      const moment = rollPersonalityMoment();
+      if (moment) setActiveMoment({ moment, selectedIndex: null });
     }
     driveOverPrevRef.current = drive.state.driveOver;
   }, [drive.state.driveOver, interstitial.kind]);
@@ -300,6 +319,32 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       lastPlayBurnRef.current = 0;
     }
   }, [phase]);
+
+  /**
+   * Apply a personality-moment effect. FIELD_POSITION and QB_DRIVE flow into
+   * pendingMods (consumed when the next player drive starts). QB_GAME and
+   * TIMEOUT change rest-of-game state immediately.
+   */
+  const applyMomentEffect = useCallback((effect: {
+    kind: 'NONE' | 'FIELD_POSITION' | 'QB_DRIVE' | 'QB_GAME' | 'TIMEOUT';
+    yards?: number; bonus?: number; delta?: number;
+  }) => {
+    switch (effect.kind) {
+      case 'NONE': return;
+      case 'FIELD_POSITION':
+        setPendingMods(p => ({ ...p, fieldPosBonus: p.fieldPosBonus + (effect.yards ?? 0) }));
+        return;
+      case 'QB_DRIVE':
+        setPendingMods(p => ({ ...p, qbDriveBonus: p.qbDriveBonus + (effect.bonus ?? 0) }));
+        return;
+      case 'QB_GAME':
+        setQbAccuracyBonus(b => b + (effect.bonus ?? 0));
+        return;
+      case 'TIMEOUT':
+        setTimeoutsRemaining(t => Math.max(0, Math.min(3, t + (effect.delta ?? 0))));
+        return;
+    }
+  }, []);
 
   /**
    * Compute the AI's defense pick for the current drive situation.
@@ -445,6 +490,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               gameClock.ackHalftime();
               setTimeoutsRemaining(3);  // Fresh timeouts for the 2nd half.
               setPendingDefTimeouts(0);
+              setActiveMoment(null);
+              setPendingMods({ fieldPosBonus: 0, qbDriveBonus: 0 });
+              setActiveDriveQbBonus(0);
               const ballOn = Math.max(5, Math.min(95, 25 + fieldPosBonus));
               drive.newDrive(ballOn);
               if (aiDefenseEnabled) {
@@ -502,6 +550,9 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setMacroBanner(null);
               setTimeoutsRemaining(3);
               setPendingDefTimeouts(0);
+              setActiveMoment(null);
+              setPendingMods({ fieldPosBonus: 0, qbDriveBonus: 0 });
+              setActiveDriveQbBonus(0);
               prevQuarterRef.current = 1;
               prevTwoMinRef.current = false;
               lastPlayBurnRef.current = 0;
@@ -737,6 +788,19 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
             Your drive: {driveResultLabel(drive.state.driveOverReason)} · {drive.state.playsRun} plays · {drive.state.score} pts
           </div>
 
+          {/* Personality moment, if one rolled this drive transition. Gates
+              the Opponent's Turn button until the user picks. */}
+          {activeMoment && (
+            <PersonalityMoment
+              moment={activeMoment.moment}
+              selectedIndex={activeMoment.selectedIndex}
+              onChoose={(idx) => {
+                applyMomentEffect(activeMoment.moment.options[idx].effect);
+                setActiveMoment(m => m ? { ...m, selectedIndex: idx } : m);
+              }}
+            />
+          )}
+
           {/* Defensive timeout picker — pre-spend before opponent drives. Each
               one shaves ~25s off the total clock burn of their drive. */}
           {timeoutsRemaining > 0 && (
@@ -810,11 +874,15 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
                 setTimeoutsRemaining(t => t - pendingDefTimeouts);
               }
               setPendingDefTimeouts(0);
+              setActiveMoment(null);  // Clear the moment card now that we're past it.
               setInterstitial({ kind: 'streaming', result });
             }}
-            style={primaryBtn(true)}
+            disabled={!!activeMoment && activeMoment.selectedIndex === null}
+            style={primaryBtn(!(!!activeMoment && activeMoment.selectedIndex === null))}
           >
-            Opponent's Turn ▶{pendingDefTimeouts > 0 ? ` (-${pendingDefTimeouts} TO)` : ''}
+            {!!activeMoment && activeMoment.selectedIndex === null
+              ? 'Answer the moment…'
+              : `Opponent's Turn ▶${pendingDefTimeouts > 0 ? ` (-${pendingDefTimeouts} TO)` : ''}`}
           </button>
         </div>
       )}
@@ -837,10 +905,15 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           onClick={() => {
             const result = interstitial.result;
             setOpponentScore(s => s + result.pointsScored);
-            drive.newDrive(result.playerStartsAt);
+            // Apply pending personality-moment mods: field position bonus on
+            // drive start, QB drive bonus for this drive only.
+            const ballOn = Math.max(5, Math.min(95, result.playerStartsAt + pendingMods.fieldPosBonus));
+            drive.newDrive(ballOn);
+            setActiveDriveQbBonus(pendingMods.qbDriveBonus);
+            setPendingMods({ fieldPosBonus: 0, qbDriveBonus: 0 });
             if (aiDefenseEnabled) {
               setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
-                down: 1, yardsToGo: 10, ballOn: result.playerStartsAt, scoreDiff: drive.state.score - (opponentScore + result.pointsScored),
+                down: 1, yardsToGo: 10, ballOn, scoreDiff: drive.state.score - (opponentScore + result.pointsScored),
               }));
             } else if (selectedPlay) {
               loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
