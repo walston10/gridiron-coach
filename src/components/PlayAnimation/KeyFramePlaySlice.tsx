@@ -22,10 +22,13 @@ import { chooseDefense } from '../../engine/aiDefenseCaller';
 import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/aiOffense';
 import { OpponentDriveFeed } from './OpponentDriveFeed';
 import { HalftimeTrivia } from './HalftimeTrivia';
+import { OutcomePunch, classifyPunch } from './OutcomePunch';
 import { useGameClock } from '../../hooks/useGameClock';
 import { clockBurnFor, estimateOpponentBurn } from '../../engine/gameClock';
 import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/halftimeTrivia';
+import { playStinger, setMuted, isMuted, type StingerKind } from '../../utils/audio';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
+import type { PlayOutcome } from '../../types/PlayAnimation';
 
 interface KeyFramePlaySliceProps {
   onBack?: () => void;
@@ -124,6 +127,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // and across each opponent drive.
   const gameClock = useGameClock();
 
+  // Outcome punch overlay — shown briefly after each play resolves. Carries
+  // the outcome + a "was first down?" flag for the banner classification.
+  type Punch = { outcome: PlayOutcome; isFirstDown: boolean };
+  const [punch, setPunch] = useState<Punch | null>(null);
+
+  // Mute toggle for synthesized audio stingers.
+  const [muted, setMutedState] = useState<boolean>(isMuted());
+
   // Halftime trivia: drawn the first time halftime fires. The user picks an
   // answer, the parent applies the buff/debuff when 2nd half starts.
   type Trivia = {
@@ -190,22 +201,39 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // time when the phase transitions to 'done'.
   const lastAppliedRef = useRef<string | null>(null);
 
-  // Pump the play outcome into the drive state when a play resolves, and
-  // burn the game clock by the play's clock cost.
+  // Pump the play outcome into the drive state when a play resolves, burn the
+  // game clock, fire the punch overlay, and play the audio stinger.
   useEffect(() => {
     if (phase !== 'done' || !chosenOption) return;
     // chosenOption is replaced each play; guard against re-applying the same one.
     const key = `${chosenOption.id}|${chosenOption.branch.totalDurationMs}|${drive.state.playsRun}`;
     if (lastAppliedRef.current === key) return;
     lastAppliedRef.current = key;
-    drive.applyOutcome(chosenOption.branch.outcome);
-    gameClock.burn(clockBurnFor(chosenOption.branch.outcome, gameClock.state));
+    const outcome = chosenOption.branch.outcome;
+    // First-down detection — pre-apply state.yardsToGo vs net yards. Drive-ending
+    // results (TD / turnover) override; classifyPunch handles the priority.
+    const isFirstDown =
+      outcome.yardsGained >= drive.state.yardsToGo &&
+      outcome.result !== 'TOUCHDOWN' &&
+      outcome.result !== 'INTERCEPTION' &&
+      outcome.result !== 'FUMBLE';
+    drive.applyOutcome(outcome);
+    gameClock.burn(clockBurnFor(outcome, gameClock.state));
+    setPunch({ outcome, isFirstDown });
+    // Play the matching stinger. classifyPunch returns null only when there's
+    // truly no category; defensively guard.
+    const kind = classifyPunch(outcome, isFirstDown);
+    if (kind && kind !== 'GAIN') playStinger(kind as StingerKind);
   }, [phase, chosenOption, drive, gameClock]);
 
   // Reset the per-play guard whenever a new play is loaded (so the next
-  // play's outcome will apply cleanly).
+  // play's outcome will apply cleanly). Also clear any lingering punch so
+  // a stale banner doesn't carry into the next snap.
   useEffect(() => {
-    if (phase === 'ready') lastAppliedRef.current = null;
+    if (phase === 'ready') {
+      lastAppliedRef.current = null;
+      setPunch(null);
+    }
   }, [phase]);
 
   /**
@@ -273,7 +301,27 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           </button>
         )}
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Key Frame Slice</h1>
-        <div style={{ width: 60 }} />
+        <button
+          onClick={() => {
+            const next = !muted;
+            setMuted(next);
+            setMutedState(next);
+            if (!next) playStinger('TAP');  // Quick chirp so user knows audio is alive.
+          }}
+          aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+          style={{
+            width: 60,
+            padding: '8px 12px',
+            backgroundColor: muted ? '#374151' : '#1f2937',
+            color: muted ? '#9ca3af' : '#fbbf24',
+            border: '1px solid #374151',
+            borderRadius: 6,
+            fontSize: 16,
+            cursor: 'pointer',
+          }}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
       </div>
 
       {/* Drive HUD — both scores, clock, down/distance, field position. Persists across plays. */}
@@ -486,7 +534,17 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
       {/* Canvas + overlay — only while it's the player's turn. */}
       {playerTurnActive && (
-      <div style={{ position: 'relative', width: canvasSize.width, height: canvasSize.height }}>
+      <div
+        style={{
+          position: 'relative',
+          width: canvasSize.width,
+          height: canvasSize.height,
+          // Camera punch: subtle scale-in while at the Key Frame slo-mo moment.
+          transform: phase === 'awaiting-decision' ? 'scale(1.06)' : 'scale(1)',
+          transition: 'transform 220ms ease-out',
+          transformOrigin: 'center center',
+        }}
+      >
         <PlayAnimationCanvas
           frame={currentFrame}
           width={canvasSize.width}
@@ -532,6 +590,16 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
             windowMs={keyFramedPlay.windowMs}
             timeRemainingMs={decisionTimeRemaining}
             onDecide={decide}
+          />
+        )}
+        {/* Outcome punch — animated banner + flash on play resolve. */}
+        {punch && (
+          <OutcomePunch
+            outcome={punch.outcome}
+            isFirstDown={punch.isFirstDown}
+            canvasWidth={canvasSize.width}
+            canvasHeight={canvasSize.height}
+            onDismiss={() => setPunch(null)}
           />
         )}
       </div>
