@@ -32,6 +32,7 @@ import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/ha
 import { rollPersonalityMoment, type PersonalityMoment as Moment } from '../../data/personalityMoments';
 import { playStinger, setMuted, isMuted, type StingerKind } from '../../utils/audio';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
+import type { KFOption } from '../../types/keyFrame.types';
 import type { Play } from '../../types/Play';
 import type { PlayOutcome } from '../../types/PlayAnimation';
 
@@ -284,17 +285,22 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   }, [selectedPlay, currentDefense, loadPlay]);
 
   // Once-per-play guard so we only apply the outcome to drive state a single
-  // time when the phase transitions to 'done'.
-  const lastAppliedRef = useRef<string | null>(null);
+  // time when the phase transitions to 'done'. Stores the chosenOption object
+  // reference — each new play load creates new option objects, so identity
+  // changes naturally between plays. Using a key derived from drive state was
+  // wrong: drive state changes AS A RESULT of applyOutcome, which produced a
+  // new key, which re-applied the same outcome on the next render, cascading
+  // through all four downs in one play.
+  const lastAppliedRef = useRef<KFOption | null>(null);
 
   // Pump the play outcome into the drive state when a play resolves, burn the
   // game clock, fire the punch overlay, and play the audio stinger.
   useEffect(() => {
     if (phase !== 'done' || !chosenOption) return;
-    // chosenOption is replaced each play; guard against re-applying the same one.
-    const key = `${chosenOption.id}|${chosenOption.branch.totalDurationMs}|${drive.state.playsRun}`;
-    if (lastAppliedRef.current === key) return;
-    lastAppliedRef.current = key;
+    // chosenOption is a fresh object per play load — identity check dedups
+    // safely without depending on downstream drive state.
+    if (lastAppliedRef.current === chosenOption) return;
+    lastAppliedRef.current = chosenOption;
     const outcome = chosenOption.branch.outcome;
     // First-down detection — pre-apply state.yardsToGo vs net yards. Drive-ending
     // results (TD / turnover) override; classifyPunch handles the priority.
