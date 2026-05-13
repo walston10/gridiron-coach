@@ -299,3 +299,183 @@ export function buildKeyFramedPassPlay(
     defaultOptionId,
   };
 }
+
+// =============================================================================
+// RUN PLAY KEY FRAME
+// =============================================================================
+
+/**
+ * Find the ball carrier on a run play — the RB (or whoever has runAssignment
+ * / isBallCarrier flagged).
+ */
+function findRunBallCarrier(play: Play): PlayerAssignment | null {
+  return (
+    play.assignments.find(a => a.isBallCarrier && a.runAssignment) ??
+    play.assignments.find(a => a.runAssignment) ??
+    play.assignments.find(a => a.positionSlot === 'RB') ??
+    null
+  );
+}
+
+/**
+ * Build a 3-waypoint run path for a given lane variant. All variants share an
+ * identical first waypoint (RB approaching LOS) so frames are byte-identical
+ * across branches pre-Key-Frame and the buffer swap is seamless.
+ *
+ * Field convention: y > 50 is offensive backfield, y < 50 is past LOS into
+ * defensive territory. Run paths move from high-y to low-y (downfield).
+ */
+function makeRunPath(
+  startX: number,
+  startY: number,
+  dir: -1 | 1,
+  variant: 'ASSIGNED' | 'BOUNCE' | 'CUTBACK'
+): { x: number; y: number; delay: number }[] {
+  // Shared approach — RB has the ball, near LOS, hasn't committed to a gap yet.
+  const shared = { x: startX, y: startY - 5, delay: 250 };
+
+  switch (variant) {
+    case 'ASSIGNED':
+      return [
+        shared,
+        { x: startX, y: startY - 15, delay: 400 },
+        { x: startX, y: startY - 30, delay: 600 },
+      ];
+    case 'BOUNCE':
+      return [
+        shared,
+        { x: clampX(startX + 18 * dir), y: startY - 12, delay: 450 },
+        { x: clampX(startX + 25 * dir), y: startY - 28, delay: 700 },
+      ];
+    case 'CUTBACK':
+      return [
+        shared,
+        { x: clampX(startX - 10 * dir), y: startY - 10, delay: 400 },
+        { x: clampX(startX - 18 * dir), y: startY - 25, delay: 700 },
+      ];
+  }
+}
+
+/** Keep run-path X coordinates inside the field bounds. */
+function clampX(x: number): number {
+  return Math.max(8, Math.min(92, x));
+}
+
+/**
+ * Build a KeyFramedPlay for a run play: pre-simulate three lane variants
+ * (assigned, bounce, cutback) with a shared pre-LOS approach so the swap is
+ * seamless. KF tick fires when the RB reaches the LOS approach waypoint.
+ * Tap targets sit at each lane's commit point just past the LOS.
+ */
+export function buildKeyFramedRunPlay(
+  play: Play,
+  defenseCard: DefensiveCard,
+  offenseRatings: OffenseRatings = {},
+  defenseRatings: DefenseRatings = {}
+): KeyFramedPlay {
+  const carrier = findRunBallCarrier(play);
+  // Run-side awareness — proxied off qbAccuracy until we wire RB/coach IQ.
+  const awareness = offenseRatings.qbAccuracy ?? 70;
+  const preSnapDurationMs = 800;
+
+  // Defensive fallback — no ball carrier (shouldn't happen for real run plays).
+  if (!carrier) {
+    const lone = simulatePlay(play, defenseCard, offenseRatings, defenseRatings, {});
+    const fallback: KFOption = {
+      id: 'assigned',
+      intent: 'READ',
+      label: 'Run',
+      targetSlot: null,
+      fieldX: 50,
+      fieldY: 50,
+      risk: 'STANDARD',
+      branch: lone,
+    };
+    return {
+      keyFrameTickMs: preSnapDurationMs + 750,
+      windowMs: windowMsForAwareness(awareness),
+      options: [fallback],
+      defaultOptionId: 'assigned',
+    };
+  }
+
+  const startX = carrier.startX;
+  const startY = carrier.startY;
+  const dir: -1 | 1 = carrier.runGap?.includes('LEFT') ? -1 : 1;
+
+  // Three lane variants — risk classification is hardcoded for now; once we
+  // can see the slice we'll switch to defender-distance-based classification
+  // like the pass version does.
+  const variants: Array<{
+    id: string;
+    intent: KFIntentKind;
+    label: string;
+    risk: KFRisk;
+    variant: 'ASSIGNED' | 'BOUNCE' | 'CUTBACK';
+  }> = [
+    { id: 'assigned', intent: 'READ',      label: 'Hit it',   risk: 'STANDARD', variant: 'ASSIGNED' },
+    { id: 'bounce',   intent: 'BOMB',      label: 'Bounce!',  risk: 'RISKY',    variant: 'BOUNCE' },
+    { id: 'cutback',  intent: 'CHECKDOWN', label: 'Cut back', risk: 'SAFE',     variant: 'CUTBACK' },
+  ];
+
+  // ---- Run each branch with its lane-specific path ----
+  const branches = variants.map(v => ({
+    ...v,
+    path: makeRunPath(startX, startY, dir, v.variant),
+    branch: simulatePlay(play, defenseCard, offenseRatings, defenseRatings, {
+      pinnedRunPath: makeRunPath(startX, startY, dir, v.variant),
+    }),
+  }));
+
+  // Key Frame tick — when the RB reaches the shared approach waypoint.
+  // generateOffensePath schedules the first run-path waypoint at
+  // snapTime + 300 + delay = (preSnap + 200) + 300 + 250 = preSnap + 750.
+  const keyFrameTickMs = preSnapDurationMs + 750;
+
+  // ---- Build options with diegetic positions ----
+  // Tap target sits at each lane's commit point (the 2nd waypoint), so the
+  // player taps the gap they want the RB to commit to.
+  const options: KFOption[] = branches.map(b => {
+    const commit = b.path[1];
+    return {
+      id: b.id,
+      intent: b.intent,
+      label: b.label,
+      targetSlot: null,
+      fieldX: commit.x,
+      fieldY: commit.y,
+      risk: b.risk,
+      branch: b.branch,
+    };
+  });
+
+  return {
+    keyFrameTickMs,
+    windowMs: windowMsForAwareness(awareness),
+    options,
+    defaultOptionId: 'assigned',
+  };
+}
+
+// =============================================================================
+// DISPATCH
+// =============================================================================
+
+/**
+ * Build a Key Frame play for any supported play type. Returns null for
+ * play types that don't have a Key Frame mechanic yet (special teams, etc).
+ */
+export function buildKeyFramedPlay(
+  play: Play,
+  defenseCard: DefensiveCard,
+  offenseRatings: OffenseRatings = {},
+  defenseRatings: DefenseRatings = {}
+): KeyFramedPlay | null {
+  if (play.playType === 'PASS') {
+    return buildKeyFramedPassPlay(play, defenseCard, offenseRatings, defenseRatings);
+  }
+  if (play.playType === 'RUN') {
+    return buildKeyFramedRunPlay(play, defenseCard, offenseRatings, defenseRatings);
+  }
+  return null;
+}

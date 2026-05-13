@@ -53,15 +53,15 @@ function pickCanvasSize() {
 }
 
 export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) => {
-  // Pick a pass play with rich route diversity for the demo.
-  const passPlays = useMemo(
-    () => DEFAULT_PLAYS.filter(p => p.playType === 'PASS'),
+  // Pass + run plays (anything with a Key Frame mechanic).
+  const playablePlays = useMemo(
+    () => DEFAULT_PLAYS.filter(p => p.playType === 'PASS' || p.playType === 'RUN'),
     []
   );
   const [selectedPlayId, setSelectedPlayId] = useState<string>(
-    passPlays.find(p => p.id === 'default-post-corner')?.id ?? passPlays[0]?.id ?? ''
+    playablePlays.find(p => p.id === 'default-post-corner')?.id ?? playablePlays[0]?.id ?? ''
   );
-  const selectedPlay = passPlays.find(p => p.id === selectedPlayId) ?? passPlays[0];
+  const selectedPlay = playablePlays.find(p => p.id === selectedPlayId) ?? playablePlays[0];
 
   const [canvasSize, setCanvasSize] = useState(pickCanvasSize);
   useEffect(() => {
@@ -143,8 +143,10 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           fontSize: 14,
         }}
       >
-        {passPlays.map(p => (
-          <option key={p.id} value={p.id}>{p.name}</option>
+        {playablePlays.map(p => (
+          <option key={p.id} value={p.id}>
+            {p.playType === 'RUN' ? '🏃 ' : '🎯 '}{p.name}
+          </option>
         ))}
       </select>
 
@@ -216,9 +218,11 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
       {/* Help text */}
       <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 480, textAlign: 'center', marginTop: 4 }}>
-        Tap "Snap" to start the play. When the slo-mo decision moment hits, tap one of the
-        colored targets on the field. Green = open, yellow = contested, red = covered.
-        Throw-away appears at the sideline.
+        Tap "Snap" to start. When the slo-mo decision moment hits, tap one of the
+        colored targets. Green = safe, yellow = standard, red = risky.
+        <br />
+        <strong>Pass plays</strong>: read receivers + sideline throw-away.
+        <strong> Run plays</strong>: pick a lane — hit it / bounce outside / cut back.
       </div>
     </div>
   );

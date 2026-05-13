@@ -21,7 +21,7 @@ import type { Play } from '../types/Play';
 import type { DefensiveCard } from '../types/card.types';
 import type { AnimationFrame, PlaybackState } from '../types/PlayAnimation';
 import type { OffenseRatings, DefenseRatings } from '../engine/PlaySimulator';
-import { buildKeyFramedPassPlay } from '../engine/keyFrame';
+import { buildKeyFramedPlay } from '../engine/keyFrame';
 import type { KFOption, KeyFramedPlay } from '../types/keyFrame.types';
 
 export type KFPhase =
@@ -98,7 +98,15 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
     offenseRatings: OffenseRatings = {},
     defenseRatings: DefenseRatings = {}
   ) => {
-    const kfp = buildKeyFramedPassPlay(play, defenseCard, offenseRatings, defenseRatings);
+    const kfp = buildKeyFramedPlay(play, defenseCard, offenseRatings, defenseRatings);
+    if (!kfp) {
+      // Play type doesn't have a Key Frame mechanic yet (e.g. special teams).
+      // Leave the hook in 'idle' and let the caller fall back.
+      setKeyFramedPlay(null);
+      setActiveFrames([]);
+      setPhase('idle');
+      return;
+    }
     // Canonical playback starts on the default branch (the AI fallback).
     const defaultOption = kfp.options.find(o => o.id === kfp.defaultOptionId) ?? kfp.options[0];
 
