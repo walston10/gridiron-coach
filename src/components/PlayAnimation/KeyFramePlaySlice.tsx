@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { PlayAnimationCanvas } from './PlayAnimationCanvas';
 import { KeyFrameOverlay } from './KeyFrameOverlay';
+import { AudibleBar } from './AudibleBar';
 import { useKeyFramedPlay } from '../../hooks/useKeyFramedPlay';
 import { DEFAULT_PLAYS } from '../../data/defaultPlays';
 import type { DefensiveCard } from '../../types/card.types';
@@ -76,12 +77,26 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     keyFramedPlay,
     options,
     decisionTimeRemaining,
+    preSnapTimeRemaining,
+    preSnapWindowMs,
     chosenOption,
+    activePlay,
     loadPlay,
     play,
+    snap,
+    audible,
     decide,
     reset,
   } = useKeyFramedPlay();
+
+  // Pick 2 alternates of the same play type as the active play (for the
+  // audible bar). Exclude the active one. First two found in DEFAULT_PLAYS order.
+  const alternates = useMemo(() => {
+    if (!activePlay) return [];
+    return playablePlays
+      .filter(p => p.id !== activePlay.id && p.playType === activePlay.playType)
+      .slice(0, 2);
+  }, [activePlay, playablePlays]);
 
   // (Re)load whenever the chosen play changes.
   useEffect(() => {
@@ -197,32 +212,46 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         )}
       </div>
 
-      {/* Controls */}
-      <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
-        <button
-          onClick={play}
-          disabled={phase !== 'ready'}
-          style={primaryBtn(phase === 'ready')}
-        >
-          Snap
-        </button>
-        <button
-          onClick={() => {
-            if (selectedPlay) loadPlay(selectedPlay, SAMPLE_DEFENSE, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
-          }}
-          style={secondaryBtn}
-        >
-          Reset
-        </button>
-      </div>
+      {/* Pre-snap audible bar (replaces Start button while in pre-snap phase) */}
+      {phase === 'pre-snap' && activePlay && (
+        <AudibleBar
+          active={activePlay}
+          alternates={alternates}
+          windowMs={preSnapWindowMs}
+          timeRemainingMs={preSnapTimeRemaining}
+          onAudible={audible}
+          onSnap={snap}
+        />
+      )}
+
+      {/* Start / Reset controls (hidden while in pre-snap, audible bar takes over) */}
+      {phase !== 'pre-snap' && (
+        <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 480 }}>
+          <button
+            onClick={play}
+            disabled={phase !== 'ready'}
+            style={primaryBtn(phase === 'ready')}
+          >
+            Start Play
+          </button>
+          <button
+            onClick={() => {
+              if (selectedPlay) loadPlay(selectedPlay, SAMPLE_DEFENSE, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+            }}
+            style={secondaryBtn}
+          >
+            Reset
+          </button>
+        </div>
+      )}
 
       {/* Help text */}
       <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 480, textAlign: 'center', marginTop: 4 }}>
-        Tap "Snap" to start. When the slo-mo decision moment hits, tap one of the
-        colored targets. Green = safe, yellow = standard, red = risky.
+        Tap <strong>Start Play</strong> to break the huddle. You'll get a few seconds to
+        read the defense — audible to an alternate or hit <strong>SNAP</strong> to commit.
         <br />
-        <strong>Pass plays</strong>: read receivers + sideline throw-away.
-        <strong> Run plays</strong>: pick a lane — hit it / bounce outside / cut back.
+        When the slo-mo decision moment fires, tap a colored target.
+        Green = safe, yellow = standard, red = risky.
       </div>
     </div>
   );

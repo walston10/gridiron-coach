@@ -27,6 +27,7 @@ import type { KFOption, KeyFramedPlay } from '../types/keyFrame.types';
 export type KFPhase =
   | 'idle'                // Nothing loaded
   | 'ready'               // Branches built, waiting for play()
+  | 'pre-snap'            // Formation visible; audible/snap window open
   | 'pre-kf'              // Playback running, before Key Frame
   | 'awaiting-decision'   // Paused at Key Frame; waiting for tap or timeout
   | 'post-kf'             // Playback running after a decision
@@ -41,8 +42,14 @@ export interface UseKeyFramedPlayReturn {
   options: KFOption[];
   /** Remaining ms in the decision window (counts down only during awaiting-decision). */
   decisionTimeRemaining: number;
+  /** Remaining ms in the pre-snap window (counts down only during pre-snap). */
+  preSnapTimeRemaining: number;
+  /** Total length of the pre-snap window (for rendering the countdown bar). */
+  preSnapWindowMs: number;
   /** The chosen option, set after decide() or timeout. */
   chosenOption: KFOption | null;
+  /** The current play loaded for the snap (changes when audible() is called). */
+  activePlay: Play | null;
 
   // Controls
   loadPlay: (
@@ -51,12 +58,18 @@ export interface UseKeyFramedPlayReturn {
     offenseRatings?: OffenseRatings,
     defenseRatings?: DefenseRatings
   ) => void;
+  /** Move from 'ready' into the pre-snap audible window. */
   play: () => void;
+  /** Commit the snap — transitions from 'pre-snap' to 'pre-kf' and starts playback. */
+  snap: () => void;
+  /** Swap the play during pre-snap. Rebuilds branches and resets the pre-snap timer. */
+  audible: (play: Play) => void;
   decide: (optionId: string) => void;
   reset: () => void;
 }
 
 const DEFAULT_PLAYBACK_SPEED = 1.5;
+const PRE_SNAP_WINDOW_MS = 3500;
 
 export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
   const [phase, setPhase] = useState<KFPhase>('idle');
@@ -65,6 +78,8 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
   const [chosenOption, setChosenOption] = useState<KFOption | null>(null);
   const [decisionTimeRemaining, setDecisionTimeRemaining] = useState(0);
+  const [preSnapTimeRemaining, setPreSnapTimeRemaining] = useState(0);
+  const [activePlay, setActivePlay] = useState<Play | null>(null);
 
   const [playbackState, setPlaybackState] = useState<PlaybackState>({
     isPlaying: false,
@@ -84,30 +99,30 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
   const decisionDeadlineRef = useRef<number | null>(null);
   const kfRef = useRef<KeyFramedPlay | null>(null);
 
+  // Refs for audible support — we keep the most recent defense/ratings so the
+  // audible() call can re-run the pre-compute without the caller re-supplying them.
+  const defenseRef = useRef<DefensiveCard | null>(null);
+  const offenseRatingsRef = useRef<OffenseRatings>({});
+  const defenseRatingsRef = useRef<DefenseRatings>({});
+  const preSnapDeadlineRef = useRef<number | null>(null);
+
   // Keep refs in sync with state.
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { framesRef.current = activeFrames; }, [activeFrames]);
   useEffect(() => { kfRef.current = keyFramedPlay; }, [keyFramedPlay]);
 
   /**
-   * Pre-simulate all branches and prepare playback.
+   * Internal: pre-compute branches for a play and seat them as the active state.
+   * Used by both loadPlay() and audible() — keeps the rebuild logic in one place.
    */
-  const loadPlay = useCallback((
+  const buildAndSeat = useCallback((
     play: Play,
     defenseCard: DefensiveCard,
-    offenseRatings: OffenseRatings = {},
-    defenseRatings: DefenseRatings = {}
-  ) => {
+    offenseRatings: OffenseRatings,
+    defenseRatings: DefenseRatings
+  ): boolean => {
     const kfp = buildKeyFramedPlay(play, defenseCard, offenseRatings, defenseRatings);
-    if (!kfp) {
-      // Play type doesn't have a Key Frame mechanic yet (e.g. special teams).
-      // Leave the hook in 'idle' and let the caller fall back.
-      setKeyFramedPlay(null);
-      setActiveFrames([]);
-      setPhase('idle');
-      return;
-    }
-    // Canonical playback starts on the default branch (the AI fallback).
+    if (!kfp) return false;
     const defaultOption = kfp.options.find(o => o.id === kfp.defaultOptionId) ?? kfp.options[0];
 
     setKeyFramedPlay(kfp);
@@ -118,6 +133,7 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
     kfTickRef.current = kfp.keyFrameTickMs;
     currentTimeMsRef.current = 0;
     decisionDeadlineRef.current = null;
+    setActivePlay(play);
     setPlaybackState({
       isPlaying: false,
       isPaused: false,
@@ -125,17 +141,80 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
       playbackSpeed: DEFAULT_PLAYBACK_SPEED,
       currentFrameIndex: 0,
     });
-    setPhase('ready');
+    return true;
   }, []);
 
   /**
-   * Start playback from current state.
+   * Pre-simulate all branches and prepare playback.
+   */
+  const loadPlay = useCallback((
+    play: Play,
+    defenseCard: DefensiveCard,
+    offenseRatings: OffenseRatings = {},
+    defenseRatings: DefenseRatings = {}
+  ) => {
+    // Cache for later audible() calls.
+    defenseRef.current = defenseCard;
+    offenseRatingsRef.current = offenseRatings;
+    defenseRatingsRef.current = defenseRatings;
+
+    const ok = buildAndSeat(play, defenseCard, offenseRatings, defenseRatings);
+    if (!ok) {
+      // Play type doesn't have a Key Frame mechanic yet.
+      setKeyFramedPlay(null);
+      setActiveFrames([]);
+      setActivePlay(null);
+      setPhase('idle');
+      return;
+    }
+    setPhase('ready');
+  }, [buildAndSeat]);
+
+  /**
+   * Move from 'ready' into the pre-snap audible window.
+   * Starts a countdown; when it expires, snap() fires automatically.
    */
   const play = useCallback(() => {
     if (phaseRef.current === 'idle' || phaseRef.current === 'awaiting-decision') return;
-    setPlaybackState(prev => ({ ...prev, isPlaying: true, isPaused: false }));
-    if (phaseRef.current === 'ready') setPhase('pre-kf');
+    // If we're already mid-play, resume playback normally.
+    if (phaseRef.current === 'pre-kf' || phaseRef.current === 'post-kf') {
+      setPlaybackState(prev => ({ ...prev, isPlaying: true, isPaused: false }));
+      return;
+    }
+    if (phaseRef.current !== 'ready') return;
+    // Open the pre-snap audible window.
+    preSnapDeadlineRef.current = performance.now() + PRE_SNAP_WINDOW_MS;
+    setPreSnapTimeRemaining(PRE_SNAP_WINDOW_MS);
+    setPhase('pre-snap');
   }, []);
+
+  /**
+   * Commit the snap — close the audible window and start the simulator playback.
+   * Called manually by the user or automatically when the pre-snap window expires.
+   */
+  const snap = useCallback(() => {
+    if (phaseRef.current !== 'pre-snap') return;
+    preSnapDeadlineRef.current = null;
+    setPreSnapTimeRemaining(0);
+    setPhase('pre-kf');
+    setPlaybackState(prev => ({ ...prev, isPlaying: true, isPaused: false }));
+  }, []);
+
+  /**
+   * Swap the play during the pre-snap audible window. Rebuilds branches with
+   * the new play and resets the pre-snap timer. Ignored outside 'pre-snap'.
+   */
+  const audible = useCallback((newPlay: Play) => {
+    if (phaseRef.current !== 'pre-snap') return;
+    const defense = defenseRef.current;
+    if (!defense) return;
+    const ok = buildAndSeat(newPlay, defense, offenseRatingsRef.current, defenseRatingsRef.current);
+    if (!ok) return;
+    // Reset the pre-snap window so the player gets a fresh look at the new call.
+    preSnapDeadlineRef.current = performance.now() + PRE_SNAP_WINDOW_MS;
+    setPreSnapTimeRemaining(PRE_SNAP_WINDOW_MS);
+    setPhase('pre-snap');
+  }, [buildAndSeat]);
 
   /**
    * Resolve the Key Frame decision. Swaps active frames to the chosen branch
@@ -166,11 +245,14 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
     lastTimestampRef.current = null;
     currentTimeMsRef.current = 0;
     decisionDeadlineRef.current = null;
+    preSnapDeadlineRef.current = null;
     setActiveFrames([]);
     setKeyFramedPlay(null);
+    setActivePlay(null);
     setCurrentFrameIndex(0);
     setChosenOption(null);
     setDecisionTimeRemaining(0);
+    setPreSnapTimeRemaining(0);
     setPlaybackState({
       isPlaying: false,
       isPaused: false,
@@ -293,6 +375,26 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
     return () => clearInterval(interval);
   }, [phase, decide]);
 
+  /**
+   * Pre-snap countdown. While in 'pre-snap', tick toward zero and auto-snap
+   * on expiry. Reset whenever audible() pushes the deadline back.
+   */
+  useEffect(() => {
+    if (phase !== 'pre-snap') return;
+    const interval = setInterval(() => {
+      const deadline = preSnapDeadlineRef.current;
+      if (deadline === null) return;
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) {
+        clearInterval(interval);
+        snap();
+      } else {
+        setPreSnapTimeRemaining(remaining);
+      }
+    }, 50);
+    return () => clearInterval(interval);
+  }, [phase, snap]);
+
   const currentFrame = activeFrames[currentFrameIndex] ?? null;
 
   return {
@@ -302,9 +404,14 @@ export function useKeyFramedPlay(): UseKeyFramedPlayReturn {
     keyFramedPlay,
     options: keyFramedPlay?.options ?? [],
     decisionTimeRemaining,
+    preSnapTimeRemaining,
+    preSnapWindowMs: PRE_SNAP_WINDOW_MS,
     chosenOption,
+    activePlay,
     loadPlay,
     play,
+    snap,
+    audible,
     decide,
     reset,
   };
