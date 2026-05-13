@@ -141,10 +141,16 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
 
   // Timeouts — 3 per half, reset at halftime and on new game. Spent on the
   // "Use Timeout" button between plays to refund the most recent play's
-  // clock burn.
+  // clock burn, OR pre-spent before an opponent drive to reduce its total
+  // burn (the actual high-leverage use case).
   const [timeoutsRemaining, setTimeoutsRemaining] = useState(3);
   /** Clock seconds burned by the most recent play. A timeout refunds this. */
   const lastPlayBurnRef = useRef(0);
+  /** Number of timeouts the player has selected to spend on the upcoming opponent drive. */
+  const [pendingDefTimeouts, setPendingDefTimeouts] = useState(0);
+
+  /** How much one defensive timeout shaves off an opponent drive's burn (sec). */
+  const DEFENSIVE_TIMEOUT_SAVINGS_SEC = 25;
 
   // Mute toggle for synthesized audio stingers.
   const [muted, setMutedState] = useState<boolean>(isMuted());
@@ -204,6 +210,13 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
       setTrivia({ ...drawTrivia(), selectedIndex: null });
     }
   }, [gameClock.state.isHalftime, trivia]);
+
+  // Keep pending defensive timeouts within the currently-available pool.
+  useEffect(() => {
+    if (pendingDefTimeouts > timeoutsRemaining) {
+      setPendingDefTimeouts(timeoutsRemaining);
+    }
+  }, [timeoutsRemaining, pendingDefTimeouts]);
 
   // Detect macro clock transitions (quarter end, two-minute warning).
   // Halftime (Q2→Q3) and game-over (Q4→done) are handled by their own cards.
@@ -431,6 +444,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setTrivia(null);
               gameClock.ackHalftime();
               setTimeoutsRemaining(3);  // Fresh timeouts for the 2nd half.
+              setPendingDefTimeouts(0);
               const ballOn = Math.max(5, Math.min(95, 25 + fieldPosBonus));
               drive.newDrive(ballOn);
               if (aiDefenseEnabled) {
@@ -487,6 +501,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               setQbAccuracyBonus(0);
               setMacroBanner(null);
               setTimeoutsRemaining(3);
+              setPendingDefTimeouts(0);
               prevQuarterRef.current = 1;
               prevTwoMinRef.current = false;
               lastPlayBurnRef.current = 0;
@@ -706,7 +721,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
         />
       )}
 
-      {/* End-of-drive: show summary + "Opponent's Turn" trigger. */}
+      {/* End-of-drive: show summary + defensive timeout picker + "Opponent's Turn" trigger. */}
       {drive.state.driveOver && interstitial.kind === 'pending' && !gameStopped && (
         <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div
@@ -721,19 +736,85 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
           >
             Your drive: {driveResultLabel(drive.state.driveOverReason)} · {drive.state.playsRun} plays · {drive.state.score} pts
           </div>
+
+          {/* Defensive timeout picker — pre-spend before opponent drives. Each
+              one shaves ~25s off the total clock burn of their drive. */}
+          {timeoutsRemaining > 0 && (
+            <div
+              style={{
+                padding: '8px 10px',
+                backgroundColor: '#1c1917',
+                border: '1px solid #44403c',
+                borderRadius: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div style={{ fontSize: 10, color: '#9ca3af', letterSpacing: 1, fontWeight: 700 }}>
+                BURN TIMEOUTS? (each = -{DEFENSIVE_TIMEOUT_SAVINGS_SEC}s opponent clock)
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[1, 2, 3].map(n => {
+                  const canPick = n <= timeoutsRemaining;
+                  const isPicked = n <= pendingDefTimeouts;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        if (!canPick) return;
+                        // Toggle pattern: tapping the topmost picked deselects it,
+                        // tapping an unpicked dot picks it (and everything below).
+                        setPendingDefTimeouts(prev => prev === n ? n - 1 : n);
+                        playStinger('TAP');
+                      }}
+                      disabled={!canPick}
+                      style={{
+                        flex: 1,
+                        padding: '8px',
+                        backgroundColor: isPicked ? '#7c2d12' : canPick ? '#292524' : '#1c1917',
+                        color: isPicked ? '#fed7aa' : canPick ? '#fbbf24' : '#52525b',
+                        border: `2px solid ${isPicked ? '#f97316' : canPick ? '#52525b' : '#374151'}`,
+                        borderRadius: 6,
+                        fontSize: 14,
+                        fontWeight: 800,
+                        cursor: canPick ? 'pointer' : 'not-allowed',
+                        touchAction: 'manipulation',
+                      }}
+                    >
+                      {isPicked ? '●' : '○'} {n}
+                    </button>
+                  );
+                })}
+              </div>
+              {pendingDefTimeouts > 0 && (
+                <div style={{ fontSize: 10, color: '#fdba74', fontStyle: 'italic' }}>
+                  Burning {pendingDefTimeouts} timeout{pendingDefTimeouts > 1 ? 's' : ''} → saves {pendingDefTimeouts * DEFENSIVE_TIMEOUT_SAVINGS_SEC}s
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             onClick={() => {
               // Compute where the opponent gets the ball.
               const oppStartsAt = opponentStartingYardline(drive.state);
               const result = simulateOpponentDrive(oppStartsAt);
-              // Burn game clock for the whole opponent drive up front so the
-              // HUD's clock update is visible as the feed plays.
-              gameClock.burn(estimateOpponentBurn(result.plays, gameClock.state));
+              // Estimated burn, less any pre-spent defensive timeouts.
+              const rawBurn = estimateOpponentBurn(result.plays, gameClock.state);
+              const savings = pendingDefTimeouts * DEFENSIVE_TIMEOUT_SAVINGS_SEC;
+              const adjustedBurn = Math.max(0, rawBurn - savings);
+              gameClock.burn(adjustedBurn);
+              // Spend the timeouts we committed to.
+              if (pendingDefTimeouts > 0) {
+                setTimeoutsRemaining(t => t - pendingDefTimeouts);
+              }
+              setPendingDefTimeouts(0);
               setInterstitial({ kind: 'streaming', result });
             }}
             style={primaryBtn(true)}
           >
-            Opponent's Turn ▶
+            Opponent's Turn ▶{pendingDefTimeouts > 0 ? ` (-${pendingDefTimeouts} TO)` : ''}
           </button>
         </div>
       )}
