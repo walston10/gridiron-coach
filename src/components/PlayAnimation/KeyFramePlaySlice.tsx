@@ -21,8 +21,10 @@ import { tellsFor, gradeLabel, type ScoutGrade } from '../../engine/tells';
 import { chooseDefense } from '../../engine/aiDefenseCaller';
 import { simulateOpponentDrive, type OpponentDriveResult } from '../../engine/aiOffense';
 import { OpponentDriveFeed } from './OpponentDriveFeed';
+import { HalftimeTrivia } from './HalftimeTrivia';
 import { useGameClock } from '../../hooks/useGameClock';
 import { clockBurnFor, estimateOpponentBurn } from '../../engine/gameClock';
+import { drawTrivia, type TriviaQuestion, type TriviaStake } from '../../data/halftimeTrivia';
 import type { OffenseRatings, DefenseRatings } from '../../engine/PlaySimulator';
 
 interface KeyFramePlaySliceProps {
@@ -122,6 +124,24 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
   // and across each opponent drive.
   const gameClock = useGameClock();
 
+  // Halftime trivia: drawn the first time halftime fires. The user picks an
+  // answer, the parent applies the buff/debuff when 2nd half starts.
+  type Trivia = {
+    question: TriviaQuestion;
+    stake: TriviaStake;
+    /** null until user answers. */
+    selectedIndex: number | null;
+  };
+  const [trivia, setTrivia] = useState<Trivia | null>(null);
+
+  // Modifier to QB accuracy from a halftime trivia QB_BOOST stake. Carries
+  // through the rest of the game. Cleared on New Game.
+  const [qbAccuracyBonus, setQbAccuracyBonus] = useState(0);
+  const effectiveOffense = useMemo<OffenseRatings>(() => ({
+    ...SAMPLE_OFFENSE,
+    qbAccuracy: (SAMPLE_OFFENSE.qbAccuracy ?? 70) + qbAccuracyBonus,
+  }), [qbAccuracyBonus]);
+
   // Opponent drive interstitial state machine:
   //   'none'           = player's turn
   //   'pending'        = player drive just ended, button shown to kick off opponent
@@ -153,10 +173,17 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
     }
   }, [gameClock.state.isHalftime, gameClock.state.isGameOver, interstitial.kind]);
 
+  // Draw a halftime trivia question the moment halftime first fires.
+  useEffect(() => {
+    if (gameClock.state.isHalftime && !trivia) {
+      setTrivia({ ...drawTrivia(), selectedIndex: null });
+    }
+  }, [gameClock.state.isHalftime, trivia]);
+
   // (Re)load whenever the chosen play or defense changes.
   useEffect(() => {
     if (!selectedPlay) return;
-    loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+    loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
   }, [selectedPlay, currentDefense, loadPlay]);
 
   // Once-per-play guard so we only apply the outcome to drive state a single
@@ -272,22 +299,46 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               {scoreMessage(drive.state.score, opponentScore)}
             </div>
           </div>
+
+          {/* Halftime trivia mini-game. */}
+          {trivia && (
+            <HalftimeTrivia
+              question={trivia.question}
+              stake={trivia.stake}
+              revealed={trivia.selectedIndex !== null}
+              selectedIndex={trivia.selectedIndex}
+              onAnswer={(idx) => setTrivia(t => t ? { ...t, selectedIndex: idx } : t)}
+            />
+          )}
+
           <button
             onClick={() => {
+              // Apply buff/debuff from the trivia answer, if any.
+              let fieldPosBonus = 0;
+              if (trivia && trivia.selectedIndex !== null) {
+                const right = trivia.selectedIndex === trivia.question.correctIndex;
+                if (trivia.stake === 'FIELD_POSITION') {
+                  fieldPosBonus = right ? 5 : -5;
+                } else if (trivia.stake === 'QB_BOOST') {
+                  setQbAccuracyBonus(right ? 10 : -10);
+                }
+              }
+              setTrivia(null);
               gameClock.ackHalftime();
-              // Fresh drive to open the 2nd half.
-              drive.newDrive(25);
+              const ballOn = Math.max(5, Math.min(95, 25 + fieldPosBonus));
+              drive.newDrive(ballOn);
               if (aiDefenseEnabled) {
                 setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
-                  down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score - opponentScore,
+                  down: 1, yardsToGo: 10, ballOn, scoreDiff: drive.state.score - opponentScore,
                 }));
               } else if (selectedPlay) {
-                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
               }
             }}
-            style={primaryBtn(true)}
+            disabled={!!trivia && trivia.selectedIndex === null}
+            style={primaryBtn(!trivia || trivia.selectedIndex !== null)}
           >
-            Start 2nd Half ▶
+            {trivia && trivia.selectedIndex === null ? 'Answer the trivia…' : 'Start 2nd Half ▶'}
           </button>
         </div>
       )}
@@ -326,12 +377,14 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
               drive.newDrive(25);
               setOpponentScore(0);
               setInterstitial({ kind: 'none' });
+              setTrivia(null);
+              setQbAccuracyBonus(0);
               if (aiDefenseEnabled) {
                 setCurrentDefense(chooseDefense(SAMPLE_DEFENSES, {
                   down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: 0,
                 }));
               } else if (selectedPlay) {
-                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
               }
             }}
             style={primaryBtn(true)}
@@ -578,7 +631,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
                 down: 1, yardsToGo: 10, ballOn: result.playerStartsAt, scoreDiff: drive.state.score - (opponentScore + result.pointsScored),
               }));
             } else if (selectedPlay) {
-              loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+              loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
             }
             setInterstitial({ kind: 'none' });
           }}
@@ -616,7 +669,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
                   setCurrentDefense(aiPickDefense());
                   // currentDefense change triggers the load-play effect.
                 } else {
-                  loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                  loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
                 }
               } else {
                 play();
@@ -635,7 +688,7 @@ export const KeyFramePlaySlice: React.FC<KeyFramePlaySliceProps> = ({ onBack }) 
                   down: 1, yardsToGo: 10, ballOn: 25, scoreDiff: drive.state.score,
                 }));
               } else if (selectedPlay) {
-                loadPlay(selectedPlay, currentDefense, SAMPLE_OFFENSE, SAMPLE_DEFENSE_RATINGS);
+                loadPlay(selectedPlay, currentDefense, effectiveOffense, SAMPLE_DEFENSE_RATINGS);
               }
             }}
             style={secondaryBtn}

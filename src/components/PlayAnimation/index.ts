@@ -7,3 +7,4 @@ export { DefensePicker } from './DefensePicker';
 export { ScoutTellsOverlay } from './ScoutTellsOverlay';
 export { DriveHud } from './DriveHud';
 export { OpponentDriveFeed } from './OpponentDriveFeed';
+export { HalftimeTrivia } from './HalftimeTrivia';
