@@ -1620,11 +1620,24 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     setIsSimulating(false);
     setPendingSimulation(null);
 
-    // Convert simulation result to PlayResult format
+    // Validate sim's touchdown flag against actual field position. The sim
+    // operates in normalized coordinates (relative to LOS) and flags a TD
+    // any time the ball carrier runs past y=0 — about 25 yards downfield.
+    // That doesn't translate to a real touchdown unless we were ACTUALLY
+    // within scoring distance. Bug: a 25-yard run from your own 25 was
+    // scoring as a TD; should have been 1st & 10 at OWN 50.
+    const realTouchdown = simResult.touchdown && simResult.yardsGained >= fieldPosition.yardsToEndzone;
+    // Cap yards at the goal line — you can't gain more yards than exist.
+    const cappedYards = realTouchdown
+      ? fieldPosition.yardsToEndzone
+      : Math.min(simResult.yardsGained, fieldPosition.yardsToEndzone);
+
+    // Convert simulation result to PlayResult format, applying the
+    // validated touchdown flag and capped yardage.
     const playResult: PlayResult = {
       success: simResult.success,
-      yardsGained: simResult.yardsGained,
-      touchdown: simResult.touchdown,
+      yardsGained: cappedYards,
+      touchdown: realTouchdown,
       turnover: simResult.turnover,
       turnoverType: simResult.turnoverType,
       sack: simResult.sack,
@@ -1652,8 +1665,9 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
       momentumShift: simResult.bigPlay ? 15 : simResult.turnover ? -20 : simResult.success ? 5 : -5,
     };
 
-    // Update field position based on yards gained
-    updateFieldPosition(simResult.yardsGained);
+    // Update field position based on capped yards (so a 50-yard "TD" from
+    // own 25 doesn't put us at the negative-25 yard line).
+    updateFieldPosition(cappedYards);
 
     // CRITICAL: the sim path was previously skipping the store mutations
     // that executePlay() does in the non-sim flow. Without these, an
@@ -1662,7 +1676,7 @@ export const CardGameController: React.FC<CardGameControllerProps> = ({
     // executePlay here.
     const isPlayerOffense = isPlayerOnOffense();
 
-    if (simResult.touchdown) {
+    if (realTouchdown) {
       addScore(isPlayerOffense ? 'player' : 'opponent', 6);
       switchPossession('TOUCHDOWN');
       applyMomentumEvent('TOUCHDOWN', isPlayerOffense);

@@ -791,6 +791,7 @@ function handleQBThrow(
     state.ballThrowTime = state.timeMs;
     qb.hasBall = false;
     state.ballCarrier = null;
+    state.ball.carrier = null;
     state.ball.targetX = sidelineX;
     state.ball.targetY = qb.y - 4;  // Just past LOS
     state.ball.isInFlight = true;
@@ -822,6 +823,7 @@ function handleQBThrow(
     state.ballThrowTime = state.timeMs;
     qb.hasBall = false;
     state.ballCarrier = null;
+    state.ball.carrier = null;
 
     // Set ball target position - lead the receiver
     state.ball.targetX = receiver.x;
@@ -847,6 +849,7 @@ function handleQBThrow(
       state.ballThrowTime = state.timeMs;
       qb.hasBall = false;
       state.ballCarrier = null;
+      state.ball.carrier = null;
 
       // Less accurate under pressure
       state.ball.targetX = receiver.x + (Math.random() - 0.5) * 10;
