@@ -27,6 +27,8 @@ interface ResultSlamProps {
   spotlightName?: string;
   /** Whose result we're slamming. DEFENSE flips the framing to stops/takeaways. */
   perspective?: 'OFFENSE' | 'DEFENSE';
+  /** Set when Tex has gotten involved — replaces the tier stamp with the fix. */
+  texFlag?: { label: string; note: string; line: string };
   onContinue: () => void;
 }
 
@@ -40,12 +42,16 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
   concretePlayName,
   spotlightName,
   perspective = 'OFFENSE',
+  texFlag,
   onContinue,
 }) => {
   const isDefense = perspective === 'DEFENSE';
-  const stamp = isDefense
+  const baseStamp = isDefense
     ? defenseTierStamp(resolution.tier, touchdown)
     : tierStamp(resolution.tier, touchdown);
+  const stamp = texFlag
+    ? { label: texFlag.label, accent: '#fef3c7', bg: '#78350f' }
+    : baseStamp;
   const line = isDefense
     ? defensePlayByPlay(resolution.tier, flavorRoll)
     : playByPlay(resolution.tier, flavorRoll);
@@ -119,10 +125,25 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
 
       {/* Play-by-play + the concrete play the verb rendered. */}
       <div className="flex flex-col items-center gap-1">
-        <p className="max-w-xs text-center text-sm italic text-gray-300">“{line}”</p>
-        <span className="text-[10px] uppercase tracking-widest text-gray-600">
-          {concretePlayName}
-        </span>
+        {texFlag ? (
+          <>
+            <p className="max-w-xs text-center text-sm font-semibold text-amber-200">
+              {texFlag.note}
+            </p>
+            {texFlag.line && (
+              <p className="max-w-xs text-center text-xs italic text-gray-400">
+                🤠 “{texFlag.line}”
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="max-w-xs text-center text-sm italic text-gray-300">“{line}”</p>
+            <span className="text-[10px] uppercase tracking-widest text-gray-600">
+              {concretePlayName}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Bite delta. */}

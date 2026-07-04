@@ -50,6 +50,9 @@ import { SpotlightMoment } from './SpotlightMoment';
 import { RevealFlip, type RevealStamp } from './RevealFlip';
 import { ResolveField } from './ResolveField';
 import { ResultSlam } from './ResultSlam';
+import { TexPhone } from './TexPhone';
+import { TexMenu } from './TexMenu';
+import { TheCallSystem, type CallType } from '../../engine/theCallSystem';
 import { VERDICT_STYLE, defenseTells, offenseTells, defenseVerdictStyle } from './copy';
 
 type Beat = 'READ' | 'REVEAL' | 'RESOLVE' | 'AFTERMATH';
@@ -84,6 +87,82 @@ interface Snap {
   revealFlavor: string;
   revealTone: 'red' | 'emerald';
   stamp: RevealStamp;
+  // Set once Tex gets involved (fix or caught).
+  texFlag?: { label: string; note: string; line: string };
+}
+
+interface TexOffer {
+  callType: CallType;
+  label: string;
+  description: string;
+}
+
+/** The single thing Tex can fix about the play that just happened, if any. */
+function texOfferFor(snap: Snap): TexOffer | null {
+  const r = snap.resolution;
+  if (snap.perspective === 'OFFENSE') {
+    if (r.turnover) {
+      return {
+        callType: 'turn-fumble-to-incomplete',
+        label: 'Buy an incompletion',
+        description: 'Wave off the turnover — have the refs rule it incomplete.',
+      };
+    }
+    if (r.yards < 0) {
+      return {
+        callType: 'turn-sack-to-roughing',
+        label: 'Buy a roughing call',
+        description: 'Turn that sack into 15 yards and an automatic first down.',
+      };
+    }
+    return null;
+  }
+  // Defense: rob the opponent of a score or a big gain.
+  if (snap.touchdown) {
+    return {
+      callType: 'turn-td-to-holding',
+      label: 'Buy a holding call',
+      description: 'Wipe their touchdown — phantom offensive holding.',
+    };
+  }
+  if (r.yards >= 13) {
+    return {
+      callType: 'turn-gain-to-penalty',
+      label: 'Buy a penalty',
+      description: 'Flag the big gain and bring it all the way back.',
+    };
+  }
+  return null;
+}
+
+interface TexPatch {
+  yards: number;
+  turnover: boolean;
+  touchdown: boolean;
+  firstDown: boolean;
+  note: string;
+}
+
+/** How a successful call rewrites the outcome. */
+function texPatchFor(callType: CallType, snap: Snap): TexPatch {
+  switch (callType) {
+    case 'turn-fumble-to-incomplete':
+      return { yards: 0, turnover: false, touchdown: false, firstDown: false, note: 'Refs wave off the turnover — ruled incomplete.' };
+    case 'turn-sack-to-roughing':
+      return { yards: 15, turnover: false, touchdown: false, firstDown: true, note: 'Roughing the passer! Fifteen and an automatic first down.' };
+    case 'turn-td-to-holding':
+      return { yards: -10, turnover: false, touchdown: false, firstDown: false, note: 'Holding on the offense — the touchdown comes off the board.' };
+    case 'turn-gain-to-penalty':
+      return { yards: -10, turnover: false, touchdown: false, firstDown: false, note: 'Flag down — block in the back erases the big gain.' };
+    default:
+      return {
+        yards: snap.resolution.yards,
+        turnover: snap.resolution.turnover,
+        touchdown: snap.touchdown,
+        firstDown: snap.firstDown,
+        note: '',
+      };
+  }
 }
 
 interface SimResult {
@@ -133,6 +212,13 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   const [usedSpotlightIds, setUsedSpotlightIds] = useState<Set<string>>(() => new Set());
   const [moment, setMoment] = useState<{ card: SpotlightCard; morale: number } | null>(null);
   const [simResult, setSimResult] = useState<SimResult | null>(null);
+
+  // Tex (dirty layer) + audibles.
+  const callSysRef = useRef<TheCallSystem>(new TheCallSystem());
+  const [slush, setSlush] = useState(75000);
+  const [heat, setHeat] = useState(0);
+  const [texMenuOpen, setTexMenuOpen] = useState(false);
+  const [audiblesLeft, setAudiblesLeft] = useState(3);
 
   const stateFor = useCallback(
     (sourceId: string): SpotlightPlayerState => egoState[sourceId] ?? initialPlayerState(),
@@ -264,6 +350,7 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   }, [egoState, spotlights, usedSpotlightIds]);
 
   const beginOffense = useCallback(() => {
+    callSysRef.current.onDriveEnd(); // Tex is available again next drive
     setPossession('OFFENSE');
     setSeries(INITIAL_SERIES);
     setAiDefenseVerb(null);
@@ -303,6 +390,7 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   }, []);
 
   const beginDefenseOrSim = useCallback(() => {
+    callSysRef.current.onDriveEnd(); // Tex is available again next drive
     if (simDefense) {
       const { result, scored } = simOpponentDrive();
       if (scored) setOppScore((v) => v + 7);
@@ -355,6 +443,58 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
 
   const perspective = snap?.perspective ?? possession;
 
+  // Burn an audible: force the defense to re-roll its (hidden) call — new tells.
+  const onAudible = useCallback(() => {
+    if (audiblesLeft <= 0 || beat !== 'READ' || possession !== 'OFFENSE') return;
+    setAiDefenseVerb(chooseDefenseVerb(useCardGameStore.getState().biteMeter, rngRef.current));
+    setAudiblesLeft((n) => n - 1);
+  }, [audiblesLeft, beat, possession]);
+
+  // Tex eligibility for the just-resolved play.
+  const texOffer = beat === 'AFTERMATH' && snap && !snap.texFlag ? texOfferFor(snap) : null;
+  const texCost = texOffer ? callSysRef.current.calculateCost(texOffer.callType) : 0;
+  const texEligible = !!texOffer && callSysRef.current.isAvailable() && slush >= texCost;
+
+  const callTex = useCallback(
+    (offer: TexOffer) => {
+      const sys = callSysRef.current;
+      const res = sys.makeCall(offer.callType, slush);
+      setHeat(sys.getHeatPercentage());
+      if (res.cost > 0) setSlush((s) => Math.max(0, s - res.cost));
+      setTexMenuOpen(false);
+      if (!res.success && res.cost === 0) return; // refs wouldn't take it
+
+      if (res.caught) {
+        setSnap((prev) =>
+          prev
+            ? {
+                ...prev,
+                texFlag: {
+                  label: 'CAUGHT! 🚨',
+                  note: 'The league found the envelope. This is going to be a problem.',
+                  line: res.texLine,
+                },
+              }
+            : prev,
+        );
+        return;
+      }
+
+      setSnap((prev) => {
+        if (!prev) return prev;
+        const p = texPatchFor(offer.callType, prev);
+        return {
+          ...prev,
+          resolution: { ...prev.resolution, yards: p.yards, turnover: p.turnover },
+          touchdown: p.touchdown,
+          firstDown: p.firstDown,
+          texFlag: { label: 'THE FIX IS IN 🤝', note: p.note, line: res.texLine },
+        };
+      });
+    },
+    [slush],
+  );
+
   return (
     <div className="relative mx-auto flex h-screen max-w-md flex-col bg-gray-950 text-white">
       {possession === 'OFFENSE' ? (
@@ -380,6 +520,8 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
             aiDefenseVerb &&
             runSnap({ offenseVerb: card.verb, defenseVerb: aiDefenseVerb, perspective: 'OFFENSE', spotlight: card })
           }
+          audiblesLeft={audiblesLeft}
+          onAudible={onAudible}
           onBack={onBack}
         />
       ) : (
@@ -438,7 +580,22 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
           concretePlayName={snap.concretePlayName}
           spotlightName={snap.spotlightName}
           perspective={perspective}
+          texFlag={snap.texFlag}
           onContinue={nextPlay}
+        />
+      )}
+
+      {beat === 'AFTERMATH' && snap && (
+        <TexPhone eligible={texEligible} onOpen={() => setTexMenuOpen(true)} />
+      )}
+
+      {texMenuOpen && texOffer && (
+        <TexMenu
+          option={{ label: texOffer.label, description: texOffer.description, cost: texCost }}
+          slush={slush}
+          heat={heat}
+          onMakeCall={() => callTex(texOffer)}
+          onClose={() => setTexMenuOpen(false)}
         />
       )}
 
@@ -624,6 +781,8 @@ interface OffenseBoardProps {
   egoState: Record<string, SpotlightPlayerState>;
   usedSpotlightIds: Set<string>;
   onCommitSpotlight: (card: SpotlightCard) => void;
+  audiblesLeft: number;
+  onAudible: () => void;
   onBack?: () => void;
 }
 
@@ -653,6 +812,18 @@ const OffenseBoard: React.FC<OffenseBoardProps> = (props) => {
         <ScoutRow label="Read the D" grade={grade} onGrade={onGrade} />
         <TellBox tells={tells} />
         <BiteMeter bite={bite} hot={hot} />
+        <button
+          type="button"
+          disabled={!canCommit || props.audiblesLeft <= 0}
+          onClick={props.onAudible}
+          className={`self-start rounded-lg border px-3 py-1.5 text-[11px] font-black uppercase tracking-wider ${
+            canCommit && props.audiblesLeft > 0
+              ? 'border-sky-500 bg-sky-950/40 text-sky-300 hover:bg-sky-900/50'
+              : 'border-gray-800 text-gray-600'
+          }`}
+        >
+          📻 Audible ({props.audiblesLeft}) — re-roll their call
+        </button>
       </div>
 
       {props.spotlights.length > 0 && (
