@@ -8,7 +8,7 @@
 
 import React from 'react';
 import type { TierResolution } from '../../engine/tierResolver';
-import { tierStamp, playByPlay } from './copy';
+import { tierStamp, playByPlay, defenseTierStamp, defensePlayByPlay } from './copy';
 
 interface ResultSlamProps {
   resolution: TierResolution;
@@ -25,6 +25,8 @@ interface ResultSlamProps {
   concretePlayName: string;
   /** Set when a Spotlight card was played, e.g. "FEED DEMARCUS". */
   spotlightName?: string;
+  /** Whose result we're slamming. DEFENSE flips the framing to stops/takeaways. */
+  perspective?: 'OFFENSE' | 'DEFENSE';
   onContinue: () => void;
 }
 
@@ -37,15 +39,36 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
   flavorRoll,
   concretePlayName,
   spotlightName,
+  perspective = 'OFFENSE',
   onContinue,
 }) => {
-  const stamp = tierStamp(resolution.tier, touchdown);
-  const line = playByPlay(resolution.tier, flavorRoll);
+  const isDefense = perspective === 'DEFENSE';
+  const stamp = isDefense
+    ? defenseTierStamp(resolution.tier, touchdown)
+    : tierStamp(resolution.tier, touchdown);
+  const line = isDefense
+    ? defensePlayByPlay(resolution.tier, flavorRoll)
+    : playByPlay(resolution.tier, flavorRoll);
   const biteDelta = Math.round(biteAfter - biteBefore);
   const yards = resolution.yards;
   const yardLabel = resolution.turnover
-    ? 'TURNOVER'
+    ? isDefense
+      ? 'TAKEAWAY'
+      : 'TURNOVER'
     : `${yards >= 0 ? '+' : ''}${yards}`;
+  const numberTone = resolution.turnover
+    ? isDefense
+      ? 'text-emerald-400'
+      : 'text-red-400'
+    : isDefense
+      ? yards <= 2
+        ? 'text-emerald-400'
+        : yards >= 13
+          ? 'text-red-400'
+          : 'text-white'
+      : yards < 0
+        ? 'text-orange-400'
+        : 'text-white';
 
   return (
     <button
@@ -71,13 +94,7 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
       {/* Big number. */}
       {!touchdown && (
         <div className="flex items-baseline gap-2">
-          <span
-            className={`text-7xl font-black tabular-nums ${
-              resolution.turnover ? 'text-red-400' : yards < 0 ? 'text-orange-400' : 'text-white'
-            }`}
-          >
-            {yardLabel}
-          </span>
+          <span className={`text-7xl font-black tabular-nums ${numberTone}`}>{yardLabel}</span>
           {!resolution.turnover && (
             <span className="text-2xl font-bold uppercase text-gray-500">yd</span>
           )}
@@ -85,8 +102,12 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
       )}
 
       {firstDown && !touchdown && !resolution.turnover && (
-        <div className="rounded bg-amber-500/20 px-3 py-0.5 text-sm font-black uppercase tracking-widest text-amber-300">
-          1st Down
+        <div
+          className={`rounded px-3 py-0.5 text-sm font-black uppercase tracking-widest ${
+            isDefense ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'
+          }`}
+        >
+          {isDefense ? '1st Down Allowed' : '1st Down'}
         </div>
       )}
 

@@ -23,7 +23,26 @@ interface ResolveFieldProps {
   /** Yards needed for a first down (for the line-to-gain marker). */
   yardsToGo: number;
   fastMode: boolean;
+  /** Whose eyes we watch through. On DEFENSE, small yardage reads as a win. */
+  perspective?: 'OFFENSE' | 'DEFENSE';
   onDone: () => void;
+}
+
+/** Color of the traveling yard number, by perspective and outcome. */
+function yardTone(
+  perspective: 'OFFENSE' | 'DEFENSE',
+  yards: number,
+  turnover: boolean,
+): string {
+  if (perspective === 'DEFENSE') {
+    if (turnover) return 'text-emerald-400'; // takeaway
+    if (yards <= 2) return 'text-emerald-400'; // stuffed
+    if (yards >= 13) return 'text-red-400'; // gashed
+    return 'text-white';
+  }
+  if (turnover) return 'text-red-400';
+  if (yards < 0) return 'text-orange-400';
+  return 'text-white';
 }
 
 interface Step {
@@ -37,12 +56,13 @@ export const ResolveField: React.FC<ResolveFieldProps> = ({
   startBallOn,
   yardsToGo,
   fastMode,
+  perspective = 'OFFENSE',
   onDone,
 }) => {
   const steps = useMemo<Step[]>(() => buildSteps(resolution), [resolution]);
 
   if (fastMode) {
-    return <FastTicker resolution={resolution} onDone={onDone} />;
+    return <FastTicker resolution={resolution} perspective={perspective} onDone={onDone} />;
   }
   return (
     <FieldRun
@@ -50,6 +70,7 @@ export const ResolveField: React.FC<ResolveFieldProps> = ({
       resolution={resolution}
       startBallOn={startBallOn}
       yardsToGo={yardsToGo}
+      perspective={perspective}
       onDone={onDone}
     />
   );
@@ -83,8 +104,9 @@ const FieldRun: React.FC<{
   resolution: TierResolution;
   startBallOn: number;
   yardsToGo: number;
+  perspective: 'OFFENSE' | 'DEFENSE';
   onDone: () => void;
-}> = ({ steps, resolution, startBallOn, yardsToGo, onDone }) => {
+}> = ({ steps, resolution, startBallOn, yardsToGo, perspective, onDone }) => {
   const [stepIndex, setStepIndex] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
   const doneRef = useRef(false);
@@ -148,9 +170,11 @@ const FieldRun: React.FC<{
       {/* Traveling yard counter. */}
       <div className="text-center">
         <span
-          className={`text-6xl font-black tabular-nums ${
-            resolution.turnover ? 'text-red-400' : displayedYards < 0 ? 'text-orange-400' : 'text-white'
-          }`}
+          className={`text-6xl font-black tabular-nums ${yardTone(
+            perspective,
+            displayedYards,
+            resolution.turnover,
+          )}`}
         >
           {resolution.turnover ? '—' : yardLabel}
         </span>
@@ -209,10 +233,11 @@ const FieldRun: React.FC<{
 // FAST MODE TICKER
 // =============================================================================
 
-const FastTicker: React.FC<{ resolution: TierResolution; onDone: () => void }> = ({
-  resolution,
-  onDone,
-}) => {
+const FastTicker: React.FC<{
+  resolution: TierResolution;
+  perspective: 'OFFENSE' | 'DEFENSE';
+  onDone: () => void;
+}> = ({ resolution, perspective, onDone }) => {
   const [shown, setShown] = useState(0);
   const target = resolution.turnover ? 0 : resolution.yards;
 
@@ -238,9 +263,11 @@ const FastTicker: React.FC<{ resolution: TierResolution; onDone: () => void }> =
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-950">
       <div className="text-center">
         <div
-          className={`text-6xl font-black tabular-nums ${
-            resolution.turnover ? 'text-red-400' : 'text-white'
-          }`}
+          className={`text-6xl font-black tabular-nums ${yardTone(
+            perspective,
+            resolution.yards,
+            resolution.turnover,
+          )}`}
         >
           {resolution.turnover ? 'TURNOVER' : `${shown >= 0 ? '+' : ''}${shown}`}
         </div>

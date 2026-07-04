@@ -6,7 +6,8 @@
  */
 
 import type { MatchupVerdict, OutcomeTier } from '../../data/matchupMatrix';
-import type { DefenseVerb } from '../../data/verbs';
+import { MATCHUP_OUTCOME } from '../../data/matchupMatrix';
+import type { DefenseVerb, OffenseVerb } from '../../data/verbs';
 import { DEFENSE_VERB_DEFS } from '../../data/verbs';
 import type { ScoutGrade } from '../../engine/tells';
 import type { CardRarity } from '../../types/card.types';
@@ -165,6 +166,114 @@ export function defenseTells(verb: DefenseVerb, grade: ScoutGrade): DefenseTellC
 /** Human label for a defensive verb (delegates to the shared def). */
 export function defenseVerbLabel(verb: DefenseVerb): string {
   return DEFENSE_VERB_DEFS[verb].label;
+}
+
+// =============================================================================
+// DEFENSE POSSESSIONS — offensive tells + defense-POV verdicts/stamps (§7)
+// =============================================================================
+
+/**
+ * Pre-snap OFFENSIVE tells (formation / personnel / motion), gated by scout
+ * grade — the thin mirror of defenseTells for player-defense possessions.
+ */
+export function offenseTells(verb: OffenseVerb, grade: ScoutGrade): DefenseTellChip[] {
+  if (grade === 'D') return [];
+
+  const heavy: DefenseTellChip = { label: 'HEAVY SET', accent: 'bg-red-900/60 text-red-300' };
+  const iform: DefenseTellChip = { label: 'I-FORM', accent: 'bg-red-900/60 text-red-300' };
+  const spread: DefenseTellChip = { label: 'SPREAD', accent: 'bg-blue-900/60 text-blue-300' };
+  const empty: DefenseTellChip = { label: 'EMPTY', accent: 'bg-indigo-900/60 text-indigo-300' };
+  const splits: DefenseTellChip = { label: 'DEEP SPLITS', accent: 'bg-indigo-900/60 text-indigo-300' };
+  const motion: DefenseTellChip = { label: 'JET MOTION', accent: 'bg-fuchsia-900/60 text-fuchsia-300' };
+  const runLook: DefenseTellChip = { label: 'RUN LOOK', accent: 'bg-red-900/40 text-red-300' };
+  const passLook: DefenseTellChip = { label: 'PASS LOOK', accent: 'bg-blue-900/40 text-blue-300' };
+  const mystery: DefenseTellChip = { label: '???', accent: 'bg-gray-800 text-gray-400' };
+
+  switch (verb) {
+    case 'HAMMER':
+      if (grade === 'A') return [heavy, iform];
+      if (grade === 'B') return [heavy];
+      return [runLook];
+    case 'DINK':
+      if (grade === 'A') return [spread, motion];
+      if (grade === 'B') return [spread];
+      return [passLook];
+    case 'AIR_IT_OUT':
+      if (grade === 'A') return [empty, splits];
+      if (grade === 'B') return [splits];
+      return [passLook];
+    case 'TRICK_EM':
+      if (grade === 'A') return [motion, mystery];
+      if (grade === 'B') return [motion];
+      return [mystery];
+  }
+}
+
+/**
+ * The reveal verdict from the DEFENSE's point of view. Reuses the shared
+ * matchup outcome table (offense-relative) and flips it. A correct ROBBER guess
+ * overrides everything with the jackpot stamp.
+ */
+export function defenseVerdictStyle(
+  offense: OffenseVerb,
+  defense: DefenseVerb,
+  robberHit: boolean,
+): VerdictStyle {
+  if (robberHit) {
+    return {
+      label: 'CALLED IT 🎯',
+      accent: 'text-amber-300 border-amber-400',
+      glow: 'rgba(251,191,36,0.65)',
+    };
+  }
+  const outcome = MATCHUP_OUTCOME[offense][defense];
+  if (outcome === 'LOSE') {
+    // Offense lost the read → defense won it.
+    return {
+      label: 'YOU SNIFFED IT OUT',
+      accent: 'text-emerald-300 border-emerald-400',
+      glow: 'rgba(52,211,153,0.55)',
+    };
+  }
+  if (outcome === 'WIN') {
+    return {
+      label: 'THEY GOT YOU',
+      accent: 'text-red-300 border-red-400',
+      glow: 'rgba(248,113,113,0.55)',
+    };
+  }
+  return { label: 'DEAD EVEN', accent: 'text-gray-200 border-gray-400', glow: 'rgba(209,213,219,0.4)' };
+}
+
+/** The aftermath tier stamp from the DEFENSE's point of view. */
+export function defenseTierStamp(tier: OutcomeTier, touchdownAllowed: boolean): TierStamp {
+  if (touchdownAllowed) return { label: 'TOUCHDOWN ALLOWED', accent: '#fee2e2', bg: '#7f1d1d' };
+  const map: Record<OutcomeTier, TierStamp> = {
+    DISASTER: { label: 'TAKEAWAY!', accent: '#fef3c7', bg: '#065f46' },
+    BUST: { label: 'BLOWN UP', accent: '#d1fae5', bg: '#047857' },
+    STUFF: { label: 'STONEWALLED', accent: '#d1fae5', bg: '#065f46' },
+    MODEST: { label: "HELD 'EM SHORT", accent: '#e5e7eb', bg: '#1f2937' },
+    SOLID: { label: 'GAVE GROUND', accent: '#fef9c3', bg: '#a16207' },
+    BIG: { label: 'GASHED', accent: '#fed7aa', bg: '#9a3412' },
+    HUGE: { label: 'TORCHED', accent: '#fee2e2', bg: '#7f1d1d' },
+  };
+  return map[tier];
+}
+
+const DEFENSE_PBP: Record<OutcomeTier, string[]> = {
+  DISASTER: ['Picked it off! Ball game momentum swing.', 'Strip-sack — your guys are feasting.', 'They coughed it up and you pounced.'],
+  BUST: ['Buried in the backfield. Get off the field.', 'Nowhere to throw, nowhere to run. Suffocating.', 'You blew up the whole thing.'],
+  STUFF: ['Met him at the line. Not today.', 'Gang tackle for nothing. Wall of bodies.', 'Stood him straight up.'],
+  MODEST: ["Bent but didn't break. Live to fight.", 'Short of the sticks. Force the issue.', 'Gave up a little, kept the lid on.'],
+  SOLID: ['They moved the chains on you. Tighten up.', 'A chunk. That one stings.', 'Missed a fit and they made you pay.'],
+  BIG: ['They ripped off a big one. Woof.', 'Blown coverage — that hurt.', 'Somebody lost contain. Big gain.'],
+  HUGE: ['Torched deep. Get the fire department.', 'They hit the home run over the top.', 'Nobody home. That is a disaster.'],
+};
+
+/** One line of defense-POV play-by-play. `roll` is a uniform value in [0, 1). */
+export function defensePlayByPlay(tier: OutcomeTier, roll: number): string {
+  const lines = DEFENSE_PBP[tier];
+  return lines[Math.min(lines.length - 1, Math.floor(roll * lines.length))];
 }
 
 // =============================================================================
