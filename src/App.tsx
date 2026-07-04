@@ -15,6 +15,7 @@ import { FreeAgencyPage } from './components/FreeAgency/FreeAgencyPage';
 import { StartScreen, FranchiseIntro, GMNameInput } from './components/intro';
 import { FantasyDraft } from './components/Draft/FantasyDraft';
 import { PlayViewer, KeyFramePlaySlice } from './components/PlayAnimation';
+import { VerbLoop } from './components/VerbLoop';
 import { DEFAULT_TEAMS } from './data/defaultTeams';
 
 type Page = 'home' | 'playbook' | 'designer' | 'gameday' | 'roster' | 'scouting' | 'draft' | 'freeagency' | 'playviewer' | 'keyframe';
@@ -29,6 +30,12 @@ function App() {
   // without going through the intro/draft flow.
   if (typeof window !== 'undefined' && window.location.hash === '#kfslice') {
     return <KeyFramePlaySlice onBack={() => { window.location.hash = ''; window.location.reload(); }} />;
+  }
+
+  // Dev shortcut: visit `#verbloop` to play the rebuilt intent-verb loop
+  // (docs/GAMEPLAY_LOOP_DESIGN.md) in isolation.
+  if (typeof window !== 'undefined' && window.location.hash === '#verbloop') {
+    return <VerbLoop onBack={() => { window.location.hash = ''; window.location.reload(); }} />;
   }
 
   // Intro flow - render based on gamePhase
