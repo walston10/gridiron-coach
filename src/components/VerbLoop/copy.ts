@@ -9,6 +9,9 @@ import type { MatchupVerdict, OutcomeTier } from '../../data/matchupMatrix';
 import type { DefenseVerb } from '../../data/verbs';
 import { DEFENSE_VERB_DEFS } from '../../data/verbs';
 import type { ScoutGrade } from '../../engine/tells';
+import type { CardRarity } from '../../types/card.types';
+import { RARITY_COLORS } from '../../types/card.types';
+import type { SpotlightCard } from '../../engine/spotlightGenerator';
 
 // =============================================================================
 // REVEAL — verdict stamp (beat 3)
@@ -162,4 +165,45 @@ export function defenseTells(verb: DefenseVerb, grade: ScoutGrade): DefenseTellC
 /** Human label for a defensive verb (delegates to the shared def). */
 export function defenseVerbLabel(verb: DefenseVerb): string {
   return DEFENSE_VERB_DEFS[verb].label;
+}
+
+// =============================================================================
+// SPOTLIGHT cards (§3.2)
+// =============================================================================
+
+export function rarityLabel(rarity: CardRarity): string {
+  return rarity.charAt(0) + rarity.slice(1).toLowerCase();
+}
+
+export function rarityColor(rarity: CardRarity): string {
+  return RARITY_COLORS[rarity];
+}
+
+/** The ego-hook stamp shown on a Spotlight card, sized to the delivered bonus. */
+export function spotlightBonusStamp(effectiveShift: number): string {
+  if (effectiveShift >= 0.95) return '🔥 +1 TIER';
+  if (effectiveShift >= 0.5) return '▲ BIG EDGE';
+  if (effectiveShift > 0) return '▲ EDGE';
+  return '— SULKING';
+}
+
+/** A between-drive event line when a neglected player's morale finally cracks. */
+export function moraleHitLine(card: SpotlightCard): string {
+  const n = card.shortName;
+  switch (card.trait) {
+    case 'DIVA':
+      return `${n} is on the sideline phone with his agent. Great.`;
+    case 'MEDIA_DARLING':
+      return `${n} just subtweeted the play-caller. That's you.`;
+    case 'TROUBLEMAKER':
+      return `${n} "accidentally" flipped the Gatorade table.`;
+    case 'PARTY_ANIMAL':
+      return `${n} stopped trying two series ago. Can you blame him?`;
+    case 'MERCENARY':
+      return `${n} wants to know what he's even getting paid for.`;
+    case 'LEADER':
+      return `${n} pulled the offense aside. Not a happy speech.`;
+    default:
+      return `${n} is heated — he's been ignored all drive.`;
+  }
 }

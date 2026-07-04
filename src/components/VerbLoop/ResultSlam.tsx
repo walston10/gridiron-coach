@@ -23,6 +23,8 @@ interface ResultSlamProps {
   flavorRoll: number;
   /** The concrete play the engine rendered under the verb (emergent flavor). */
   concretePlayName: string;
+  /** Set when a Spotlight card was played, e.g. "FEED DEMARCUS". */
+  spotlightName?: string;
   onContinue: () => void;
 }
 
@@ -34,6 +36,7 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
   biteAfter,
   flavorRoll,
   concretePlayName,
+  spotlightName,
   onContinue,
 }) => {
   const stamp = tierStamp(resolution.tier, touchdown);
@@ -84,6 +87,12 @@ export const ResultSlam: React.FC<ResultSlamProps> = ({
       {firstDown && !touchdown && !resolution.turnover && (
         <div className="rounded bg-amber-500/20 px-3 py-0.5 text-sm font-black uppercase tracking-widest text-amber-300">
           1st Down
+        </div>
+      )}
+
+      {spotlightName && (
+        <div className="rounded bg-amber-500/20 px-3 py-0.5 text-xs font-black uppercase tracking-widest text-amber-300">
+          ⭐ {spotlightName}
         </div>
       )}
 

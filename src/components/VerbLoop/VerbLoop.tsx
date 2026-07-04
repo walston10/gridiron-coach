@@ -2,25 +2,41 @@
  * VerbLoop — the rebuilt play-calling loop (§2).
  *
  * Drives the five beats — READ → COMMIT → REVEAL → RESOLVE → AFTERMATH — on top
- * of the Phase 1 engine (verb tiers, Bite meter, verb→play selection). Runs as
- * a self-contained, offense-only sandbox so the whole loop is playable in
- * isolation (mounted via the #verbloop dev route) without the legacy
- * CardGameController's phase machine, decks, or 4th-down flow.
+ * of the Phase 1 engine (verb tiers, Bite meter, verb→play selection) and the
+ * Phase 3 Spotlight cards (roster egos in the rail, with use/neglect/morale
+ * hooks). Runs as a self-contained, offense-only sandbox so the whole loop is
+ * playable in isolation (mounted via the #verbloop dev route).
  *
  * The Bite meter reads/writes the shared cardGameStore, exercising the Phase 1
- * store wiring end to end.
+ * store wiring end to end. Spotlight sources come from the real drafted roster
+ * when one exists, otherwise a colorful demo cast.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCardGameStore } from '../../stores/cardGameStore';
+import { useGameStore } from '../../stores/gameStore';
 import { SeededRNG } from '../../engine/playResolver';
 import { resolveSnap, type TierResolution } from '../../engine/tierResolver';
 import { chooseDefenseVerb } from '../../engine/aiDefenseVerb';
 import { selectConcretePlay } from '../../engine/verbPlaySelection';
 import { VERB_DEFS, isBiteHot, type OffenseVerb, type DefenseVerb } from '../../data/verbs';
 import type { ScoutGrade } from '../../engine/tells';
+import {
+  generateSpotlights,
+  spotlightSourcesFromRoster,
+  registerUse,
+  registerNeglect,
+  effectiveTierShift,
+  initialPlayerState,
+  DEMO_SPOTLIGHT_SOURCES,
+  type SpotlightCard,
+  type SpotlightSource,
+  type SpotlightPlayerState,
+} from '../../engine/spotlightGenerator';
 import { BiteMeter } from './BiteMeter';
 import { VerbCard } from './VerbCard';
+import { SpotlightCardView } from './SpotlightCard';
+import { SpotlightMoment } from './SpotlightMoment';
 import { RevealFlip } from './RevealFlip';
 import { ResolveField } from './ResolveField';
 import { ResultSlam } from './ResultSlam';
@@ -30,6 +46,7 @@ type Beat = 'READ' | 'REVEAL' | 'RESOLVE' | 'AFTERMATH';
 
 const VERB_ORDER: OffenseVerb[] = ['HAMMER', 'DINK', 'AIR_IT_OUT', 'TRICK_EM'];
 const GRADES: ScoutGrade[] = ['A', 'B', 'C', 'D'];
+const SPOTLIGHTS_PER_DRIVE = 2;
 
 interface Series {
   ballOn: number; // 0-100, offense perspective (drives toward 100)
@@ -42,6 +59,7 @@ interface Snap {
   defenseVerb: DefenseVerb;
   resolution: TierResolution;
   concretePlayName: string;
+  spotlightName?: string;
   touchdown: boolean;
   firstDown: boolean;
   biteBefore: number;
@@ -60,8 +78,14 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   const applyVerbBite = useCardGameStore((s) => s.applyVerbBite);
   const decayBite = useCardGameStore((s) => s.decayBite);
   const resetBite = useCardGameStore((s) => s.resetBite);
+  const draftedRoster = useGameStore((s) => s.draftedRoster);
 
-  const rngRef = useRef<SeededRNG>(new SeededRNG(0xC0FFEE));
+  const sources = useMemo<SpotlightSource[]>(
+    () => (draftedRoster ? spotlightSourcesFromRoster(draftedRoster) : DEMO_SPOTLIGHT_SOURCES),
+    [draftedRoster],
+  );
+
+  const rngRef = useRef<SeededRNG>(new SeededRNG(0xc0ffee));
 
   const [beat, setBeat] = useState<Beat>('READ');
   const [series, setSeries] = useState<Series>(INITIAL_SERIES);
@@ -71,10 +95,22 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   const [defenseVerb, setDefenseVerb] = useState<DefenseVerb | null>(null);
   const [snap, setSnap] = useState<Snap | null>(null);
 
-  // Reset Bite to a clean slate on mount so the sandbox starts loaded-to-zero.
+  // Spotlight state.
+  const [spotlights, setSpotlights] = useState<SpotlightCard[]>([]);
+  const [egoState, setEgoState] = useState<Record<string, SpotlightPlayerState>>({});
+  const [usedSpotlightIds, setUsedSpotlightIds] = useState<Set<string>>(() => new Set());
+  const [moment, setMoment] = useState<{ card: SpotlightCard; morale: number } | null>(null);
+
+  const stateFor = useCallback(
+    (sourceId: string): SpotlightPlayerState => egoState[sourceId] ?? initialPlayerState(),
+    [egoState],
+  );
+
+  // Fresh slate on mount: reset Bite and deal the first drive's Spotlights.
   useEffect(() => {
     resetBite();
-  }, [resetBite]);
+    setSpotlights(generateSpotlights(sources, rngRef.current, SPOTLIGHTS_PER_DRIVE));
+  }, [resetBite, sources]);
 
   // On each new READ, the defense picks its (hidden) call, reading the Bite meter.
   useEffect(() => {
@@ -86,15 +122,19 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
   const redZone = series.ballOn >= 80;
 
   const commit = useCallback(
-    (verb: OffenseVerb) => {
+    (verb: OffenseVerb, spotlight?: SpotlightCard) => {
       if (defenseVerb === null) return;
       const rng = rngRef.current;
       const biteBefore = useCardGameStore.getState().biteMeter;
 
+      const bonusTierShift = spotlight
+        ? effectiveTierShift(spotlight, stateFor(spotlight.sourceId))
+        : 0;
+
       const resolution = resolveSnap(
         verb,
         defenseVerb,
-        { bite: biteBefore, redZone, ballCarrierRating: 82 },
+        { bite: biteBefore, redZone, ballCarrierRating: 82, bonusTierShift },
         rng,
       );
       const concretePlayName = selectConcretePlay(verb, biteBefore, rng).name;
@@ -108,11 +148,16 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
       decayBite();
       const biteAfter = useCardGameStore.getState().biteMeter;
 
+      if (spotlight) {
+        setUsedSpotlightIds((prev) => new Set(prev).add(spotlight.id));
+      }
+
       setSnap({
         verb,
         defenseVerb,
         resolution,
         concretePlayName,
+        spotlightName: spotlight?.name,
         touchdown,
         firstDown,
         biteBefore,
@@ -121,25 +166,46 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
       });
       setBeat('REVEAL');
     },
-    [defenseVerb, redZone, series, applyVerbBite, decayBite],
+    [defenseVerb, redZone, series, applyVerbBite, decayBite, stateFor],
   );
+
+  /** Settle every ego at a drive boundary: feed vs. neglect, return a morale hit. */
+  const settleDriveEgos = useCallback((): { card: SpotlightCard; morale: number } | null => {
+    // Compute synchronously from current state (a setState updater would run too
+    // late to report the morale hit back to the caller this tick).
+    const next = { ...egoState };
+    let hit: { card: SpotlightCard; morale: number } | null = null;
+    for (const card of spotlights) {
+      const cur = next[card.sourceId] ?? initialPlayerState();
+      if (usedSpotlightIds.has(card.id)) {
+        next[card.sourceId] = registerUse(cur);
+      } else {
+        const res = registerNeglect(cur, card);
+        next[card.sourceId] = res.state;
+        if (res.moraleHit && !hit) hit = { card, morale: res.state.morale };
+      }
+    }
+    setEgoState(next);
+    return hit;
+  }, [egoState, spotlights, usedSpotlightIds]);
 
   const nextPlay = useCallback(() => {
     if (!snap) return;
     const { resolution, touchdown, firstDown } = snap;
+    const driveEnded =
+      resolution.turnover || touchdown || (!firstDown && series.down >= 4);
 
-    if (resolution.turnover) {
+    if (driveEnded) {
+      const hit = settleDriveEgos();
+      if (touchdown) setScore((s) => s + 7);
       setSeries(INITIAL_SERIES);
-    } else if (touchdown) {
-      setScore((s) => s + 7);
-      setSeries(INITIAL_SERIES);
+      setSpotlights(generateSpotlights(sources, rngRef.current, SPOTLIGHTS_PER_DRIVE));
+      setUsedSpotlightIds(new Set());
+      if (hit) setMoment(hit);
     } else {
       const newBallOn = Math.min(99, series.ballOn + resolution.yards);
       if (firstDown) {
         setSeries({ ballOn: newBallOn, down: 1, yardsToGo: Math.min(10, 100 - newBallOn) });
-      } else if (series.down >= 4) {
-        // Turnover on downs — sandbox just resets the drive.
-        setSeries(INITIAL_SERIES);
       } else {
         setSeries({
           ballOn: newBallOn,
@@ -152,7 +218,7 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
     setSnap(null);
     setDefenseVerb(null);
     setBeat('READ');
-  }, [snap, series]);
+  }, [snap, series, settleDriveEgos, sources]);
 
   return (
     <div className="relative mx-auto flex h-screen max-w-md flex-col bg-gray-950 text-white">
@@ -167,7 +233,11 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
         bite={biteMeter}
         redZone={redZone}
         canCommit={beat === 'READ'}
-        onCommit={commit}
+        onCommit={(verb) => commit(verb)}
+        spotlights={spotlights}
+        egoState={egoState}
+        usedSpotlightIds={usedSpotlightIds}
+        onCommitSpotlight={(card) => commit(card.verb, card)}
         onBack={onBack}
       />
 
@@ -198,7 +268,16 @@ export const VerbLoop: React.FC<VerbLoopProps> = ({ onBack }) => {
           biteAfter={snap.biteAfter}
           flavorRoll={snap.flavorRoll}
           concretePlayName={snap.concretePlayName}
+          spotlightName={snap.spotlightName}
           onContinue={nextPlay}
+        />
+      )}
+
+      {moment && (
+        <SpotlightMoment
+          card={moment.card}
+          morale={moment.morale}
+          onDismiss={() => setMoment(null)}
         />
       )}
     </div>
@@ -221,6 +300,10 @@ interface ReadBoardProps {
   redZone: boolean;
   canCommit: boolean;
   onCommit: (verb: OffenseVerb) => void;
+  spotlights: SpotlightCard[];
+  egoState: Record<string, SpotlightPlayerState>;
+  usedSpotlightIds: Set<string>;
+  onCommitSpotlight: (card: SpotlightCard) => void;
   onBack?: () => void;
 }
 
@@ -236,6 +319,10 @@ const ReadBoard: React.FC<ReadBoardProps> = ({
   redZone,
   canCommit,
   onCommit,
+  spotlights,
+  egoState,
+  usedSpotlightIds,
+  onCommitSpotlight,
   onBack,
 }) => {
   const hot = isBiteHot(bite);
@@ -328,6 +415,27 @@ const ReadBoard: React.FC<ReadBoardProps> = ({
 
         <BiteMeter bite={bite} hot={hot} />
       </div>
+
+      {/* Spotlight rail — 1-2 rotating ego cards. */}
+      {spotlights.length > 0 && (
+        <div className="border-t border-gray-800 bg-gray-900 px-3 pt-2">
+          <div className="mb-1 text-center text-[9px] uppercase tracking-widest text-gray-600">
+            ⭐ Spotlight — feed the ego
+          </div>
+          <div className="flex gap-2">
+            {spotlights.map((card) => (
+              <SpotlightCardView
+                key={card.id}
+                card={card}
+                playerState={egoState[card.sourceId] ?? initialPlayerState()}
+                used={usedSpotlightIds.has(card.id)}
+                disabled={!canCommit}
+                onCommit={() => onCommitSpotlight(card)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* COMMIT rail — 4 intent verbs. */}
       <div className="border-t border-gray-800 bg-gray-900 p-3">
