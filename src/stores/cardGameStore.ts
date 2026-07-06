@@ -56,6 +56,13 @@ import type {
 } from '../types/card.types';
 import type { Deck, Hand, GameDeckState } from '../types/deck.types';
 import type { Roster } from '../types/player.types';
+import type { OffenseVerb } from '../data/verbs';
+import {
+  BITE_CONFIG,
+  applyVerbToBite,
+  decayBite as decayBiteValue,
+  isBiteHot as isBiteHotValue,
+} from '../data/verbs';
 import {
   resolveOffensivePlay,
   resolveFourthDown,
@@ -216,6 +223,9 @@ export interface CardGameState {
   offensiveMomentum: number;
   defensiveMomentum: number;
   momentumTracker: Momentum;
+
+  // === Bite Meter (0-100) — play-action loading gauge (see verbs.ts / §5) ===
+  biteMeter: number;
 
   // === Tendencies ===
   playerTendencies: Tendencies;
@@ -422,6 +432,18 @@ interface CardGameActions {
   depleteDefensiveMomentum: (amount: number) => void;
   applyMomentumEvent: (event: keyof typeof MOMENTUM_RULES, forPlayer: boolean) => void;
 
+  // === Bite Meter (play-action gauge) ===
+  /** Nudge the Bite meter by a raw delta (clamped 0-100). */
+  adjustBite: (delta: number) => void;
+  /** Apply the chosen verb's effect on the Bite meter (§5). */
+  applyVerbBite: (verb: OffenseVerb) => void;
+  /** Passive per-snap Bite decay. */
+  decayBite: () => void;
+  /** Reset the Bite meter to its starting value. */
+  resetBite: () => void;
+  /** True when the defense is biting hot enough for the pass-verb 🔥 bonus. */
+  isBiteHot: () => boolean;
+
   // === Hand Management ===
   drawCard: (type: 'OFFENSIVE' | 'DEFENSIVE' | 'DIRTY', forPlayer?: boolean) => Card | null;
   playCard: (cardId: string, forPlayer?: boolean) => void;
@@ -491,6 +513,7 @@ const initialState: CardGameState = {
   offensiveMomentum: MOMENTUM_CONFIG.STARTING,
   defensiveMomentum: MOMENTUM_CONFIG.STARTING,
   momentumTracker: createInitialMomentum(),
+  biteMeter: BITE_CONFIG.START,
   playerTendencies: createInitialTendencies(),
   opponentTendencies: createInitialTendencies(),
   playerDeck: null,
@@ -561,6 +584,7 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       offensiveMomentum: MOMENTUM_CONFIG.STARTING,
       defensiveMomentum: MOMENTUM_CONFIG.STARTING,
       momentumTracker: createInitialMomentum(),
+      biteMeter: BITE_CONFIG.START,
       playerTendencies: createInitialTendencies(),
       opponentTendencies: createInitialTendencies(),
       playerDeck: playerDeckState,
@@ -1311,6 +1335,28 @@ export const useCardGameStore = create<CardGameState & CardGameActions>((set, ge
       }
     }
   },
+
+  // =========================================================================
+  // BITE METER (play-action gauge, see verbs.ts / §5)
+  // =========================================================================
+
+  adjustBite: (delta) => {
+    set((state) => ({
+      biteMeter: Math.max(BITE_CONFIG.MIN, Math.min(BITE_CONFIG.MAX, state.biteMeter + delta)),
+    }));
+  },
+
+  applyVerbBite: (verb) => {
+    set((state) => ({ biteMeter: applyVerbToBite(state.biteMeter, verb) }));
+  },
+
+  decayBite: () => {
+    set((state) => ({ biteMeter: decayBiteValue(state.biteMeter) }));
+  },
+
+  resetBite: () => set({ biteMeter: BITE_CONFIG.START }),
+
+  isBiteHot: () => isBiteHotValue(get().biteMeter),
 
   // =========================================================================
   // HAND MANAGEMENT
